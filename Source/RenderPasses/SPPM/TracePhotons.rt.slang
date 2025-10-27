@@ -1,14 +1,20 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
+// Use a local LoadShadingData to avoid depending on PathTracer static params
+
+#ifndef USE_EMISSIVE_LIGHTS
+#define USE_EMISSIVE_LIGHTS 0
+#endif
 
 import Scene.Raytracing;
+// import Scene.Intersection; // Not needed when using inline ray queries for the query AS
 import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
 import Rendering.Lights.EmissiveLightSampler;
 import Rendering.Lights.EmissiveLightSamplerHelpers;
-import StructsAndHelpers;
+import PhotonQuery;
 
 cbuffer CB
 {
@@ -19,27 +25,41 @@ cbuffer CB
     uint gDispatchDimension;    //Dispatch dims (x,y identical) 
     float gGlobalRejectionProb; //Rejection Probability for global photons
     bool gUseAnalyticLights;    //true if analytic lights should be used
-    uint _pad;    
+    uint _pad;
+
+    // Query accumulation controls
+    uint gQueryCount;
+    float gAccumScale; // fixed-point scale for atomic accumulation
+    uint gDebugFlags; // bit 0: doubleDir, bit 1: largeTMax, bit 2: sixAxisProbe
+    uint _pad2;
 }
 
-#if USE_EMISSIVE_LIGHT // Buffer is only valid if emissive light is enabled
+#if USE_EMISSIVE_LIGHTS // Buffer is only valid if emissive light is enabled
 cbuffer Light {
     EmissiveLightSampler gEmissiveSampler;
 }
 #endif
 
-RWStructuredBuffer<AABB> gPhotonAABB[2];
-RWStructuredBuffer<PhotonData> gPhotonData[2];
-RWStructuredBuffer<uint> gPhotonCounter;
+// Removed legacy photon storage buffers; we accumulate directly onto queries
+
+// Query AS and buffers
+RaytracingAccelerationStructure gQueryAS;
+RWStructuredBuffer<PhotonQuery> gPhotonQueries;
+RWStructuredBuffer<uint4> gQueryAccumulation;
+// gDebugCounters indices:
+// [0]=photons considered for accumulation, [1]=AABB candidates seen, [2]=accumulations performed,
+// [3]=emitted photons, [4]=total bounces (sum over all photons)
+RWStructuredBuffer<uint> gDebugCounters;
 
 static const bool kAlphaTest = true;
-static const uint2 kPhotonBufferSize = uint2(PHOTON_BUFFER_SIZE_GLOBAL, PHOTON_BUFFER_SIZE_CAUSTIC);
-static const float kRoughnessThreshold = ROUGHNESS_THRESHOLD;
+static const float kRoughnessThreshold = 0.05f;
 static const bool kRussianRoulette = true;  //TODO as option
 
 struct RayPayload
 {
     PackedHitInfo packedHitInfo; //< Hit Info
+    float3 photonFlux; float _pad0;
+    float3 wi; float _pad1;
 
     /** Create ray payload with default parameters.
      */
@@ -48,6 +68,51 @@ struct RayPayload
         this.packedHitInfo = {};
     }
 }
+
+// Minimal local implementation to setup ShadingData from a HitInfo
+ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const float3 rayDir)
+{
+    VertexData v = {};
+    uint materialID = {};
+
+#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_TRIANGLE_MESH)
+    if (hit.getType() == HitType::Triangle)
+    {
+        const TriangleHit triangleHit = hit.getTriangleHit();
+        v = gScene.getVertexData(triangleHit);
+        materialID = gScene.getMaterialID(triangleHit.instanceID);
+    }
+#endif
+#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_DISPLACED_TRIANGLE_MESH)
+    if (hit.getType() == HitType::DisplacedTriangle)
+    {
+        const DisplacedTriangleHit displacedTriangleHit = hit.getDisplacedTriangleHit();
+        v = gScene.getVertexData(displacedTriangleHit, -rayDir);
+        materialID = gScene.getMaterialID(displacedTriangleHit.instanceID);
+    }
+#endif
+#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_CURVE)
+    if (hit.getType() == HitType::Curve)
+    {
+        const CurveHit curveHit = hit.getCurveHit();
+        v = gScene.getVertexDataFromCurve(curveHit);
+        materialID = gScene.getMaterialID(curveHit.instanceID);
+    }
+#endif
+#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
+    if (hit.getType() == HitType::SDFGrid)
+    {
+        const SDFGridHit sdfGridHit = hit.getSDFGridHit();
+        v = gScene.getVertexDataFromSDFGrid(sdfGridHit, rayOrigin, rayDir);
+        materialID = gScene.getMaterialID(sdfGridHit.instanceID);
+    }
+#endif
+
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir);
+    return sd;
+}
+
+// Inline ray query accumulation over query AABBs will be used instead of any-hit shaders.
 
 //Helper struct to generate a photon form the lightSources
 struct PhotonLightSample {
@@ -70,7 +135,7 @@ float3 fromLocalToWorld(const in float3 normal, float3 w)
     return w.x * tangent + w.y * bitangent + w.z * normal;
 }
 
-#if USE_EMISSIVE_LIGHT // Function is only valid if the emissive sampler is set
+#if USE_EMISSIVE_LIGHTS // Function is only valid if the emissive sampler is set
 /*  Creates a photon light sample from emissive triangles weighted by emissive power
     \param[in/out] Random Number Generator
     \param[out] Photon light sample
@@ -211,7 +276,7 @@ void rayGen()
     PhotonLightSample pls;
 
     // Create a photon by sampling from emissive lights or analytic light sources
-#if USE_EMISSIVE_LIGHT
+#if USE_EMISSIVE_LIGHTS
     if (gUseAnalyticLights)
 #endif
     { // Analytic light sample
@@ -221,7 +286,7 @@ void rayGen()
 
         ray.Direction = sampleDir;
     }
-#if USE_EMISSIVE_LIGHT
+#if USE_EMISSIVE_LIGHTS
     else { // Emissive light sample
         if (!createLightSample(sg, pls))
             return;
@@ -237,6 +302,9 @@ void rayGen()
     }
 #endif
 
+    // Count emitted photons (successful light sampling)
+    InterlockedAdd(gDebugCounters[3], 1);
+
     pls.flux /= dispatchDims.x * dispatchDims.y; // Division through all dipatched photons
     
     // Prepare the rest of the ray
@@ -249,12 +317,7 @@ void rayGen()
     bool reflectedDiffuse = false;
     float3 photonStartFlux = pls.flux;
     float3 thp = float3(1.0); //Throughput
-
-    // Prepare photon
-    PhotonData photon = PhotonData();
-    photon.flux = photonStartFlux;
-    photon.dir = -ray.Direction;
-    photon.normalW = pls.normal;
+    float3 photonFlux = photonStartFlux;
 
     // Main Raytrace Loop
     for (uint i = 0; i < gMaxBounces; i++) {
@@ -268,31 +331,71 @@ void rayGen()
         // Get shading infos and material properties
         let lod = ExplicitLodTextureSampler(0);
         uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
-        ShadingData sd = loadShadingData(hit, ray.Direction, lod);
+        ShadingData sd = loadShadingData(hit, ray.Origin, ray.Direction);
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
 
+        // Count a bounce whenever we hit something and proceed to sample BSDF.
+        InterlockedAdd(gDebugCounters[4], 1);
+
         // Store Photon if a diffuse surface was hit
-        photon.normalW = sd.getOrientedFaceNormal();
         reflectedDiffuse = bsdfProperties.roughness > kRoughnessThreshold;
-        if (reflectedDiffuse) {
-            PhotonType photonType = storeAsCaustic ? PhotonType::Caustic : PhotonType::Global;
-            // Global photons can be rejected. The flux of the stored ones should be increased by the inverse of the rejection probability
-            bool storePhoton = true;
-            if (photonType == PhotonType::Global) {
-                storePhoton = sampleNext1D(sg) <= gGlobalRejectionProb;
-                photon.flux *= invRejection;
+        if (reflectedDiffuse)
+        {
+            // Optionally reject some photons to reduce contention, scale flux accordingly
+            bool keep = true;
+            float3 storeFlux = photonFlux;
+            if (!storeAsCaustic) // Treat as global
+            {
+                keep = sampleNext1D(sg) <= gGlobalRejectionProb;
+                storeFlux *= invRejection;
             }
-            // Insert photon into buffer using a counter with interlocked add
-            if (storePhoton) {
-                uint photonTypeIdx = (uint)photonType;
-                uint photonInsertIndex = 0;
-                InterlockedAdd(gPhotonCounter[photonTypeIdx], 1u, photonInsertIndex);
-                if (photonInsertIndex <= kPhotonBufferSize[photonTypeIdx])
+            if (keep && gQueryCount > 0)
+            {
+                InterlockedAdd(gDebugCounters[0], 1);
+                // Inline ray query against gQueryAS to find overlapping AABBs and accumulate.
+                RayDesc qray;
+                qray.Origin = sd.posW;
+                qray.Direction = float3(1, 0, 0);
+                // Use a small positive TMin to avoid boundary/self-intersection issues.
+                qray.TMin = 1e-5;
+                // Use a generous TMax so the ray exits the AABB (starting at center); cover diameter.
+                qray.TMax = max(1e-3, 2.0 * gPhotonRadius.x);
+
+                // We skip closest hit shaders and triangles; only procedural AABBs are present.
+                RayQuery<RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES> rq;
+                rq.TraceRayInline(gQueryAS, RAY_FLAG_NONE, 0xff, qray);
+
+                while (rq.Proceed())
                 {
-                    AABB photonAABB = AABB(sd.posW - gPhotonRadius[photonTypeIdx], sd.posW + gPhotonRadius[photonTypeIdx]);
-                    gPhotonAABB[photonTypeIdx][photonInsertIndex] = photonAABB;
-                    gPhotonData[photonTypeIdx][photonInsertIndex] = photon;
+                    InterlockedAdd(gDebugCounters[1], 1);
+                    if (rq.CandidateType() == CANDIDATE_PROCEDURAL_PRIMITIVE)
+                    {
+                        uint qi = rq.CandidatePrimitiveIndex();
+                        if (qi < gQueryCount)
+                        {
+                            PhotonQuery q = gPhotonQueries[qi];
+                            if (q.valid != 0)
+                            {
+                                float NoL = max(0.f, dot(q.normal, normalize(-ray.Direction)));
+                                float3 f = q.diffuseReflectance * (M_1_PI) * NoL;
+                                float3 c = storeFlux * f;
+
+                                uint4 inc;
+                                inc.x = (uint)max(0.0, c.x * gAccumScale + 0.5);
+                                inc.y = (uint)max(0.0, c.y * gAccumScale + 0.5);
+                                inc.z = (uint)max(0.0, c.z * gAccumScale + 0.5);
+                                inc.w = 1u;
+
+                                InterlockedAdd(gDebugCounters[2], 1);
+                                InterlockedAdd(gQueryAccumulation[q.pixelIndex].x, inc.x);
+                                InterlockedAdd(gQueryAccumulation[q.pixelIndex].y, inc.y);
+                                InterlockedAdd(gQueryAccumulation[q.pixelIndex].z, inc.z);
+                                InterlockedAdd(gQueryAccumulation[q.pixelIndex].w, inc.w);
+                            }
+                        }
+                        // No need to commit the candidate; continue traversal to visit all overlaps.
+                    }
                 }
             }
         }
@@ -321,8 +424,6 @@ void rayGen()
 
         // Update Photon
         storeAsCaustic = !reflectedDiffuse;
-        photon.dir = -ray.Direction;
-        photon.flux = photonStartFlux * thp;
-        photon.pathLenght++;
+        photonFlux = photonStartFlux * thp;
     }
 }

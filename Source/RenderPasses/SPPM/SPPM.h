@@ -30,6 +30,10 @@
 #include "RenderGraph/RenderPass.h"
 #include "Utils/Sampling/SampleGenerator.h"
 #include "Rendering/Lights/EmissiveLightSampler.h"
+#include "Rendering/Lights/EmissivePowerSampler.h"
+#include "Core/API/RtAccelerationStructure.h"
+#include "Core/Pass/ComputePass.h"
+#include "Core/Pass/FullScreenPass.h"
 
 using namespace Falcor;
 
@@ -45,17 +49,21 @@ public:
 
     SPPM(ref<Device> pDevice, const Properties& props);
 
-    virtual Properties getProperties() const override;
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
-    virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
-    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
-    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
+    Properties getProperties() const override;
+    RenderPassReflection reflect(const CompileData& compileData) override;
+    void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    void renderUI(Gui::Widgets& widget) override;
+    void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
+    bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData,  bool analyticOnly,  bool buildAS);
+    void traceQueries(RenderContext* pRenderContext, const RenderData& renderData);
+    void buildQueryAcceleration(RenderContext* pRenderContext);
+    void resolveQueries(RenderContext* pRenderContext, const RenderData& renderData);
+    void tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool analyticOnly, bool buildAS);
+    void prepareLightingStructure(RenderContext* pRenderContext);
     
     ///// Internal state /////
 
@@ -64,11 +72,13 @@ private:
     /// GPU sample generator.
     ref<SampleGenerator> mpSampleGenerator;
 
-    std::unique_ptr<EmissiveLightSampler> mpEmissiveLightSampler; // Light Sampler
+    std::unique_ptr<EmissiveLightSampler> mpEmissiveLightSampler; // Emissive triangle light sampler
 
     uint mFrameCount = 0;
+    uint mDebugMode = 1; // 0: flux resolve, 1: query valid, 2: normals, 3: diffuse, 4: hit count
+    uint mPrevDebugMode = mDebugMode;
 
-    // Light
+    // Light state
     bool mHasLights = false;           // True if the scene has any light sources
     bool mHasAnalyticLights = false;   // True if there are analytic lights
     bool mMixedLights = false;         // True if analytic and emissive lights are in the scene
@@ -103,9 +113,43 @@ private:
             return r;
         }
 
-        void initProgramVars(ref<Device> pDevice, ref<Scene> pScene, ref<SampleGenerator> pSampleGenerator);
+    void initProgramVars(const ref<Device>& pDevice, const ref<Scene>& pScene, const ref<SampleGenerator>& pSampleGenerator);
+    };
+
+    struct ComputeProgramHelper
+    {
+        ref<ComputePass> pPass;
+
+        void dispatch(RenderContext* pRenderContext, uint3 dims)
+        {
+            FALCOR_ASSERT(pPass);
+            pPass->execute(pRenderContext, dims);
+        }
     };
 
     // Ray tracing program.
     RayTraceProgramHelper mTracePhotonPass;
+    RayTraceProgramHelper mTraceQueryPass;
+
+    ComputeProgramHelper mBuildQueryBoundsPass;
+    ComputeProgramHelper mResolveQueryPass; // deprecated path
+    ref<FullScreenPass> mpResolveFullScreen; // graphics path for resolve
+
+    ref<Texture> mpAccumulation;
+    ref<Buffer> mpQueryBuffer;
+    ref<Buffer> mpQueryAABBBuffer;
+    ref<Buffer> mpQueryAccumulator;
+    // Debug counters: [0]=photons considered for accumulation, [1]=AABB candidates seen, [2]=accumulations performed, [3]=reserved
+    ref<Buffer> mpDebugCounters;
+    ref<Buffer> mpDebugCountersReadback;
+    ref<Buffer> mpQueryInstanceBuffer;
+    ref<Buffer> mpQueryBlasStorage;
+    ref<Buffer> mpQueryBlasScratch;
+    ref<Buffer> mpQueryTlasStorage;
+    ref<Buffer> mpQueryTlasScratch;
+    ref<RtAccelerationStructure> mpQueryBLAS;
+    ref<RtAccelerationStructure> mpQueryTLAS;
+
+    uint2 mFrameDim = uint2(0);
+    uint mQueryCount = 0;
 };
