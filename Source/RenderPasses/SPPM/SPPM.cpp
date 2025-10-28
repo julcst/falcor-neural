@@ -9,7 +9,10 @@ namespace
     const std::string kShaderTracePhotons = kShaderFolder + "TracePhotons.rt.slang";
     const std::string kShaderTraceQueries = kShaderFolder + "TraceQueries.rt.slang";
     const std::string kShaderBuildQueryBounds = kShaderFolder + "BuildQueryBounds.cs.slang";
-    const std::string kShaderResolveQueries = kShaderFolder + "ResolveQueries.cs.slang";
+    const std::string kShaderIntersectPhotons = kShaderFolder + "IntersectPhotons.rt.slang";
+    const std::string kShaderBuildQueryGrid = kShaderFolder + "BuildQueryGrid.cs.slang";
+    const std::string kShaderAccumulateByGrid = kShaderFolder + "AccumulateByGrid.cs.slang";
+    const std::string kShaderResolvePS = kShaderFolder + "SPPMResolve.ps.slang";
     const std::string kOutputColor = "color";
 }
 
@@ -76,20 +79,24 @@ void SPPM::execute(RenderContext* pRenderContext, const RenderData& renderData)
     if (frameDim.x == 0 || frameDim.y == 0)
         return;
 
-    // Lazy allocation for accumulation texture.
-    if (!mpAccumulation || mpAccumulation->getWidth() != frameDim.x || mpAccumulation->getHeight() != frameDim.y)
+    // No separate accumulation render target is used here; the fullscreen resolve writes directly to the output.
+
+    // Allocate/clear debug counters before any pass uses them.
+    if (!mpDebugCounters)
     {
-        mpAccumulation = mpDevice->createTexture2D(
-            frameDim.x,
-            frameDim.y,
-            ResourceFormat::RGBA32Float,
-            1,
-            1,
+        mpDebugCounters = mpDevice->createStructuredBuffer(
+            /* structSize = */ 64u,   // sizeof(SPPMCounters)
+            /* elementCount = */ 1u,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
+            MemoryType::DeviceLocal,
             nullptr,
-            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+            false
         );
-        pRenderContext->clearUAV(mpAccumulation->getUAV().get(), float4(0.f));
+        mpDebugCounters->setName("SPPM Debug Counters");
     }
+    pRenderContext->clearUAV(mpDebugCounters->getUAV().get(), uint4(0));
+
+    logInfo("SPPM: photon radius = {}", mPhotonRadius.x);
 
     traceQueries(pRenderContext, renderData);
     logInfo("SPPM: traceQueries() done. mQueryCount={} frameDim={}x{}", mQueryCount, mFrameDim.x, mFrameDim.y);
@@ -128,9 +135,21 @@ void SPPM::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 
     if (mpQueryAccumulator)
-            pRenderContext->clearUAV(mpQueryAccumulator->getUAV().get(), uint4(0));
+        pRenderContext->clearUAV(mpQueryAccumulator->getUAV().get(), uint4(0));
 
     logInfo("SPPM: starting tracePhotonsPass()");
+    // Reset photon hit counter before tracing photons.
+    if (!mpPhotonHitCounter)
+    {
+        mpPhotonHitCounter = mpDevice->createStructuredBuffer(
+            sizeof(uint32_t), 1,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
+            MemoryType::DeviceLocal, nullptr, false);
+        mpPhotonHitCounter->setName("SPPM PhotonHit Counter");
+    }
+    // Clear to zero
+    pRenderContext->clearUAV(mpPhotonHitCounter->getUAV().get(), uint4(0));
+
     if (mMixedLights)
     {
         // Dispatch emissive photons first (analyticOnly=false), then analytic photons (analyticOnly=true)
@@ -145,11 +164,115 @@ void SPPM::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
     logInfo("SPPM: tracePhotonsPass() done");
 
+    // Ensure photon hit data is visible before readback/intersect pass.
+    if (mpPhotonHitCounter) pRenderContext->uavBarrier(mpPhotonHitCounter.get());
+    if (mpPhotonHits) pRenderContext->uavBarrier(mpPhotonHits.get());
+
+    // Read back photon hit count.
+    uint photonHitCount = 0;
+    if (mpPhotonHitCounter)
+    {
+        if (!mpPhotonHitCounterReadback || mpPhotonHitCounterReadback->getSize() < sizeof(uint32_t))
+        {
+            mpPhotonHitCounterReadback = mpDevice->createBuffer(sizeof(uint32_t), ResourceBindFlags::None, MemoryType::ReadBack);
+            mpPhotonHitCounterReadback->setName("SPPM PhotonHit Counter Readback");
+        }
+        pRenderContext->copyBufferRegion(mpPhotonHitCounterReadback.get(), 0, mpPhotonHitCounter.get(), 0, sizeof(uint32_t));
+        pRenderContext->submit(true);
+        const uint32_t* pCount = reinterpret_cast<const uint32_t*>(mpPhotonHitCounterReadback->map());
+        if (pCount)
+        {
+            photonHitCount = *pCount;
+            mpPhotonHitCounterReadback->unmap();
+        }
+        // Clamp to capacity if we overflowed.
+        if (mpPhotonHits)
+        {
+            uint32_t capacity = (uint32_t)mpPhotonHits->getElementCount();
+            if (photonHitCount > capacity)
+            {
+                logWarning("SPPM: photonHitCount {} exceeds capacity {}. Clamping.", photonHitCount, capacity);
+                photonHitCount = capacity;
+            }
+        }
+        logInfo("SPPM: photonHitCount={}", photonHitCount);
+    }
+
+    if (photonHitCount > 0)
+    {
+        if (mUseRTXAccumulation)
+        {
+            // RTX any-hit accumulation path for comparison
+            intersectPhotonsPass(pRenderContext, photonHitCount);
+        }
+        else
+        {
+            // Build a 3D uniform grid over queries and accumulate photon contributions via neighbor search.
+            buildQueryGrid(pRenderContext);
+            // Ensure grid heads/next are visible before accumulation
+            if (mpGridHeads) pRenderContext->uavBarrier(mpGridHeads.get());
+            if (mpGridNext) pRenderContext->uavBarrier(mpGridNext.get());
+            accumulateByGrid(pRenderContext, photonHitCount);
+        }
+        // Ensure debug counters are visible before readback/resolve
+        if (mpDebugCounters) pRenderContext->uavBarrier(mpDebugCounters.get());
+        if (mpQueryAccumulator) pRenderContext->uavBarrier(mpQueryAccumulator.get());
+    }
+
     // Insert a UAV barrier to ensure preceding raytracing writes (atomics) are visible before resolve.
     if (mpQueryAccumulator) pRenderContext->uavBarrier(mpQueryAccumulator.get());
     if (mpQueryBuffer) pRenderContext->uavBarrier(mpQueryBuffer.get());
-    if (mpAccumulation) pRenderContext->uavBarrier(mpAccumulation.get());
+    // (no mpAccumulation)
     if (mpDebugCounters) pRenderContext->uavBarrier(mpDebugCounters.get());
+
+    // Debug: sample and validate a slice of the accumulation buffer before resolve.
+    // This helps detect binding/visibility issues when the resolve shows black.
+    if (mpQueryAccumulator && mQueryCount > 0)
+    {
+        static ref<Buffer> sAccumReadback;
+        // Read back up to 1024 entries to keep it cheap.
+        const uint64_t maxSample = std::min<uint64_t>(mQueryCount, 1024);
+        const uint64_t bytes = maxSample * sizeof(uint4);
+        if (!sAccumReadback || sAccumReadback->getSize() < bytes)
+        {
+            sAccumReadback = mpDevice->createBuffer(bytes, ResourceBindFlags::None, MemoryType::ReadBack);
+            sAccumReadback->setName("SPPM Accum Readback");
+        }
+        // Ensure all atomics to gQueryAccumulation are visible, then copy a slice.
+        pRenderContext->uavBarrier(mpQueryAccumulator.get());
+        pRenderContext->copyBufferRegion(sAccumReadback.get(), 0, mpQueryAccumulator.get(), 0, bytes);
+        pRenderContext->submit(true);
+
+        const uint4* acc = reinterpret_cast<const uint4*>(sAccumReadback->map());
+        if (acc)
+        {
+            uint nonZeroW = 0;
+            uint firstIdx = UINT32_MAX;
+            uint4 firstVal = uint4(0);
+            uint maxW = 0;
+            uint maxIdx = 0;
+            for (uint i = 0; i < (uint)maxSample; ++i)
+            {
+                uint w = acc[i].w;
+                if (w > 0)
+                {
+                    ++nonZeroW;
+                    if (firstIdx == UINT32_MAX) { firstIdx = i; firstVal = acc[i]; }
+                    if (w > maxW) { maxW = w; maxIdx = i; }
+                }
+            }
+            if (firstIdx != UINT32_MAX)
+            {
+                logInfo("SPPM AccumCheck: sampled={} of {}, nonZeroW={} (first idx {} -> {{x:{}, y:{}, z:{}, w:{}}}, maxW at {} -> {})",
+                        (uint)maxSample, mQueryCount, nonZeroW, firstIdx, firstVal.x, firstVal.y, firstVal.z, firstVal.w, maxIdx, maxW);
+            }
+            else
+            {
+                logWarning("SPPM AccumCheck: sampled={} of {}, all zeros in acc.w", (uint)maxSample, mQueryCount);
+            }
+            sAccumReadback->unmap();
+        }
+    }
     // Resolve using a fullscreen graphics pass to avoid compute pipeline issues on this platform.
     logInfo("SPPM: starting resolveQueries() [FS]");
     // Read back debug counters and log (useful when output is black)
@@ -162,15 +285,16 @@ void SPPM::execute(RenderContext* pRenderContext, const RenderData& renderData)
         }
         pRenderContext->copyBufferRegion(mpDebugCountersReadback.get(), 0, mpDebugCounters.get(), 0, mpDebugCounters->getSize());
         pRenderContext->submit(true);
-        const uint32_t* counters = reinterpret_cast<const uint32_t*>(mpDebugCountersReadback->map());
+        const SPPMCounters* counters = reinterpret_cast<const SPPMCounters*>(mpDebugCountersReadback->map());
         if (counters)
         {
-            uint32_t considered = counters[0];
-            uint32_t candidates = counters[1];
-            uint32_t accumulations = counters[2];
-            uint32_t emitted = counters[3];
-            uint32_t totalBounces = counters[4];
-            logInfo("SPPM Debug: emitted={} considered={} candidates={} accumulations={} totalBounces={}", emitted, considered, candidates, accumulations, totalBounces);
+            // Snapshot for UI
+            mLastCounters = *counters;
+            logInfo(
+                "SPPM Debug: emitted={} considered={} candidates={} accumulations={} totalBounces={} intersectRaygen={} intersectorCalls={} validQueries={} gridNonEmptyCells={} binnedQueries={} photonStores={}",
+                counters->PhotonsEmitted, counters->PhotonsConsidered, counters->Candidates, counters->Accumulations, counters->TotalBounces,
+                counters->IntersectRaygen, counters->IntersectorCalls, counters->ValidQueries, counters->GridNonEmptyCells, counters->GridBinnedQueries, counters->PhotonStores
+            );
             mpDebugCountersReadback->unmap();
         }
     }
@@ -189,12 +313,28 @@ void SPPM::renderUI(Gui::Widgets& widget)
         {2, "Query Normals"},
         {3, "Query Diffuse"},
         {4, "Hit Count Heatmap"},
-        {5, "Debug Counters (RGB)"}
+        {5, "Was Hit"},
     };
     uint mode = mDebugMode;
     if (widget.dropdown("Debug Mode", modes, mode)) mDebugMode = mode;
 
     widget.slider("Photon Radius", mPhotonRadius.x, 0.001f, 0.1f);
+
+    widget.checkbox("Use RTX Accumulation (compare)", mUseRTXAccumulation);
+
+    // Show counters in UI (snapshot from last frame)
+    widget.text("Counters (last frame):");
+    widget.indent(16.0f);
+    widget.text(fmt::format("emitted:\t{}", mLastCounters.PhotonsEmitted));
+    widget.text(fmt::format("considered:\t{}", mLastCounters.PhotonsConsidered));
+    widget.text(fmt::format("candidates:\t{}", mLastCounters.Candidates));
+    widget.text(fmt::format("accum:\t\t{}", mLastCounters.Accumulations));
+    widget.text(fmt::format("bounces:\t{}", mLastCounters.TotalBounces));
+    widget.text(fmt::format("validQ:\t\t{}", mLastCounters.ValidQueries));
+    widget.text(fmt::format("grid cells:\t{}", mLastCounters.GridNonEmptyCells));
+    widget.text(fmt::format("binned Q:\t{}", mLastCounters.GridBinnedQueries));
+    widget.text(fmt::format("stores:\t\t{}", mLastCounters.PhotonStores));
+    widget.indent(-16.0f);
 }
 
 void SPPM::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) {
@@ -310,9 +450,11 @@ void SPPM::traceQueries(RenderContext* pRenderContext, const RenderData& renderD
     // Bind constants and UAVs.
     qVar["CB"]["gFrameDim"] = mFrameDim;
     qVar["CB"]["gFrameIndex"] = mFrameCount;
-    qVar["CB"]["gQueryRadius"] = mPhotonRadius.x;
+    float queryRadius = (mDebugMode >= 4) ? (mPhotonRadius.x * 10.f) : mPhotonRadius.x;
+    qVar["CB"]["gQueryRadius"] = queryRadius;
     qVar["gPhotonQueries"] = mpQueryBuffer;
     qVar["gQueryAABBs"] = mpQueryAABBBuffer;
+    if (mpDebugCounters) qVar["gCounters"] = mpDebugCounters;
 
     mpScene->raytrace(pRenderContext, mTraceQueryPass.pProgram.get(), mTraceQueryPass.pVars, uint3(mFrameDim.x, mFrameDim.y, 1));
 }
@@ -379,8 +521,10 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     instanceDesc.transform[2][0] = 0.0f; instanceDesc.transform[2][1] = 0.0f; instanceDesc.transform[2][2] = 1.0f; instanceDesc.transform[2][3] = 0.0f;
     instanceDesc.instanceID = 0;
     instanceDesc.instanceMask = 0xFF;
-    instanceDesc.instanceContributionToHitGroupIndex = mpScene ? mpScene->getGeometryCount() : 0;
-    instanceDesc.flags = RtGeometryInstanceFlags::ForceOpaque;
+    // For a separate accumulation RT pass using a dummy SBT (geometryCount=1), use zero contribution index.
+    instanceDesc.instanceContributionToHitGroupIndex = 0;
+    // Allow any-hit invocation on procedural queries by not forcing opaque.
+    instanceDesc.flags = RtGeometryInstanceFlags::None;
     instanceDesc.accelerationStructure = mpQueryBLAS->getGpuAddress();
 
     if (!mpQueryInstanceBuffer)
@@ -430,7 +574,7 @@ void SPPM::resolveQueries(RenderContext* pRenderContext, const RenderData& rende
     if (!mpResolveFullScreen)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary("RenderPasses/SPPM/ResolveQueries.ps.slang");
+        desc.addShaderLibrary(kShaderResolvePS);
         desc.psEntry("psMain");
         mpResolveFullScreen = FullScreenPass::create(mpDevice, desc);
     }
@@ -440,9 +584,8 @@ void SPPM::resolveQueries(RenderContext* pRenderContext, const RenderData& rende
     var["CB"]["gFrameIndex"] = mFrameCount;
     var["CB"]["gDebugMode"] = mDebugMode;
     var["CB"]["gAccumScale"] = 65536.0f;
-    var["gQueryAccumulationBuf"] = mpQueryAccumulator;
+    var["gQueryAccumulation"] = mpQueryAccumulator;
     var["gPhotonQueries"] = mpQueryBuffer;
-    if (mpDebugCounters) var["gDebugCounters"] = mpDebugCounters;
 
     // Draw to output
     std::vector<ref<Texture>> colors = { pOutput };
@@ -501,29 +644,9 @@ void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& ren
     auto var = mTracePhotonPass.pVars->getRootVar();
 
     var["CB"]["gQueryCount"] = mQueryCount;
-    if (mpQueryTLAS)
-        var["gQueryAS"].setAccelerationStructure(mpQueryTLAS);
-    if (mpQueryBuffer)
-        var["gPhotonQueries"] = mpQueryBuffer;
-    if (mpQueryAccumulator)
-        var["gQueryAccumulation"] = mpQueryAccumulator;
 
-    // Allocate/clear debug counters and bind.
-    if (!mpDebugCounters)
-    {
-        mpDebugCounters = mpDevice->createStructuredBuffer(
-            /* structSize = */ sizeof(uint32_t),
-            /* elementCount = */ 8,
-            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
-            MemoryType::DeviceLocal,
-            nullptr,
-            false
-        );
-        mpDebugCounters->setName("SPPM Debug Counters");
-    }
-    // Clear counters each frame.
-    pRenderContext->clearUAV(mpDebugCounters->getUAV().get(), uint4(0));
-    var["gDebugCounters"] = mpDebugCounters;
+    // Bind debug counters (cleared once per frame in execute())
+    if (mpDebugCounters) var["gCounters"] = mpDebugCounters;
 
     // Handle shader dimension
     uint dispatchedPhotons = mNumDispatchedPhotons;
@@ -551,6 +674,22 @@ void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& ren
     // In debug (>=4), probe in more directions and with long TMax
     uint debugFlags = (mDebugMode >= 4) ? (0x1u | 0x2u | 0x4u) : 0u;
     var["CB"]["gDebugFlags"] = debugFlags;
+
+    // Allocate/resize photon hit buffer and bind outputs
+    if (!mpPhotonHits || mpPhotonHits->getElementCount() < actualPhotons)
+    {
+        // Use reflection to allocate with correct stride for PhotonHit.
+        mpPhotonHits = mpDevice->createStructuredBuffer(
+            var["gPhotonHits"].getType(),
+            /* elementCount */ actualPhotons,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
+            MemoryType::DeviceLocal, nullptr, false);
+        mpPhotonHits->setName("SPPM PhotonHits");
+    }
+    var["gPhotonHits"] = mpPhotonHits;
+    var["CB"]["gPhotonHitCapacity"] = (uint32_t)mpPhotonHits->getElementCount();
+    if (mpPhotonHitCounter)
+        var["gPhotonHitCounter"] = mpPhotonHitCounter;
 
     // Structures
     if (mpEmissiveLightSampler)
@@ -612,4 +751,162 @@ void SPPM::RayTraceProgramHelper::initProgramVars(const ref<Device>& pDevice, co
     // Bind utility classes into shared data.
     auto var = pVars->getRootVar();
     pSampleGenerator->bindShaderData(var);
+}
+
+void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCount)
+{
+    FALCOR_PROFILE(pRenderContext, "IntersectPhotons");
+
+    if (photonHitCount == 0 || !mpQueryTLAS || !mpQueryBuffer || !mpQueryAccumulator || !mpPhotonHits)
+        return;
+
+    if (!mIntersectPass.pProgram)
+    {
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kShaderIntersectPhotons);
+        desc.setMaxPayloadSize(sizeof(uint32_t));
+        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
+        desc.setMaxTraceRecursionDepth(1);
+
+        // Create a dummy SBT with geometryCount=1 for our custom TLAS.
+        mIntersectPass.pBindingTable = RtBindingTable::create(1, 1, 1);
+        auto& sbt = mIntersectPass.pBindingTable;
+        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+        sbt->setMiss(0, desc.addMiss("miss"));
+
+        // Hit group for procedural queries: anyhit + intersection.
+    auto hg = desc.addHitGroup("queryClosestHit", "queryAnyHit", "queryIntersection");
+        sbt->setHitGroup(0, 0u, hg);
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        mIntersectPass.pProgram = Program::create(mpDevice, desc, defines);
+    }
+
+    if (!mIntersectPass.pVars)
+        mIntersectPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+
+    auto var = mIntersectPass.pVars->getRootVar();
+    var["CB"]["gQueryCount"] = mQueryCount;
+    var["CB"]["gAccumScale"] = 65536.0f;
+    var["CB"]["gFirstPhoton"] = 0u;
+    var["CB"]["gPhotonCount"] = photonHitCount;
+
+    var["gQueryAS"].setAccelerationStructure(mpQueryTLAS);
+    var["gPhotonQueries"] = mpQueryBuffer;
+    var["gQueryAccumulation"] = mpQueryAccumulator;
+    var["gPhotonHits"] = mpPhotonHits;
+    if (mpDebugCounters) var["gCounters"] = mpDebugCounters;
+
+    // Dispatch one ray per photon hit.
+    mpScene->raytrace(pRenderContext, mIntersectPass.pProgram.get(), mIntersectPass.pVars, uint3(photonHitCount, 1, 1));
+}
+
+void SPPM::buildQueryGrid(RenderContext* pRenderContext)
+{
+    FALCOR_PROFILE(pRenderContext, "BuildQueryGrid");
+    if (!mpQueryBuffer || mQueryCount == 0) return;
+
+    // Derive grid from scene bounds and query radius.
+    const AABB& sceneBB = mpScene->getSceneBounds();
+    float3 minP = sceneBB.minPoint;
+    float3 maxP = sceneBB.maxPoint;
+    float3 extent = maxP - minP;
+    float radius = mPhotonRadius.x;
+    // Ensure non-zero cell size.
+    mCellSize = std::max(radius, 1e-3f);
+    // Aim for ~64 cells along the longest axis, clamped.
+    uint maxAxis = 0; float maxLen = extent.x;
+    if (extent.y > maxLen) { maxLen = extent.y; maxAxis = 1; }
+    if (extent.z > maxLen) { maxLen = extent.z; maxAxis = 2; }
+    float targetCells = std::clamp(maxLen / mCellSize, 16.0f, 128.0f);
+    mCellSize = std::max(maxLen / targetCells, radius);
+
+    mGridMin = minP;
+    uint3 dim;
+    dim.x = std::max(1u, (uint)std::ceil(extent.x / mCellSize));
+    dim.y = std::max(1u, (uint)std::ceil(extent.y / mCellSize));
+    dim.z = std::max(1u, (uint)std::ceil(extent.z / mCellSize));
+    // Clamp to avoid runaway memory.
+    dim.x = std::min(dim.x, 512u);
+    dim.y = std::min(dim.y, 512u);
+    dim.z = std::min(dim.z, 512u);
+    mGridDim = dim;
+
+    const uint64_t cellCount = (uint64_t)mGridDim.x * mGridDim.y * mGridDim.z;
+
+    // Allocate/resize buffers
+    if (!mpGridHeads || mpGridHeads->getElementCount() != cellCount)
+    {
+        mpGridHeads = mpDevice->createStructuredBuffer(sizeof(int32_t), (uint32_t)cellCount,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, MemoryType::DeviceLocal, nullptr, false);
+        mpGridHeads->setName("SPPM Grid Heads");
+    }
+    if (!mpGridNext || mpGridNext->getElementCount() != mQueryCount)
+    {
+        mpGridNext = mpDevice->createStructuredBuffer(sizeof(int32_t), mQueryCount,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource, MemoryType::DeviceLocal, nullptr, false);
+        mpGridNext->setName("SPPM Grid Next");
+    }
+
+    // Clear grid heads to -1
+    pRenderContext->clearUAV(mpGridHeads->getUAV().get(), uint4(0xFFFFFFFF));
+
+    // Create and dispatch build pass
+    if (!mpBuildGridPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kShaderBuildQueryGrid).csEntry("main");
+        DefineList defines; defines.add(mpScene->getSceneDefines());
+        mpBuildGridPass = ComputePass::create(mpDevice, desc, defines);
+    }
+
+    auto var = mpBuildGridPass->getRootVar();
+    var["CB"]["gGridDim"] = mGridDim;
+    var["CB"]["gGridMin"] = mGridMin;
+    var["CB"]["gCellSize"] = mCellSize;
+    var["CB"]["gQueryCount"] = mQueryCount;
+    var["gPhotonQueries"] = mpQueryBuffer;
+    var["gGridHeads"] = mpGridHeads;
+    var["gGridNext"] = mpGridNext;
+    if (mpDebugCounters) var["gCounters"] = mpDebugCounters;
+
+    uint32_t threads = mQueryCount;
+    uint32_t groups = (threads + 255u) / 256u;
+    mpBuildGridPass->execute(pRenderContext, uint3(groups, 1, 1));
+
+    logInfo("SPPM Grid: dim=({}, {}, {}), cellSize={:.6f}", mGridDim.x, mGridDim.y, mGridDim.z, mCellSize);
+}
+
+void SPPM::accumulateByGrid(RenderContext* pRenderContext, uint photonHitCount)
+{
+    FALCOR_PROFILE(pRenderContext, "GridAccum");
+    if (photonHitCount == 0 || !mpPhotonHits || !mpQueryBuffer || !mpQueryAccumulator || !mpGridHeads || !mpGridNext) return;
+
+    if (!mpGridAccumPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kShaderAccumulateByGrid).csEntry("main");
+        DefineList defines; defines.add(mpScene->getSceneDefines());
+        mpGridAccumPass = ComputePass::create(mpDevice, desc, defines);
+    }
+
+    auto var = mpGridAccumPass->getRootVar();
+    var["CB"]["gPhotonCount"] = photonHitCount;
+    var["CB"]["gAccumScale"] = 65536.0f;
+    var["CB"]["gGridDim"] = mGridDim;
+    var["CB"]["gGridMin"] = mGridMin;
+    var["CB"]["gCellSize"] = mCellSize;
+
+    var["gPhotonHits"] = mpPhotonHits;
+    var["gPhotonQueries"] = mpQueryBuffer;
+    var["gGridHeads"] = mpGridHeads;
+    var["gGridNext"] = mpGridNext;
+    var["gQueryAccumulation"] = mpQueryAccumulator;
+    if (mpDebugCounters) var["gCounters"] = mpDebugCounters;
+
+    uint32_t threads = photonHitCount;
+    uint32_t groups = (threads + 255u) / 256u;
+    mpGridAccumPass->execute(pRenderContext, uint3(groups, 1, 1));
 }

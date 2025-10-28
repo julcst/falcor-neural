@@ -3,16 +3,15 @@
 import PhotonQuery;
 
 // Buffers
-StructuredBuffer<uint4> gQueryAccumulationBuf;
+StructuredBuffer<uint4> gQueryAccumulation;
 StructuredBuffer<PhotonQuery> gPhotonQueries;
-StructuredBuffer<uint> gDebugCounters; // [0]=considered, [1]=candidates, [2]=accumulations
 RWTexture2D<float4> gOutput;
 
 cbuffer CB
 {
     uint2 gFrameDim;
     uint gFrameIndex;
-    uint gDebugMode;    // 0: flux sum (default), 1: query valid mask, 2: query normals, 3: query diffuse, 4: hit count heatmap
+    uint gDebugMode;    // 0: flux sum (default), 1: query valid mask, 2: query normals, 3: query diffuse, 4: hit count heatmap, 5: hit count binary mask
     float gAccumScale;
 }
 
@@ -43,7 +42,7 @@ float4 psMain(VSOut pin) : SV_Target
     uint idx = px.x + px.y * gFrameDim.x;
 
     PhotonQuery q = gPhotonQueries[idx];
-    uint4 acc = gQueryAccumulationBuf[idx];
+    uint4 acc = gQueryAccumulation[idx];
 
     if (gDebugMode == 1)
     {
@@ -70,17 +69,13 @@ float4 psMain(VSOut pin) : SV_Target
     }
     else if (gDebugMode == 5)
     {
-        // Visualize debug counters (log-scaled) in RGB.
-        uint c0 = gDebugCounters[0];
-        uint c1 = gDebugCounters[1];
-        uint c2 = gDebugCounters[2];
-        float3 v = float3(log2(1.0 + (float)c0), log2(1.0 + (float)c1), log2(1.0 + (float)c2)) / 16.0;
-        return float4(saturate(v), 1);
+        // Simple mask: white where we have any accumulations
+        return (acc.w > 0) ? float4(1,1,1,1) : float4(0,0,0,1);
     }
     else
     {
         // Default: flux sum resolve
-        float3 sum = float3(acc.xyz) / gAccumScale;
+        float3 sum = float3(acc.xyz) / max(gAccumScale, 1e-6);
         float w = (float)acc.w;
         return float4(sum, w);
     }

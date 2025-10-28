@@ -1,4 +1,5 @@
 #include "Scene/SceneDefines.slangh"
+#include "RenderPasses/SPPM/SPPMDebug.slangh"
 
 import Scene.Raytracing;
 import Scene.Shading;
@@ -13,6 +14,7 @@ struct RtAABB { float3 min; float3 max; };
 
 RWStructuredBuffer<PhotonQuery> gPhotonQueries;
 RWStructuredBuffer<RtAABB> gQueryAABBs;
+RWStructuredBuffer<SPPMCounters> gCounters; // SPPM counters (single element)
 
 cbuffer CB
 {
@@ -77,7 +79,8 @@ void rayGen()
         q.normal = normalize(sd.getOrientedFaceNormal());
         q.viewDir = -ray.dir;
         q.diffuseReflectance = props.diffuseReflectionAlbedo;
-        q.valid = 1;
+    q.valid = 1;
+    InterlockedAdd(gCounters[0].ValidQueries, 1);
     }
 
     gPhotonQueries[index] = q;

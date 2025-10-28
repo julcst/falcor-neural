@@ -1,0 +1,33 @@
+// Structured SPPM debug counters interface using a typed struct, shared between host/device.
+#pragma once
+
+#include "Utils/HostDeviceShared.slangh"
+
+BEGIN_NAMESPACE_FALCOR
+
+// Keep 16 uints (64 bytes) for clearUAV alignment and future headroom.
+struct SPPMCounters
+{
+    uint PhotonsConsidered;   // photons processed in grid/rt accumulation
+    uint Candidates;          // photon-query pairs passing radius test
+    uint Accumulations;       // successful atomic adds
+    uint PhotonsEmitted;      // photons launched
+    uint TotalBounces;        // total bounces across photons
+    uint IntersectRaygen;     // rays launched in intersect pass
+    uint IntersectorCalls;    // intersection shader calls (RT path)
+    uint ValidQueries;        // queries marked valid in TraceQueries
+    uint GridNonEmptyCells;   // cells that became non-empty during binning
+    uint GridBinnedQueries;   // total valid queries added to grid
+    uint PhotonStores;        // photons stored as hits in TracePhotons
+    uint reserved0;
+    uint reserved1;
+    uint reserved2;
+    uint reserved3;
+    uint reserved4;
+};
+
+#ifdef HOST_CODE
+static_assert(sizeof(SPPMCounters) == 64, "SPPMCounters must remain 64 bytes (16 uints)");
+#endif
+
+END_NAMESPACE_FALCOR

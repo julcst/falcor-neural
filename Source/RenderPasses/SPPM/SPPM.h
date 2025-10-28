@@ -34,6 +34,7 @@
 #include "Core/API/RtAccelerationStructure.h"
 #include "Core/Pass/ComputePass.h"
 #include "Core/Pass/FullScreenPass.h"
+#include "SPPMDebug.slangh"
 
 using namespace Falcor;
 
@@ -64,6 +65,10 @@ private:
     void resolveQueries(RenderContext* pRenderContext, const RenderData& renderData);
     void tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool analyticOnly, bool buildAS);
     void prepareLightingStructure(RenderContext* pRenderContext);
+    void intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCount);
+    // Uniform grid neighbor search
+    void buildQueryGrid(RenderContext* pRenderContext);
+    void accumulateByGrid(RenderContext* pRenderContext, uint photonHitCount);
     
     ///// Internal state /////
 
@@ -77,6 +82,7 @@ private:
     uint mFrameCount = 0;
     uint mDebugMode = 1; // 0: flux resolve, 1: query valid, 2: normals, 3: diffuse, 4: hit count
     uint mPrevDebugMode = mDebugMode;
+    bool mUseRTXAccumulation = false; // Toggle: use RTX any-hit accumulation vs grid neighbor search
 
     // Light state
     bool mHasLights = false;           // True if the scene has any light sources
@@ -130,18 +136,32 @@ private:
     // Ray tracing program.
     RayTraceProgramHelper mTracePhotonPass;
     RayTraceProgramHelper mTraceQueryPass;
+    RayTraceProgramHelper mIntersectPass;
 
     ComputeProgramHelper mBuildQueryBoundsPass;
     ComputeProgramHelper mResolveQueryPass; // deprecated path
     ref<FullScreenPass> mpResolveFullScreen; // graphics path for resolve
-
-    ref<Texture> mpAccumulation;
     ref<Buffer> mpQueryBuffer;
     ref<Buffer> mpQueryAABBBuffer;
     ref<Buffer> mpQueryAccumulator;
-    // Debug counters: [0]=photons considered for accumulation, [1]=AABB candidates seen, [2]=accumulations performed, [3]=reserved
+    // Photon hit buffers for separate accumulation pass
+    ref<Buffer> mpPhotonHits;
+    ref<Buffer> mpPhotonHitCounter;
+    ref<Buffer> mpPhotonHitCounterReadback;
+
+    // Uniform grid data for queries
+    ref<Buffer> mpGridHeads;     // int per cell, head index of linked list (-1 if empty)
+    ref<Buffer> mpGridNext;      // int per query, next pointer in linked list
+    uint3       mGridDim = uint3(0);
+    float3      mGridMin = float3(0.0f);
+    float       mCellSize = 0.0f;
+
+    // Compute passes
+    ref<ComputePass> mpBuildGridPass;
+    ref<ComputePass> mpGridAccumPass;
     ref<Buffer> mpDebugCounters;
     ref<Buffer> mpDebugCountersReadback;
+    SPPMCounters mLastCounters = {}; // snapshot for UI (host-side mirror of struct)
     ref<Buffer> mpQueryInstanceBuffer;
     ref<Buffer> mpQueryBlasStorage;
     ref<Buffer> mpQueryBlasScratch;
