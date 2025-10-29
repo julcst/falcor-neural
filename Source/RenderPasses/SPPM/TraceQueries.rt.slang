@@ -79,8 +79,8 @@ void rayGen()
         q.normal = normalize(sd.getOrientedFaceNormal());
         q.viewDir = -ray.dir;
         q.diffuseReflectance = props.diffuseReflectionAlbedo;
-    q.valid = 1;
-    InterlockedAdd(gCounters[0].ValidQueries, 1);
+        q.valid = 1;
+        InterlockedAdd(gCounters[0].ValidQueries, 1);
     }
 
     gPhotonQueries[index] = q;

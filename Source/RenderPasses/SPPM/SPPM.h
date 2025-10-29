@@ -69,6 +69,8 @@ private:
     // Uniform grid neighbor search
     void buildQueryGrid(RenderContext* pRenderContext);
     void accumulateByGrid(RenderContext* pRenderContext, uint photonHitCount);
+    void accumulateByScreen(RenderContext* pRenderContext, uint photonHitCount);
+    void visualizePhotons(RenderContext* pRenderContext, const ref<Texture>& pOutput, uint photonHitCount);
     
     ///// Internal state /////
 
@@ -82,7 +84,7 @@ private:
     uint mFrameCount = 0;
     uint mDebugMode = 1; // 0: flux resolve, 1: query valid, 2: normals, 3: diffuse, 4: hit count
     uint mPrevDebugMode = mDebugMode;
-    bool mUseRTXAccumulation = false; // Toggle: use RTX any-hit accumulation vs grid neighbor search
+    uint mAccumulationMode = 0; // 0: RTX, 1: screen, 2: grid
 
     // Light state
     bool mHasLights = false;           // True if the scene has any light sources
@@ -92,8 +94,8 @@ private:
     // Photon Distribution
     uint mPhotonMaxBounces = 10;                        // Number of photon bounces
     float mGlobalPhotonRejection = 0.3f;                // Probability that a global photon is stored
-    uint mNumDispatchedPhotons = 2000000;               // Number of photons dispatched
-    uint2 mNumMaxPhotons = uint2(400000, 300000);       // Size of the photon buffer
+    uint mNumDispatchedPhotons = 100000;               // Number of photons dispatched
+    uint2 mNumMaxPhotons = uint2(800000, 300000);       // Size of the photon buffer
     uint2 mNumMaxPhotonsUI = mNumMaxPhotons;            // For UI, as changing happens with a button
     bool mChangePhotonLightBufferSize = true;           // True if buffer size has changed
     float mASBuildBufferPhotonOverestimate = 1.15f;     // Guard percentage for AS building
@@ -141,6 +143,7 @@ private:
     ComputeProgramHelper mBuildQueryBoundsPass;
     ComputeProgramHelper mResolveQueryPass; // deprecated path
     ref<FullScreenPass> mpResolveFullScreen; // graphics path for resolve
+    ref<ComputePass>    mpResolveDebugPass;  // compute path for debug resolve (mode 5)
     ref<Buffer> mpQueryBuffer;
     ref<Buffer> mpQueryAABBBuffer;
     ref<Buffer> mpQueryAccumulator;
@@ -149,9 +152,8 @@ private:
     ref<Buffer> mpPhotonHitCounter;
     ref<Buffer> mpPhotonHitCounterReadback;
 
-    // Uniform grid data for queries
-    ref<Buffer> mpGridHeads;     // int per cell, head index of linked list (-1 if empty)
-    ref<Buffer> mpGridNext;      // int per query, next pointer in linked list
+    // Uniform grid data for queries (simplified: single query per cell, overwrite semantics)
+    ref<Buffer> mpGridCellQuery; // int per cell: query index or -1 if empty
     uint3       mGridDim = uint3(0);
     float3      mGridMin = float3(0.0f);
     float       mCellSize = 0.0f;
@@ -159,6 +161,8 @@ private:
     // Compute passes
     ref<ComputePass> mpBuildGridPass;
     ref<ComputePass> mpGridAccumPass;
+    ref<ComputePass> mpScreenAccumPass;
+    ref<ComputePass> mpPhotonVizPass;
     ref<Buffer> mpDebugCounters;
     ref<Buffer> mpDebugCountersReadback;
     SPPMCounters mLastCounters = {}; // snapshot for UI (host-side mirror of struct)

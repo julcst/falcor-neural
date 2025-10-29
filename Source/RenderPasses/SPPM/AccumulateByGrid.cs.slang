@@ -6,8 +6,7 @@ import PhotonHit;
 
 StructuredBuffer<PhotonHit>    gPhotonHits;      // [photonCount]
 StructuredBuffer<PhotonQuery>  gPhotonQueries;   // [queryCount]
-StructuredBuffer<int>          gGridHeads;       // [gridCells]
-StructuredBuffer<int>          gGridNext;        // [queryCount]
+StructuredBuffer<int>          gGridCellQuery;   // [gridCells], single query index per cell (-1 if empty)
 RWStructuredBuffer<uint4>      gQueryAccumulation; // fixed-point accumulation
 RWStructuredBuffer<SPPMCounters> gCounters;     // single element counters struct
 
@@ -18,6 +17,7 @@ cbuffer CB
     uint3  gGridDim;
     float3 gGridMin;
     float  gCellSize;
+    float  gMaxQueryRadius;
 }
 
 static uint flatten3D(uint3 c, uint3 dim)
@@ -35,62 +35,60 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     PhotonHit ph = gPhotonHits[idx];
 
-    // Determine the photon's grid cell.
-    float3 rel = (ph.posW - gGridMin) / gCellSize;
-    int3 ic = int3(floor(rel + 1e-6));
-    ic = clamp(ic, int3(0,0,0), int3(gGridDim) - 1);
+    // Determine the integer cell range overlapped by the maximum query radius around the photon.
+    float3 minP = ph.posW - gMaxQueryRadius;
+    float3 maxP = ph.posW + gMaxQueryRadius;
+    int3 minCell = int3(floor((minP - gGridMin) / gCellSize));
+    int3 maxCell = int3(floor((maxP - gGridMin) / gCellSize));
+    minCell = clamp(minCell, int3(0,0,0), int3(gGridDim) - 1);
+    maxCell = clamp(maxCell, int3(0,0,0), int3(gGridDim) - 1);
 
-    [unroll]
-    for (int dz = -1; dz <= 1; ++dz)
+    // Iterate all potentially overlapping cells, culling by distance to cell AABB.
+    for (int z = minCell.z; z <= maxCell.z; ++z)
     {
-        int z = ic.z + dz;
-        if (z < 0 || z >= int(gGridDim.z)) continue;
-        [unroll]
-        for (int dy = -1; dy <= 1; ++dy)
+        for (int y = minCell.y; y <= maxCell.y; ++y)
         {
-            int y = ic.y + dy;
-            if (y < 0 || y >= int(gGridDim.y)) continue;
-            [unroll]
-            for (int dx = -1; dx <= 1; ++dx)
+            for (int x = minCell.x; x <= maxCell.x; ++x)
             {
-                int x = ic.x + dx;
-                if (x < 0 || x >= int(gGridDim.x)) continue;
+                float3 cellMin = gGridMin + float3(x, y, z) * gCellSize;
+                float3 cellMax = cellMin + gCellSize;
+                float3 closest = clamp(ph.posW, cellMin, cellMax);
+                float3 cd = closest - ph.posW;
+                if (dot(cd, cd) > gMaxQueryRadius * gMaxQueryRadius)
+                    continue; // Cell completely outside of the maximum query radius.
 
                 uint cell = flatten3D(uint3(x,y,z), gGridDim);
-                int head = gGridHeads[cell];
-                while (head != -1)
+                int qHead = gGridCellQuery[cell];
+                if (qHead == -1) continue;
+
+                uint qIdx = (uint)qHead;
+                PhotonQuery q = gPhotonQueries[qIdx];
+                if (q.valid == 0) continue;
+
+                float3 d = ph.posW - q.position;
+                float dist2 = dot(d, d);
+                float r2 = q.radius * q.radius;
+                InterlockedAdd(gCounters[0].Candidates, 1); // candidates
+                if (dist2 <= r2)
                 {
-                    uint qIdx = (uint)head;
-                    PhotonQuery q = gPhotonQueries[qIdx];
-                    head = gGridNext[qIdx];
+                    float3 wi = normalize(-d);
+                    float NoL = max(0.0, dot(q.normal, wi));
+                    float3 f = q.diffuseReflectance * (M_1_PI) * NoL;
+                    float3 c = ph.flux * f;
 
-                    if (q.valid == 0) continue;
+                    uint pix = q.pixelIndex;
+                    uint4 inc = uint4(
+                        (uint)max(0.0, c.x * gAccumScale + 0.5),
+                        (uint)max(0.0, c.y * gAccumScale + 0.5),
+                        (uint)max(0.0, c.z * gAccumScale + 0.5),
+                        1u);
 
-                    float3 d = ph.posW - q.position;
-                    float dist2 = dot(d, d);
-                    float r2 = q.radius * q.radius;
-                    InterlockedAdd(gCounters[0].Candidates, 1); // candidates
-                    if (dist2 <= r2)
-                    {
-                        float3 wi = normalize(-d);
-                        float NoL = max(0.0, dot(q.normal, wi));
-                        float3 f = q.diffuseReflectance * (M_1_PI) * NoL;
-                        float3 c = ph.flux * f;
+                    InterlockedAdd(gQueryAccumulation[pix].x, inc.x);
+                    InterlockedAdd(gQueryAccumulation[pix].y, inc.y);
+                    InterlockedAdd(gQueryAccumulation[pix].z, inc.z);
+                    InterlockedAdd(gQueryAccumulation[pix].w, inc.w);
 
-                        uint pix = q.pixelIndex;
-                        uint4 inc = uint4(
-                            (uint)max(0.0, c.x * gAccumScale + 0.5),
-                            (uint)max(0.0, c.y * gAccumScale + 0.5),
-                            (uint)max(0.0, c.z * gAccumScale + 0.5),
-                            1u);
-
-                        InterlockedAdd(gQueryAccumulation[pix].x, inc.x);
-                        InterlockedAdd(gQueryAccumulation[pix].y, inc.y);
-                        InterlockedAdd(gQueryAccumulation[pix].z, inc.z);
-                        InterlockedAdd(gQueryAccumulation[pix].w, inc.w);
-
-                        InterlockedAdd(gCounters[0].Accumulations, 1); // accumulations
-                    }
+                    InterlockedAdd(gCounters[0].Accumulations, 1); // accumulations
                 }
             }
         }

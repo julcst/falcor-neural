@@ -42,7 +42,7 @@ float4 psMain(VSOut pin) : SV_Target
     uint idx = px.x + px.y * gFrameDim.x;
 
     PhotonQuery q = gPhotonQueries[idx];
-    uint4 acc = gQueryAccumulation[idx];
+    float4 acc = gQueryAccumulation[idx];
 
     if (gDebugMode == 1)
     {
@@ -64,7 +64,7 @@ float4 psMain(VSOut pin) : SV_Target
     {
         // Hit count heatmap (log scaled)
         float w = (float)acc.w;
-        float v = (w <= 0.0) ? 0.0 : saturate(log2(1.0 + w) / 8.0);
+        float v = saturate(log2(1.0 + w) / 8.0);
         return float4(heatmap(v), 1);
     }
     else if (gDebugMode == 5)
@@ -77,6 +77,6 @@ float4 psMain(VSOut pin) : SV_Target
         // Default: flux sum resolve
         float3 sum = float3(acc.xyz) / max(gAccumScale, 1e-6);
         float w = (float)acc.w;
-        return float4(sum, w);
+        return float4(sum, 1);
     }
 }

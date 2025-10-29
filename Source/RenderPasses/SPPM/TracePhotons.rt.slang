@@ -301,7 +301,7 @@ void rayGen()
     // Count emitted photons (successful light sampling)
     InterlockedAdd(gCounters[0].PhotonsEmitted, 1);
 
-    pls.flux /= dispatchDims.x * dispatchDims.y; // Division through all dipatched photons
+    //pls.flux /= dispatchDims.x * dispatchDims.y; // Division through all dipatched photons
     
     // Prepare the rest of the ray
     ray.Origin = pls.posW;
@@ -331,12 +331,12 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
 
-    // Count a bounce whenever we hit something and proceed to sample BSDF.
-    InterlockedAdd(gCounters[0].TotalBounces, 1);
+        // Count a bounce whenever we hit something and proceed to sample BSDF.
+        InterlockedAdd(gCounters[0].TotalBounces, 1);
 
         // Store Photon if a diffuse surface was hit
         reflectedDiffuse = bsdfProperties.roughness > kRoughnessThreshold;
-        if (reflectedDiffuse)
+        //if (reflectedDiffuse)
         {
             // Optionally reject some photons to reduce contention, scale flux accordingly
             bool keep = true;
@@ -346,7 +346,7 @@ void rayGen()
                 keep = sampleNext1D(sg) <= gGlobalRejectionProb;
                 storeFlux *= invRejection;
             }
-            if (keep)
+            //if (keep)
             {
                 // Count photons stored as candidate hits (distinct from accumulation processed count)
                 InterlockedAdd(gCounters[0].PhotonStores, 1);
