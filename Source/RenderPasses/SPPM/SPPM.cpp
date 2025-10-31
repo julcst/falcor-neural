@@ -2,6 +2,7 @@
 
 #include "RenderGraph/RenderPassHelpers.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
+#include "Core/API/RtAccelerationStructure.h"
 
 namespace
 {
@@ -538,19 +539,18 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     blasBuild.scratchData = mpQueryBlasScratch->getGpuAddress();
 
     pRenderContext->buildAccelerationStructure(blasBuild, 0, nullptr);
+    pRenderContext->uavBarrier(mpQueryBlasStorage.get());
 
-    RtInstanceDesc instanceDesc = {};
-    // Set identity transform (3x4 row-major)
-    instanceDesc.transform[0][0] = 1.0f; instanceDesc.transform[0][1] = 0.0f; instanceDesc.transform[0][2] = 0.0f; instanceDesc.transform[0][3] = 0.0f;
-    instanceDesc.transform[1][0] = 0.0f; instanceDesc.transform[1][1] = 1.0f; instanceDesc.transform[1][2] = 0.0f; instanceDesc.transform[1][3] = 0.0f;
-    instanceDesc.transform[2][0] = 0.0f; instanceDesc.transform[2][1] = 0.0f; instanceDesc.transform[2][2] = 1.0f; instanceDesc.transform[2][3] = 0.0f;
-    instanceDesc.instanceID = 0;
-    instanceDesc.instanceMask = 0xFF;
-    // For a separate accumulation RT pass using a dummy SBT (geometryCount=1), use zero contribution index.
-    instanceDesc.instanceContributionToHitGroupIndex = 0;
-    // Allow any-hit invocation on procedural queries by not forcing opaque.
-    instanceDesc.flags = RtGeometryInstanceFlags::None;
-    instanceDesc.accelerationStructure = mpQueryBLAS->getGpuAddress();
+    RtInstanceDesc instanceDesc = {
+        .transform = { 1.f, 0.f, 0.f, 0.f,
+                       0.f, 1.f, 0.f, 0.f,
+                       0.f, 0.f, 1.f, 0.f },
+        .instanceID = 0,
+        .instanceMask = 0xFF,
+        .instanceContributionToHitGroupIndex = 0,
+        .flags = RtGeometryInstanceFlags::None,
+        .accelerationStructure = mpQueryBLAS->getGpuAddress(),
+    };
 
     if (!mpQueryInstanceBuffer)
     {
@@ -584,6 +584,7 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     tlasBuild.scratchData = mpQueryTlasScratch->getGpuAddress();
 
     pRenderContext->buildAccelerationStructure(tlasBuild, 0, nullptr);
+    pRenderContext->uavBarrier(mpQueryTlasStorage.get());
 }
 
 void SPPM::resolveQueries(RenderContext* pRenderContext, const RenderData& renderData)
@@ -746,6 +747,7 @@ void SPPM::prepareLightingStructure(RenderContext* pRenderContext)
         if (!mpEmissiveLightSampler)
         {
             auto pLights = mpScene->getILightCollection(pRenderContext);
+
             if (pLights)
             {
                 mpEmissiveLightSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, pLights);
@@ -788,35 +790,43 @@ void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCou
     if (!mIntersectPass.pProgram)
     {
         ProgramDesc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
+        //desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderIntersectPhotons);
-        desc.setMaxPayloadSize(sizeof(uint32_t));
-        desc.setMaxAttributeSize(mpScene->getRaytracingMaxAttributeSize());
-        desc.setMaxTraceRecursionDepth(1);
+        desc.setMaxPayloadSize(sizeof(float3));
+        desc.setMaxAttributeSize(sizeof(float));
+        desc.setMaxTraceRecursionDepth(2);
 
         // Create a dummy SBT with geometryCount=1 for our custom TLAS.
-        mIntersectPass.pBindingTable = RtBindingTable::create(1, 1, 1);
+        mIntersectPass.pBindingTable = RtBindingTable::create(0, 1, 1);
         auto& sbt = mIntersectPass.pBindingTable;
-        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
-        sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setRayGen(desc.addRayGen("rayGen"));
+        //sbt->setMiss(0, desc.addMiss("miss"));
 
         // Hit group for procedural queries: anyhit + intersection.
-        auto hg = desc.addHitGroup("queryClosestHit", "queryAnyHit", "queryIntersection");
-        sbt->setHitGroup(0, 0u, hg);
+        sbt->setHitGroup(0, 0u, desc.addHitGroup("", "queryAnyHit", "queryIntersection")); // single entry for our custom TLAS
 
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        mIntersectPass.pProgram = Program::create(mpDevice, desc, defines);
+        //DefineList defines;
+        //defines.add(mpScene->getSceneDefines());
+        mIntersectPass.pProgram = Program::create(mpDevice, desc);
     }
 
-    if (!mIntersectPass.pVars)
-        mIntersectPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
+    if (!mIntersectPass.pVars) {
+        mIntersectPass.pProgram->addDefines(mpSampleGenerator->getDefines());
+        mIntersectPass.pVars = RtProgramVars::create(mpDevice, mIntersectPass.pProgram, mIntersectPass.pBindingTable);
+    }
 
     auto var = mIntersectPass.pVars->getRootVar();
+    mpSampleGenerator->bindShaderData(var);
     var["CB"]["gQueryCount"] = mQueryCount;
     var["CB"]["gAccumScale"] = 65536.0f;
     var["CB"]["gFirstPhoton"] = 0u;
     var["CB"]["gPhotonCount"] = photonHitCount;
+
+    if (!mpQueryTLAS)
+    {
+        logError("SPPM: mpQueryTLAS is NULL!");
+        return;
+    }
 
     var["gQueryAS"].setAccelerationStructure(mpQueryTLAS);
     var["gPhotonQueries"] = mpQueryBuffer;
@@ -825,7 +835,8 @@ void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCou
     if (mpDebugCounters) var["gCounters"] = mpDebugCounters;
 
     // Dispatch one ray per photon hit.
-    mpScene->raytrace(pRenderContext, mIntersectPass.pProgram.get(), mIntersectPass.pVars, uint3(photonHitCount, 1, 1));
+    //mpScene->raytrace(pRenderContext, mIntersectPass.pProgram.get(), mIntersectPass.pVars, uint3(photonHitCount, 1, 1));
+    pRenderContext->raytrace(mIntersectPass.pProgram.get(), mIntersectPass.pVars.get(), photonHitCount, 1, 1);
 }
 
 void SPPM::buildQueryGrid(RenderContext* pRenderContext)

@@ -1,8 +1,6 @@
-#include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
 #include "RenderPasses/SPPM/SPPMDebug.slangh"
 
-import Scene.Raytracing;
 import PhotonQuery;
 import PhotonHit;
 
@@ -21,13 +19,13 @@ cbuffer CB
     uint  gPhotonCount;
 }
 
-struct Payload { uint photonIndex; };
+struct Payload { float3 flux; };
 
 [shader("miss")]
 void miss(inout Payload p : SV_RayPayload) { }
 
 // Procedural intersection: treat each primitive index as a sphere defined by PhotonQuery (position, radius)
-struct QueryIsectAttribs { float t; };
+struct QueryIsectAttribs { };
 
 [shader("intersection")]
 void queryIntersection()
@@ -43,19 +41,12 @@ void queryIntersection()
     float3 ro = WorldRayOrigin();
     float3 rd = WorldRayDirection();
 
-    float3 oc = ro - q.position;
-    float b = dot(oc, rd);
-    float c = dot(oc, oc) - (q.radius * q.radius);
-    float disc = b*b - c;
-    if (disc < 0.0) return;
+    float3 diff = ro - q.position;
+    float dist2 = dot(diff, diff);
+    if (dist2 > q.radius * q.radius) return;
 
-    float s = sqrt(max(0.0, disc));
-    float t = -b - s;
-    if (t <= 1e-5) t = -b + s;
-    if (t <= 1e-5) return;
-
-    QueryIsectAttribs attribs; attribs.t = t;
-    ReportHit(t, 0, attribs);
+    QueryIsectAttribs attribs;
+    ReportHit(1e-6, 0, attribs);
 }
 
 [shader("anyhit")]
@@ -69,13 +60,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     // Count candidate hit
     InterlockedAdd(gCounters[0].Candidates, 1);
 
-    PhotonHit ph = gPhotonHits[p.photonIndex];
-
-    // Approximate incoming light direction using vector from query to photon
-    float3 wi = normalize(ph.posW - q.position);
-    float NoL = max(0.0, dot(q.normal, wi));
-    float3 f = q.diffuseReflectance * (M_1_PI) * NoL;
-    float3 c = ph.flux * f;
+    float3 c = p.flux;
 
     uint4 inc = uint4(
         (uint)max(0.0, c.x * gAccumScale + 0.5),
@@ -95,29 +80,25 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     IgnoreHit(); // visit all overlaps
 }
 
-[shader("closesthit")]
-void queryClosestHit(inout Payload p : SV_RayPayload, QueryIsectAttribs attribs)
-{
-    // Not used; we do all accumulation in anyhit and ignore hits to continue traversal.
-}
-
 [shader("raygeneration")]
 void rayGen()
 {
-    // Count rays launched in intersect pass
-    InterlockedAdd(gCounters[0].IntersectRaygen, 1);
     uint idx = DispatchRaysIndex().x + gFirstPhoton;
     if (idx >= gFirstPhoton + gPhotonCount) return;
+
+    // Count rays launched in intersect pass
+    InterlockedAdd(gCounters[0].IntersectRaygen, 1);
 
     PhotonHit ph = gPhotonHits[idx];
 
     RayDesc r;
     r.Origin = ph.posW;
-    r.Direction = float3(1, 0, 0); // any direction; intersection shader decides hit
+    r.Direction = float3(1, 0, 0); // TODO: Store light direction
     r.TMin = 0.0;
-    r.TMax = 1e6;
+    r.TMax = 1e-6;
 
-    Payload pl; pl.photonIndex = idx;
+    Payload pl;
+    pl.flux = ph.flux;
     // Use no special ray flags to allow any-hit invocation for non-opaque geometry.
-    TraceRay(gQueryAS, /*RayFlags*/ 0, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 1, /*miss*/ 0, r, pl);
+    TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);
 }
