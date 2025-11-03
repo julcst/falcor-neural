@@ -356,6 +356,7 @@ void rayGen()
                 if (idx < gPhotonHitCapacity)
                 {
                     gPhotonHits[idx].posW = sd.posW;
+                    gPhotonHits[idx].wi = -ray.Direction;
                     gPhotonHits[idx].flux = storeFlux;
                 }
             }

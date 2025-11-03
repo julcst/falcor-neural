@@ -476,7 +476,7 @@ void SPPM::traceQueries(RenderContext* pRenderContext, const RenderData& renderD
     // Bind constants and UAVs.
     qVar["CB"]["gFrameDim"] = mFrameDim;
     qVar["CB"]["gFrameIndex"] = mFrameCount;
-    float queryRadius = (mDebugMode >= 4) ? (mPhotonRadius.x * 10.f) : mPhotonRadius.x;
+    float queryRadius = mPhotonRadius.x;
     qVar["CB"]["gQueryRadius"] = queryRadius;
     qVar["gPhotonQueries"] = mpQueryBuffer;
     qVar["gQueryAABBs"] = mpQueryAABBBuffer;
@@ -790,7 +790,7 @@ void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCou
     if (!mIntersectPass.pProgram)
     {
         ProgramDesc desc;
-        //desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderIntersectPhotons);
         desc.setMaxPayloadSize(sizeof(float3));
         desc.setMaxAttributeSize(sizeof(float));
@@ -799,20 +799,16 @@ void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCou
         // Create a dummy SBT with geometryCount=1 for our custom TLAS.
         mIntersectPass.pBindingTable = RtBindingTable::create(0, 1, 1);
         auto& sbt = mIntersectPass.pBindingTable;
-        sbt->setRayGen(desc.addRayGen("rayGen"));
-        //sbt->setMiss(0, desc.addMiss("miss"));
+        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
 
         // Hit group for procedural queries: anyhit + intersection.
-        sbt->setHitGroup(0, 0u, desc.addHitGroup("", "queryAnyHit", "queryIntersection")); // single entry for our custom TLAS
+        sbt->setHitGroup(0, 0u, desc.addHitGroup("", "queryAnyHit", "queryIntersection", mpScene->getTypeConformances())); // single entry for our custom TLAS
 
-        //DefineList defines;
-        //defines.add(mpScene->getSceneDefines());
-        mIntersectPass.pProgram = Program::create(mpDevice, desc);
+        mIntersectPass.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
     if (!mIntersectPass.pVars) {
-        mIntersectPass.pProgram->addDefines(mpSampleGenerator->getDefines());
-        mIntersectPass.pVars = RtProgramVars::create(mpDevice, mIntersectPass.pProgram, mIntersectPass.pBindingTable);
+        mIntersectPass.initProgramVars(mpDevice, mpScene, mpSampleGenerator);
     }
 
     auto var = mIntersectPass.pVars->getRootVar();
@@ -835,8 +831,8 @@ void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCou
     if (mpDebugCounters) var["gCounters"] = mpDebugCounters;
 
     // Dispatch one ray per photon hit.
-    //mpScene->raytrace(pRenderContext, mIntersectPass.pProgram.get(), mIntersectPass.pVars, uint3(photonHitCount, 1, 1));
-    pRenderContext->raytrace(mIntersectPass.pProgram.get(), mIntersectPass.pVars.get(), photonHitCount, 1, 1);
+    mpScene->raytrace(pRenderContext, mIntersectPass.pProgram.get(), mIntersectPass.pVars, uint3(photonHitCount, 1, 1));
+    //pRenderContext->raytrace(mIntersectPass.pProgram.get(), mIntersectPass.pVars.get(), photonHitCount, 1, 1);
 }
 
 void SPPM::buildQueryGrid(RenderContext* pRenderContext)

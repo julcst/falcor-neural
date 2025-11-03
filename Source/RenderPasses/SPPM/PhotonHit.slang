@@ -6,4 +6,6 @@ public struct PhotonHit
     float pad0;
     public float3 flux;
     float pad1;
+    public float3 wi;
+    float pad2;
 };

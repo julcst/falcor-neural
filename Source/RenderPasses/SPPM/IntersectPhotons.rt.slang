@@ -3,6 +3,9 @@
 
 import PhotonQuery;
 import PhotonHit;
+import Scene.Raytracing;
+import Scene.Shading;
+import Utils.Sampling.TinyUniformSampleGenerator;
 
 // Resources
 RaytracingAccelerationStructure gQueryAS;
@@ -38,10 +41,9 @@ void queryIntersection()
     if (q.valid == 0) return;
 
     // World-space ray
-    float3 ro = WorldRayOrigin();
-    float3 rd = WorldRayDirection();
+    float3 center = WorldRayOrigin();
 
-    float3 diff = ro - q.position;
+    float3 diff = center - q.position;
     float dist2 = dot(diff, diff);
     if (dist2 > q.radius * q.radius) return;
 
@@ -60,7 +62,18 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     // Count candidate hit
     InterlockedAdd(gCounters[0].Candidates, 1);
 
-    float3 c = p.flux;
+    let wo = q.viewDir;
+    let wi = WorldRayDirection();
+    TriangleHit th = HitInfo(q.hit).getTriangleHit();
+    uint materialID = gScene.getMaterialID(th.instanceID);
+    VertexData v = gScene.getVertexData(th);
+    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, wi);
+    let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
+
+    TinyUniformSampleGenerator sg = TinyUniformSampleGenerator(42u);
+    float r2 = q.radius * q.radius;
+    float3 c = p.flux * M_1_PI / 100000.0 / r2; // TODO: Use actual dispatched photons
+    c *= mi.eval(sd, wo, sg);
 
     uint4 inc = uint4(
         (uint)max(0.0, c.x * gAccumScale + 0.5),
@@ -93,7 +106,7 @@ void rayGen()
 
     RayDesc r;
     r.Origin = ph.posW;
-    r.Direction = float3(1, 0, 0); // TODO: Store light direction
+    r.Direction = ph.wi; // Encode incoming direction in ray direction to save payload space
     r.TMin = 0.0;
     r.TMax = 1e-6;
 

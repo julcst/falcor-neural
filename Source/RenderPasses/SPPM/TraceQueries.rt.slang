@@ -28,7 +28,7 @@ struct RayPayload { PackedHitInfo hit; };
 [shader("miss")]
 void miss(inout RayPayload p: SV_RayPayload)
 {
-    p.hit = PackedHitInfo(0,0,0,0);
+    p.hit = makeInvalidHit().data;
 }
 
 [shader("anyhit")]
@@ -57,13 +57,14 @@ void rayGen()
     // Generate primary ray (pinhole for stability)
     Ray ray = gScene.camera.computeRayPinhole(pixel, gFrameDim);
 
-    RayPayload payload; payload.hit = PackedHitInfo(0,0,0,0);
+    RayPayload payload;
     TraceRayScene(0, 0xff, 0 /* hitIdx */, 0 /* missIdx */, ray.toRayDesc(), payload);
 
     PhotonQuery q = {};
     q.pixelIndex = index;
     q.radius = gQueryRadius;
     q.valid = 0;
+    q.hit = payload.hit;
 
     HitInfo hit = HitInfo(payload.hit);
     if (hit.isValid())
@@ -76,9 +77,7 @@ void rayGen()
         let props = mi.getProperties(sd);
 
         q.position = sd.posW;
-        q.normal = normalize(sd.getOrientedFaceNormal());
         q.viewDir = -ray.dir;
-        q.diffuseReflectance = props.diffuseReflectionAlbedo;
         q.valid = 1;
         InterlockedAdd(gCounters[0].ValidQueries, 1);
     }
