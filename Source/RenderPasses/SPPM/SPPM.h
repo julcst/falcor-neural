@@ -63,7 +63,7 @@ private:
     void traceQueries(RenderContext* pRenderContext, const RenderData& renderData);
     void buildQueryAcceleration(RenderContext* pRenderContext);
     void resolveQueries(RenderContext* pRenderContext, const RenderData& renderData);
-    void tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData, bool analyticOnly, bool buildAS);
+    void tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData);
     void prepareLightingStructure(RenderContext* pRenderContext);
     void intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCount);
     // Uniform grid neighbor search

@@ -52,13 +52,13 @@ float4 psMain(VSOut pin) : SV_Target
     else if (gDebugMode == 2)
     {
         // World normal visualization
-        float3 n = normalize(q.normal);
-        return float4(0.5 * (n + 1.0), 1);
+        // float3 n = normalize(q.normal);
+        // return float4(0.5 * (n + 1.0), 1);
     }
     else if (gDebugMode == 3)
     {
         // Diffuse albedo
-        return float4(q.diffuseReflectance, 1);
+        // return float4(q.diffuseReflectance, 1);
     }
     else if (gDebugMode == 4)
     {

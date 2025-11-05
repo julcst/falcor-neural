@@ -1,6 +1,6 @@
 module PhotonQuery;
 
-import HitInfo;
+import Scene.HitInfo;
 
 public struct PhotonQuery
 {

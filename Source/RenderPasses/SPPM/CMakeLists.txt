@@ -8,6 +8,7 @@ target_sources(SPPM PRIVATE
     TracePhotons.rt.slang
     TraceQueries.rt.slang
     IntersectPhotons.rt.slang
+    LightSampler.slang
     BuildQueryBounds.cs.slang
     BuildQueryGrid.cs.slang
     AccumulateByGrid.cs.slang

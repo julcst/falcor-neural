@@ -152,18 +152,7 @@ void SPPM::execute(RenderContext* pRenderContext, const RenderData& renderData)
     // Clear to zero
     pRenderContext->clearUAV(mpPhotonHitCounter->getUAV().get(), uint4(0));
 
-    if (mMixedLights)
-    {
-        // Dispatch emissive photons first (analyticOnly=false), then analytic photons (analyticOnly=true)
-        tracePhotonsPass(pRenderContext, renderData, /*analyticOnly*/ false, /*buildAS*/ true);
-        tracePhotonsPass(pRenderContext, renderData, /*analyticOnly*/ true, /*buildAS*/ true);
-    }
-    else
-    {
-        // Single pass depending on available light type.
-        const bool analyticOnly = mHasAnalyticLights;
-        tracePhotonsPass(pRenderContext, renderData, analyticOnly, true);
-    }
+    tracePhotonsPass(pRenderContext, renderData);
     logInfo("SPPM: tracePhotonsPass() done");
 
     // Ensure photon hit data is visible before readback/intersect pass.
@@ -619,7 +608,7 @@ void SPPM::resolveQueries(RenderContext* pRenderContext, const RenderData& rende
     mpResolveFullScreen->execute(pRenderContext, pFbo);
 }
 
-void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData,  bool analyticOnly,  bool buildAS)
+void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "TracePhotons");
 
@@ -651,12 +640,11 @@ void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& ren
             sbt->setHitGroup(0, mpScene->getGeometryIDs(Scene::GeometryType::TriangleMesh), desc.addHitGroup("closestHit", "anyHit"));
         }
         DefineList defines;
-        // Always compile emissive light path; we'll choose the branch at runtime.
-        defines.add("USE_EMISSIVE_LIGHTS", "1");
         defines.add(mpScene->getSceneDefines());
-        if (mpEmissiveLightSampler)
+        if (mpEmissiveLightSampler) {
+            defines.add("USE_EMISSIVE_LIGHTS", "1");
             defines.add(mpEmissiveLightSampler->getDefines());
-
+        }
 
         mTracePhotonPass.pProgram = Program::create(mpDevice, desc, defines);
     }
@@ -676,24 +664,17 @@ void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& ren
 
     // Handle shader dimension
     uint dispatchedPhotons = mNumDispatchedPhotons;
-    if (mMixedLights)
-    {
-        float dispatchedF = float(dispatchedPhotons);
-        dispatchedF *= analyticOnly ? mPhotonAnalyticRatio : 1.f - mPhotonAnalyticRatio;
-        dispatchedPhotons = uint(dispatchedF);
-    }
     uint shaderDispatchDim = static_cast<uint>(std::floor(std::sqrt(static_cast<float>(dispatchedPhotons))));
     shaderDispatchDim = std::max(32u, shaderDispatchDim);
     const uint actualPhotons = shaderDispatchDim * shaderDispatchDim;
-    logInfo("SPPM: tracing {} photons (dispatch {}x{}, requested={}, analyticOnly={})",
-        actualPhotons, shaderDispatchDim, shaderDispatchDim, dispatchedPhotons, analyticOnly);
+    logInfo("SPPM: tracing {} photons (dispatch {}x{}, requested={})",
+        actualPhotons, shaderDispatchDim, shaderDispatchDim, dispatchedPhotons);
 
     // Constant Buffer
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gPhotonRadius"] = mPhotonRadius;
     var["CB"]["gMaxBounces"] = mPhotonMaxBounces;
     var["CB"]["gGlobalRejectionProb"] = mGlobalPhotonRejection;
-    var["CB"]["gUseAnalyticLights"] = analyticOnly;
     var["CB"]["gDispatchDimension"] = shaderDispatchDim;
     var["CB"]["gAccumScale"] = 65536.0f;
     // Enable debug probing when using debug vis modes (>=4): doubleDir and larger TMax.
@@ -719,7 +700,7 @@ void SPPM::tracePhotonsPass(RenderContext* pRenderContext, const RenderData& ren
 
     // Structures
     if (mpEmissiveLightSampler)
-        mpEmissiveLightSampler->bindShaderData(var["Light"]["gEmissiveSampler"]);
+        mpEmissiveLightSampler->bindShaderData(var["gLights"]["emissiveSampler"]);
 
     // Dispatch raytracing shader
     mpScene->raytrace(pRenderContext, mTracePhotonPass.pProgram.get(), mTracePhotonPass.pVars, uint3(shaderDispatchDim, shaderDispatchDim, 1));

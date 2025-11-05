@@ -51,6 +51,8 @@ void queryIntersection()
     ReportHit(1e-6, 0, attribs);
 }
 
+
+
 [shader("anyhit")]
 void queryAnyHit(inout Payload p : SV_RayPayload)
 {
@@ -72,13 +74,12 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
 
     TinyUniformSampleGenerator sg = TinyUniformSampleGenerator(42u);
     float r2 = q.radius * q.radius;
-    float3 c = p.flux * M_1_PI / 100000.0 / r2; // TODO: Use actual dispatched photons
-    c *= mi.eval(sd, wo, sg);
+    float3 outgoing_flux = p.flux * mi.eval(sd, wo, sg) / (abs(dot(wo, sd.faceN)) * r2);
 
     uint4 inc = uint4(
-        (uint)max(0.0, c.x * gAccumScale + 0.5),
-        (uint)max(0.0, c.y * gAccumScale + 0.5),
-        (uint)max(0.0, c.z * gAccumScale + 0.5),
+        (uint)max(0.0, outgoing_flux.x * gAccumScale + 0.5),
+        (uint)max(0.0, outgoing_flux.y * gAccumScale + 0.5),
+        (uint)max(0.0, outgoing_flux.z * gAccumScale + 0.5),
         1u
     );
 

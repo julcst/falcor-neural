@@ -1,51 +1,38 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
 #include "RenderPasses/SPPM/SPPMDebug.slangh"
-// Use a local LoadShadingData to avoid depending on PathTracer static params
-
-#ifndef USE_EMISSIVE_LIGHTS
-#define USE_EMISSIVE_LIGHTS 0
-#endif
 
 import Scene.Raytracing;
-// import Scene.Intersection; // not needed in this pass
 import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
-import Rendering.Lights.EmissiveLightSampler;
-import Rendering.Lights.EmissiveLightSamplerHelpers;
+import LightSampler;
 import PhotonQuery;
 import PhotonHit;
 
 cbuffer CB
 {
-    uint gMaxBounces;   // Max number of bounces allowed
-    uint gFrameCount;   // Frame count since scene was loaded.
-    float2 gPhotonRadius;//Global/Caustic radius
+    uint gMaxBounces;
+    uint gFrameCount;
+    float2 gPhotonRadius;
 
-    uint gDispatchDimension;    //Dispatch dims (x,y identical) 
-    float gGlobalRejectionProb; //Rejection Probability for global photons
-    bool gUseAnalyticLights;    //true if analytic lights should be used
-    uint _pad;
+    uint gDispatchDimension;
+    float gGlobalRejectionProb;
 
-    // Query/accumulation controls (some unused in this pass)
     uint gQueryCount;
-    float gAccumScale; // fixed-point scale for atomic accumulation (unused here)
-    uint gDebugFlags; // debug flags (unused here)
-    uint gPhotonHitCapacity; // capacity of gPhotonHits
+    float gAccumScale;
+    uint gDebugFlags;
+    uint gPhotonHitCapacity;
 }
 
-#if USE_EMISSIVE_LIGHTS // Buffer is only valid if emissive light is enabled
-cbuffer Light {
-    EmissiveLightSampler gEmissiveSampler;
-}
-#endif
+// Unified light sampler
+LightSampler gLights;
 
-// Photon output buffers (written by this pass)
+// Photon output buffers
 RWStructuredBuffer<PhotonHit> gPhotonHits;
-RWStructuredBuffer<uint>     gPhotonHitCounter; // [0] = count
-RWStructuredBuffer<SPPMCounters> gCounters; // single element counters struct
+RWStructuredBuffer<uint> gPhotonHitCounter;
+RWStructuredBuffer<SPPMCounters> gCounters;
 
 static const bool kAlphaTest = true;
 static const float kRoughnessThreshold = 0.05f;
@@ -108,123 +95,6 @@ ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const flo
     return sd;
 }
 
-// Inline ray query accumulation over query AABBs will be used instead of any-hit shaders.
-
-//Helper struct to generate a photon form the lightSources
-struct PhotonLightSample {
-    float3 posW;
-    float3 normal;
-    float3 flux;
-};
-
-/*  Transforms direction from local to world space
-    \param[in] Face Normal
-    \param[in] local direction
-    \return world space direction
-*/
-float3 fromLocalToWorld(const in float3 normal, float3 w)
-{
-    // transform from local space -> random dir vector in world space
-    float3 bitangent = perp_stark(normal);
-    float3 tangent = cross(bitangent, normal);
-
-    return w.x * tangent + w.y * bitangent + w.z * normal;
-}
-
-#if USE_EMISSIVE_LIGHTS // Function is only valid if the emissive sampler is set
-/*  Creates a photon light sample from emissive triangles weighted by emissive power
-    \param[in/out] Random Number Generator
-    \param[out] Photon light sample
-    \return true if light sample is valid
-*/
-bool createLightSample(inout SampleGenerator sg, out PhotonLightSample pls) {
-    pls = {};
-    if (gScene.lightCollection.isEmpty())
-        return false;
-
-    // Randomly pick a triangle out of the global list with uniform probability
-    const uint triangleCount = gScene.lightCollection.triangleCount;
-    // Safety precaution as the result of the multiplication may be rounded to triangleCount even if uLight < 1.0 when triangleCount is large.
-    uint triangleIndex = min((uint)(sampleNext1D(sg) * triangleCount), triangleCount - 1);
-
-    uint2 packed = gEmissiveSampler._emissivePower.triangleAliasTable[triangleIndex];
-    float threshold = f16tof32(packed.x >> 16u);
-    uint selectAbove = ((packed.x & 0xFFFFu) << 8u) | ((packed.y >> 24u) & 0xFFu);
-    uint selectBelow = packed.y & 0xFFFFFFu;
-
-    // Test the threshold in the current table entry; pick one of the two options
-    triangleIndex = (sampleNext1D(sg) >= threshold) ? selectAbove : selectBelow;
-
-    float triangleSelectionPdf = gScene.lightCollection.fluxData[triangleIndex].flux * gEmissiveSampler._emissivePower.invWeightsSum;
-
-    //Sample emissive triangle
-    const EmissiveTriangle tri = gScene.lightCollection.getTriangle(triangleIndex);
-    const float3 barycentrics = sample_triangle(sampleNext2D(sg));
-    pls.posW = tri.getPosition(barycentrics);
-    pls.normal = tri.normal;
-
-    // Get Flux
-    float2 uv = tri.getTexCoord(barycentrics);
-    pls.flux = gScene.materials.evalEmissive(tri.materialID, uv) * tri.area;
-
-    pls.posW = computeRayOrigin(pls.posW, pls.normal); //Offset as this light is real geometry
-    pls.flux /= triangleSelectionPdf;
-
-    return true;
-}
-#endif
-
-/*  Creates a photon light sample from analytic point or spot lights
-    \param[in/out] Random Number Generator
-    \param[out] Photon light sample
-    \param[out] Direction the photon should be dispatched
-    \return true if light sample is valid
-*/
-bool createLightSampleAnalytic(inout SampleGenerator sg, out PhotonLightSample pls, out float3 sampledDir)
-{
-    pls = {};
-    sampledDir = float3(0);
-    const uint lightCount = gScene.getLightCount();
-    if (lightCount == 0)
-        return false;
-    // Uniformly sample one of the analytic lights
-    float rndLightIdx = float(lightCount) * sampleNext1D(sg);
-    uint lightIdx = min(uint(floor(rndLightIdx)), lightCount - 1);
-    LightData lightData = gScene.getLight(lightIdx);
-
-    // Only Point(+ Spot) lights are supported (due to RTXDI)
-    if (lightData.type != uint(LightType::Point))
-        return false;
-    float invLightPdf;
-    float3 woLocal;
-    float3 rnd = sampleNext3D(sg);
-    rnd.z = 0;
-    float spotAngle = lightData.cosOpeningAngle;
-    if (lightData.openingAngle < M_2PI) // If the opening angle is smaller than 2PI it is a spotlight
-    {
-        spotAngle = cos(lightData.openingAngle - lightData.penumbraAngle * rnd.z);
-        woLocal = sample_cone(rnd.xy, spotAngle);
-    }
-    else // Pointlight
-    {
-        woLocal = sample_sphere(rnd.xy);
-    }
-    invLightPdf = M_2PI * (1.f - spotAngle);
-
-    if (invLightPdf <= 0.f)
-        return false;
-
-    invLightPdf *= lightCount; // Take the select pdf into account
-
-    // Fill the photon light struct
-    pls.posW = lightData.posW;
-    pls.normal = lightData.dirW;
-    pls.flux = lightData.intensity * invLightPdf;
-
-    sampledDir = fromLocalToWorld(pls.normal, woLocal);
-    return true;
-}
-
 //A dd empty hit info for miss
 [shader("miss")]
 void miss(inout RayPayload rayData: SV_RayPayload)
@@ -268,51 +138,24 @@ void rayGen()
     const float invRejection = 1.f / gGlobalRejectionProb;
 
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5);
-    RayDesc ray;
-    PhotonLightSample pls;
-
-    // Create a photon by sampling from emissive lights or analytic light sources
-#if USE_EMISSIVE_LIGHTS
-    if (gUseAnalyticLights)
-#endif
-    { // Analytic light sample
-        float3 sampleDir;
-        if (!createLightSampleAnalytic(sg, pls, sampleDir))
-            return;
-
-        ray.Direction = sampleDir;
-    }
-#if USE_EMISSIVE_LIGHTS
-    else { // Emissive light sample
-        if (!createLightSample(sg, pls))
-            return;
-
-        float lightDirPDF = 1.0;
-        float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sg), lightDirPDF);
-
-        if (lightDirPDF <= 0.f)
-            return;
-
-        ray.Direction = fromLocalToWorld(pls.normal, woLocal);
-        pls.flux *= M_PI; // Lambert Emitter
-    }
-#endif
-
-    // Count emitted photons (successful light sampling)
-    InterlockedAdd(gCounters[0].PhotonsEmitted, 1);
-
-    //pls.flux /= dispatchDims.x * dispatchDims.y; // Division through all dipatched photons
     
-    // Prepare the rest of the ray
-    ray.Origin = pls.posW;
-    ray.TMin = 0.0;
-    ray.TMax = FLT_MAX;
+    // Generate photon emission using unified light sampler
+    PhotonLightSample ls;
+    if (!gLights.generateLightSample(sg, ls))
+        return;
+
+    // Count emitted photons
+    InterlockedAdd(gCounters[0].PhotonsEmitted, 1);
+    
+    // Setup ray for tracing
+    RayDesc ray = ls.getRay().toRayDesc();
+    
     RayPayload rayPayload = RayPayload();
     
     bool storeAsCaustic = false;
     bool reflectedDiffuse = false;
-    float3 photonStartFlux = pls.flux;
-    float3 thp = float3(1.0); //Throughput
+    float3 thp = float3(1.0);
+    float3 photonStartFlux = ls.flux * M_1_PI / (dispatchDims.x * dispatchDims.y);
     float3 photonFlux = photonStartFlux;
 
     // Main Raytrace Loop
