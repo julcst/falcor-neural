@@ -27,12 +27,13 @@
  **************************************************************************/
 #include "VisualizePhotons.h"
 #include "RenderGraph/RenderPassHelpers.h"
-#include <algorithm>
+#include "../TracePhotons/Structs.slang"
 
 namespace
 {
     const char kShaderFile[] = "RenderPasses/VisualizePhotons/VisualizePhotons.cs.slang";
     const std::string kPhotonBuffer = "photons";
+    const std::string kCounterBuffer = "counters";
     const std::string kOutputColor = "dst";
 }
 
@@ -58,6 +59,10 @@ RenderPassReflection VisualizePhotons::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
 
     reflector.addInput(kPhotonBuffer, "Traced photons")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::ShaderResource);
+    
+    reflector.addInput(kCounterBuffer, "Photon Counters")
         .rawBuffer(0)
         .bindFlags(ResourceBindFlags::ShaderResource);
 
@@ -99,7 +104,12 @@ void VisualizePhotons::execute(RenderContext* pRenderContext, const RenderData& 
     const float4x4 viewProj = pCamera->getViewProjMatrix();
     var["CB"]["gViewProj"] = viewProj;
 
-    mpVisualizePass->execute(pRenderContext, 100000, 1, 1);
+    auto pCounterBuffer = renderData.getResource(kCounterBuffer)->asBuffer();
+    FALCOR_ASSERT(pCounterBuffer);
+    var["gCounters"] = pCounterBuffer;
+    const auto counters = pCounterBuffer->getElement<PhotonCounters>(0u);
+
+    mpVisualizePass->execute(pRenderContext, counters.PhotonStores, 1, 1);
 }
 
 void VisualizePhotons::renderUI(Gui::Widgets& widget)

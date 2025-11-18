@@ -1,9 +1,10 @@
 #include "Utils/Math/MathConstants.slangh"
 
-import RenderPasses.TracePhotons.PhotonHit;
+import RenderPasses.TracePhotons.Structs;
 
 StructuredBuffer<PhotonHit> gPhotonHits;
-RWTexture2D<float4>        gOutput;
+StructuredBuffer<PhotonCounters> gCounters;
+RWTexture2D<float4>         gOutput;
 
 cbuffer CB
 {
@@ -16,6 +17,7 @@ cbuffer CB
 void main(uint3 tid : SV_DispatchThreadID)
 {
     uint idx = tid.x;
+    if (idx >= gCounters[0].PhotonStores) return;
 
     PhotonHit ph = gPhotonHits[idx];
 

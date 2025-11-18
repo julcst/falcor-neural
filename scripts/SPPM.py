@@ -18,6 +18,7 @@ def render_graph_SPPM():
     visualizePhotons = createPass("VisualizePhotons")
     g.addPass(visualizePhotons, "VisualizePhotons")
     g.addEdge("TracePhotons.photons", "VisualizePhotons.photons")
+    g.addEdge("TracePhotons.counters", "VisualizePhotons.counters")
     g.addEdge("VisualizePhotons.dst", "ToneMapper.src")  # Temporary connection for visualization
 
     # Reference PathTracer

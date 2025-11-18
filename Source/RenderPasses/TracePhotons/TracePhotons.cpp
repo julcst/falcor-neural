@@ -13,7 +13,10 @@ const char kShaderFile[] = "RenderPasses/TracePhotons/TracePhotons.rt.slang";
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
 const uint32_t kMaxPayloadSizeBytes = 72u;
-const uint32_t kMaxRecursionDepth = 2u;
+const uint32_t kMaxRecursionDepth = 1u;
+
+const std::string kPhotonBuffer = "photons";
+const std::string kCounterBuffer = "counters";
 } // namespace
 
 TracePhotons::TracePhotons(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
@@ -32,8 +35,11 @@ RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
     // Define the required resources here
     logInfo("TracePhotons::reflect called");
     RenderPassReflection reflector;
-    reflector.addOutput("photons", "Traced photons")
+    reflector.addOutput(kPhotonBuffer, "Traced photons")
              .rawBuffer(mPhotonCount * mMaxBounces * sizeof(PhotonHit))
+             .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addOutput(kCounterBuffer, "Photon Counters")
+             .rawBuffer(sizeof(PhotonCounters))
              .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     return reflector;
 }
@@ -74,39 +80,23 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
 
     if (mpEmissiveSampler)
         mpEmissiveSampler->bindShaderData(var["gLights"]["emissiveSampler"]);
-    
-    // Allocate/resize photon hit buffer and bind outputs
-    if (!mpPhotonHits || mpPhotonHits->getElementCount() < photonCapacity)
-    {
-        // Use reflection to allocate with correct stride for PhotonHit.
-        mpPhotonHits = mpDevice->createStructuredBuffer(
-            var["gPhotonHits"].getType(),
-            /* elementCount */ photonCapacity,
-            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
-            MemoryType::DeviceLocal, nullptr, false);
-        mpPhotonHits->setName("PhotonHits");
-    }
-    var["gPhotonHits"] = renderData.getResource("photons")->asBuffer();
 
-    if (!mpCounters)
-    {
-        // Create a small buffer to store counters
-        mpCounters = mpDevice->createStructuredBuffer(
-            var["gCounters"].getType(),
-            /* elementCount */ 1,
-            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource,
-            MemoryType::DeviceLocal, nullptr, false);
-        mpCounters->setName("PhotonCounters");
-    }
-    pRenderContext->clearUAV(mpCounters->getUAV().get(), uint4(0));
-    var["gCounters"] = mpCounters;
+    const auto& pPhotonHits = renderData.getResource(kPhotonBuffer)->asBuffer();
+    FALCOR_ASSERT(pPhotonHits);
+    var["gPhotonHits"] = pPhotonHits;
+
+    const auto& pCounters = renderData.getResource(kCounterBuffer)->asBuffer();
+    FALCOR_ASSERT(pCounters);
+    pRenderContext->clearUAV(pCounters->getUAV().get(), uint4(0));
+    var["gCounters"] = pCounters;
     
     // Trace photons
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(mPhotonCount, 1, 1));
-    pRenderContext->uavBarrier(mpCounters.get());
-    const auto counters = mpCounters->getElement<SPPMCounters>(0u);
 
+#ifdef _DEBUG
+    const auto counters = pCounters->getElement<PhotonCounters>(0u);
     logInfo("photons={} dispatched={} emitted={} stored={}", mPhotonCount, counters.PhotonsDispatched, counters.PhotonsEmitted, counters.PhotonStores);
+#endif
 
     mFrameCount++;
 }

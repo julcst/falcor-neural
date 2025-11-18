@@ -36,8 +36,6 @@ private:
     ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded.
     ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator.
     std::unique_ptr<EmissiveLightSampler> mpEmissiveSampler;    ///< Emissive light sampler or nullptr if not used.
-    ref<Buffer>                     mpPhotonHits;               ///< Buffer to store photon hits.
-    ref<Buffer>                     mpCounters;                 ///< Buffer to store counters.
 
     // Configuration
     uint mPhotonCount = 1000000;            ///< Number of photons to trace per frame.

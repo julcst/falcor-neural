@@ -5,7 +5,7 @@
 
 BEGIN_NAMESPACE_FALCOR
 
-struct SPPMCounters
+struct PhotonCounters
 {
     uint PhotonsDispatched;   // photons processed in grid/rt accumulation
     uint PhotonsEmitted;      // photons launched

@@ -22,8 +22,8 @@ cbuffer CB
 LightSampler gLights;
 
 // Photon output buffers
-RWStructuredBuffer<PhotonHit> gPhotonHits;
-RWStructuredBuffer<SPPMCounters> gCounters; // TODO: Maybe use AppendStructuredBuffer? But not HW accelerated probably
+RWStructuredBuffer<PhotonHit> gPhotonHits; // TODO: Maybe use AppendStructuredBuffer? But not HW accelerated probably
+RWStructuredBuffer<PhotonCounters> gCounters;
 
 static const bool kAlphaTest = true;
 static const float kRussianRouletteWeight = 1.0f; // TODO: expose
