@@ -1,24 +1,21 @@
 #include "Utils/Math/MathConstants.slangh"
 
-import PhotonHit;
+import RenderPasses.TracePhotons.PhotonHit;
 
 StructuredBuffer<PhotonHit> gPhotonHits;
 RWTexture2D<float4>        gOutput;
 
 cbuffer CB
 {
-    uint   gPhotonCount;
     uint2  gFrameDim;
-    int    gPointSizePx;   // 1..5
+    uint   gPointSizePx;
     float4x4 gViewProj;
-    float3 gColor;
 }
 
 [numthreads(256,1,1)]
 void main(uint3 tid : SV_DispatchThreadID)
 {
     uint idx = tid.x;
-    if (idx >= gPhotonCount) return;
 
     PhotonHit ph = gPhotonHits[idx];
 
@@ -30,8 +27,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (any(uv < 0.0) || any(uv > 1.0)) return;
 
     int2 p = int2(uv * float2(gFrameDim));
-    int r = max(1, gPointSizePx);
-    int half = r / 2;
+    int half = gPointSizePx / 2;
     for (int dy = -half; dy <= half; ++dy)
     {
         int y = p.y + dy;

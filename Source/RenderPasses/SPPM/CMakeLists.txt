@@ -9,11 +9,6 @@ target_sources(SPPM PRIVATE
     TraceQueries.rt.slang
     IntersectPhotons.rt.slang
     LightSampler.slang
-    BuildQueryBounds.cs.slang
-    BuildQueryGrid.cs.slang
-    AccumulateByGrid.cs.slang
-    AccumulateByScreen.cs.slang
-    VisualizePhotons.cs.slang
     PhotonQuery.slang
     PhotonHit.slang
 )

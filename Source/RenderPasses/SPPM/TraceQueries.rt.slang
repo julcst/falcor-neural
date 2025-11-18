@@ -7,13 +7,13 @@ import Utils.Sampling.SampleGenerator;
 import Rendering.Materials.TexLODHelpers;
 import Rendering.Materials.TexLODTypes;
 import Utils.Math.MathHelpers;
+import Utils.Math.AABB;
 import Utils.Timing.GpuTimer;
 import PhotonQuery;
 
-struct RtAABB { float3 min; float3 max; };
-
 RWStructuredBuffer<PhotonQuery> gPhotonQueries;
-RWStructuredBuffer<RtAABB> gQueryAABBs;
+RWStructuredBuffer<AABB> gQueryAABBs;
+RWStructuredBuffer<uint4> gQueryAccumulation;
 RWStructuredBuffer<SPPMCounters> gCounters; // SPPM counters (single element)
 
 cbuffer CB
@@ -79,23 +79,24 @@ void rayGen()
         q.position = sd.posW;
         q.viewDir = -ray.dir;
         q.valid = 1;
+        gQueryAccumulation[index] = uint4(0,0,0,0);
         InterlockedAdd(gCounters[0].ValidQueries, 1);
+    } else {
+        gQueryAccumulation[index] = uint4(0,0,0,0);
     }
 
     gPhotonQueries[index] = q;
 
     // Write AABB for this query directly here to avoid a separate compute pass
-    RtAABB aabb;
+    AABB aabb;
     if (q.valid != 0)
     {
         float3 r = float3(q.radius);
-        aabb.min = q.position - r;
-        aabb.max = q.position + r;
+        aabb.set(q.position - r, q.position + r);
     }
     else
     {
-        aabb.min = float3(1e30f, 1e30f, 1e30f);
-        aabb.max = float3(-1e30f, -1e30f, -1e30f);
+        aabb.invalidate();
     }
     gQueryAABBs[index] = aabb;
 }

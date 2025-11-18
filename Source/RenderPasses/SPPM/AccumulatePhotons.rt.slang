@@ -18,8 +18,6 @@ cbuffer CB
 {
     uint  gQueryCount;
     float gAccumScale;
-    uint  gFirstPhoton;
-    uint  gPhotonCount;
 }
 
 struct Payload { float3 flux; };
@@ -74,7 +72,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
 
     TinyUniformSampleGenerator sg = TinyUniformSampleGenerator(42u);
     float r2 = q.radius * q.radius;
-    float3 outgoing_flux = p.flux * mi.eval(sd, wo, sg) / (abs(dot(wo, sd.faceN)) * r2);
+    float3 outgoing_flux = p.flux * mi.eval(sd, wo, sg) * M_1_PI / (abs(dot(wo, sd.faceN)) * r2);
 
     uint4 inc = uint4(
         (uint)max(0.0, outgoing_flux.x * gAccumScale + 0.5),
@@ -97,8 +95,8 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
 [shader("raygeneration")]
 void rayGen()
 {
-    uint idx = DispatchRaysIndex().x + gFirstPhoton;
-    if (idx >= gFirstPhoton + gPhotonCount) return;
+    uint idx = DispatchRaysIndex().x;
+    if (idx >= gCounters[0].PhotonsEmitted) return;
 
     // Count rays launched in intersect pass
     InterlockedAdd(gCounters[0].IntersectRaygen, 1);

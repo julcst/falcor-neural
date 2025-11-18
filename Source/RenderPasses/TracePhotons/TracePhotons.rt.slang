@@ -1,6 +1,5 @@
 #include "Scene/SceneDefines.slangh"
 #include "Utils/Math/MathConstants.slangh"
-#include "RenderPasses/SPPM/SPPMDebug.slangh"
 
 import Scene.Raytracing;
 import Utils.Math.MathHelpers;
@@ -8,22 +7,15 @@ import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
 import LightSampler;
-import PhotonQuery;
-import PhotonHit;
+import Common;
+import Structs;
 
 cbuffer CB
 {
-    uint gMaxBounces;
     uint gFrameCount;
-    float2 gPhotonRadius;
-
-    uint gDispatchDimension;
-    float gGlobalRejectionProb;
-
-    uint gQueryCount;
-    float gAccumScale;
-    uint gDebugFlags;
+    uint gMaxBounces;
     uint gPhotonHitCapacity;
+    float gGlobalRejectionProb;
 }
 
 // Unified light sampler
@@ -31,12 +23,10 @@ LightSampler gLights;
 
 // Photon output buffers
 RWStructuredBuffer<PhotonHit> gPhotonHits;
-RWStructuredBuffer<uint> gPhotonHitCounter;
-RWStructuredBuffer<SPPMCounters> gCounters;
+RWStructuredBuffer<SPPMCounters> gCounters; // TODO: Maybe use AppendStructuredBuffer? But not HW accelerated probably
 
 static const bool kAlphaTest = true;
-static const float kRoughnessThreshold = 0.05f;
-static const bool kRussianRoulette = true;  //TODO as option
+static const float kRussianRouletteWeight = 1.0f; // TODO: expose
 
 struct RayPayload
 {
@@ -50,49 +40,6 @@ struct RayPayload
     {
         this.packedHitInfo = {};
     }
-}
-
-// Minimal local implementation to setup ShadingData from a HitInfo
-ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const float3 rayDir)
-{
-    VertexData v = {};
-    uint materialID = {};
-
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_TRIANGLE_MESH)
-    if (hit.getType() == HitType::Triangle)
-    {
-        const TriangleHit triangleHit = hit.getTriangleHit();
-        v = gScene.getVertexData(triangleHit);
-        materialID = gScene.getMaterialID(triangleHit.instanceID);
-    }
-#endif
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_DISPLACED_TRIANGLE_MESH)
-    if (hit.getType() == HitType::DisplacedTriangle)
-    {
-        const DisplacedTriangleHit displacedTriangleHit = hit.getDisplacedTriangleHit();
-        v = gScene.getVertexData(displacedTriangleHit, -rayDir);
-        materialID = gScene.getMaterialID(displacedTriangleHit.instanceID);
-    }
-#endif
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_CURVE)
-    if (hit.getType() == HitType::Curve)
-    {
-        const CurveHit curveHit = hit.getCurveHit();
-        v = gScene.getVertexDataFromCurve(curveHit);
-        materialID = gScene.getMaterialID(curveHit.instanceID);
-    }
-#endif
-#if SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
-    if (hit.getType() == HitType::SDFGrid)
-    {
-        const SDFGridHit sdfGridHit = hit.getSDFGridHit();
-        v = gScene.getVertexDataFromSDFGrid(sdfGridHit, rayOrigin, rayDir);
-        materialID = gScene.getMaterialID(sdfGridHit.instanceID);
-    }
-#endif
-
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir);
-    return sd;
 }
 
 //A dd empty hit info for miss
@@ -132,12 +79,13 @@ void closestHit(inout RayPayload rayData: SV_RayPayload, BuiltInTriangleIntersec
 [shader("raygeneration")]
 void rayGen()
 {
+    InterlockedAdd(gCounters[0].PhotonsDispatched, 1);
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dispatchDims = DispatchRaysDimensions().xy;
 
     const float invRejection = 1.f / gGlobalRejectionProb;
 
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5);
+    SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5); // TODO: Why * 5 here?
     
     // Generate photon emission using unified light sampler
     PhotonLightSample ls;
@@ -152,10 +100,10 @@ void rayGen()
     
     RayPayload rayPayload = RayPayload();
     
-    bool storeAsCaustic = false;
+    bool isCaustic = false;
     bool reflectedDiffuse = false;
     float3 thp = float3(1.0);
-    float3 photonStartFlux = ls.flux * M_1_PI / (dispatchDims.x * dispatchDims.y);
+    float3 photonStartFlux = ls.flux;// / (dispatchDims.x * dispatchDims.y);
     float3 photonFlux = photonStartFlux;
 
     // Main Raytrace Loop
@@ -163,7 +111,7 @@ void rayGen()
         TraceRay(gScene.rtAccel, 0 /*Flags*/, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
 
         HitInfo hit = HitInfo(rayPayload.packedHitInfo);
-        //Stop if photon leaves the scene
+        // Stop if photon leaves the scene
         if (!hit.isValid())
             return;
 
@@ -178,24 +126,22 @@ void rayGen()
         InterlockedAdd(gCounters[0].TotalBounces, 1);
 
         // Store Photon if a diffuse surface was hit
-        reflectedDiffuse = bsdfProperties.roughness > kRoughnessThreshold;
         //if (reflectedDiffuse)
         {
             // Optionally reject some photons to reduce contention, scale flux accordingly
             bool keep = true;
             float3 storeFlux = photonFlux;
-            if (!storeAsCaustic) // Treat as global
+            if (!isCaustic) // Treat as global
             {
                 keep = sampleNext1D(sg) <= gGlobalRejectionProb;
                 storeFlux *= invRejection;
             }
-            //if (keep)
+            if (keep)
             {
-                // Count photons stored as candidate hits (distinct from accumulation processed count)
-                InterlockedAdd(gCounters[0].PhotonStores, 1);
                 // Record photon store point; accumulation happens in a separate RT pass.
                 uint idx;
-                InterlockedAdd(gPhotonHitCounter[0], 1, idx);
+                // TODO collect photons per thread then bulk append
+                InterlockedAdd(gCounters[0].PhotonStores, 1, idx); // Atomic increment to get unique index
                 if (idx < gPhotonHitCapacity)
                 {
                     gPhotonHits[idx].posW = sd.posW;
@@ -216,7 +162,7 @@ void rayGen()
         thp *= bsdfSample.weight;
 
         // Russian Roulette
-        const float rrVal = (thp.x + thp.y + thp.z) / 3.0;
+        const float rrVal = luminance(thp) * kRussianRouletteWeight;
         const float prob = max(0.f, 1.f - rrVal);
         if (sampleNext1D(sg) < prob)
         {
@@ -228,7 +174,7 @@ void rayGen()
         }
 
         // Update Photon
-        storeAsCaustic = !reflectedDiffuse;
+        isCaustic = !reflectedDiffuse;
         photonFlux = photonStartFlux * thp;
     }
 }

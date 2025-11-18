@@ -136,9 +136,6 @@ void SPPM::execute(RenderContext* pRenderContext, const RenderData& renderData)
         return;
     }
 
-    if (mpQueryAccumulator)
-        pRenderContext->clearUAV(mpQueryAccumulator->getUAV().get(), uint4(0));
-
     logInfo("SPPM: starting tracePhotonsPass()");
     // Reset photon hit counter before tracing photons.
     if (!mpPhotonHitCounter)
@@ -469,6 +466,7 @@ void SPPM::traceQueries(RenderContext* pRenderContext, const RenderData& renderD
     qVar["CB"]["gQueryRadius"] = queryRadius;
     qVar["gPhotonQueries"] = mpQueryBuffer;
     qVar["gQueryAABBs"] = mpQueryAABBBuffer;
+    qVar["gQueryAccumulation"] = mpQueryAccumulator;
     if (mpDebugCounters) qVar["gCounters"] = mpDebugCounters;
 
     mpScene->raytrace(pRenderContext, mTraceQueryPass.pProgram.get(), mTraceQueryPass.pVars, uint3(mFrameDim.x, mFrameDim.y, 1));
@@ -764,9 +762,7 @@ void SPPM::RayTraceProgramHelper::initProgramVars(const ref<Device>& pDevice, co
 void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCount)
 {
     FALCOR_PROFILE(pRenderContext, "IntersectPhotons");
-
-    if (photonHitCount == 0 || !mpQueryTLAS || !mpQueryBuffer || !mpQueryAccumulator || !mpPhotonHits)
-        return;
+    FALCOR_ASSERT(mpQueryTLAS); FALCOR_ASSERT(mpQueryBuffer); FALCOR_ASSERT(mpQueryAccumulator); FALCOR_ASSERT(mpPhotonHits);
 
     if (!mIntersectPass.pProgram)
     {
@@ -796,8 +792,6 @@ void SPPM::intersectPhotonsPass(RenderContext* pRenderContext, uint photonHitCou
     mpSampleGenerator->bindShaderData(var);
     var["CB"]["gQueryCount"] = mQueryCount;
     var["CB"]["gAccumScale"] = 65536.0f;
-    var["CB"]["gFirstPhoton"] = 0u;
-    var["CB"]["gPhotonCount"] = photonHitCount;
 
     if (!mpQueryTLAS)
     {
