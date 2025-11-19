@@ -31,3 +31,5 @@
 *.tlog
 *.bak
 *.swp
+
+out.png

@@ -48,7 +48,7 @@ class ProfilerUI;
 
 /// Falcor testbed application class.
 /// This is the main Falcor application available through the Python API.
-class Testbed : public Object, private Window::ICallbacks
+class FALCOR_API Testbed : public Object, private Window::ICallbacks
 {
     FALCOR_OBJECT(Testbed)
 public:

@@ -5,27 +5,21 @@ def render_graph_SPPM():
     g = RenderGraph("SPPM")
 
     # Accumulation for progressive rendering
-    accum = createPass("AccumulatePass", {"enabled": True, "precisionMode": "Single"})
-    g.addPass(accum, "AccumulatePass")
+    g.createPass("AccumulatePass", "AccumulatePass", {"enabled": True, "precisionMode": "Single"})
     
     # Tonemapping for display
-    tonemap = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
-    g.addPass(tonemap, "ToneMapper")
+    g.createPass("ToneMapper", "ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
     
     # TracePhotons
-    photon = createPass("TracePhotons")
-    g.addPass(photon, "TracePhotons")
-    visualizePhotons = createPass("VisualizePhotons")
-    g.addPass(visualizePhotons, "VisualizePhotons")
+    g.createPass("TracePhotons", "TracePhotons")
+    g.createPass("VisualizePhotons", "VisualizePhotons")
     g.addEdge("TracePhotons.photons", "VisualizePhotons.photons")
     g.addEdge("TracePhotons.counters", "VisualizePhotons.counters")
     g.addEdge("VisualizePhotons.dst", "ToneMapper.src")  # Temporary connection for visualization
 
     # Reference PathTracer
-    PathTracer = createPass("PathTracer", {'samplesPerPixel': 1})
-    g.addPass(PathTracer, "PathTracer")
-    VBufferRT = createPass("VBufferRT", {'samplePattern': 'Stratified', 'sampleCount': 16, 'useAlphaTest': True})
-    g.addPass(VBufferRT, "VBufferRT")
+    g.createPass("PathTracer", "PathTracer", {'samplesPerPixel': 1})
+    g.createPass("VBufferRT", "VBufferRT", {'samplePattern': 'Stratified', 'sampleCount': 16, 'useAlphaTest': True})
     g.addEdge("VBufferRT.vbuffer", "PathTracer.vbuffer")
     g.addEdge("VBufferRT.viewW", "PathTracer.viewW")
     g.addEdge("VBufferRT.mvec", "PathTracer.mvec")
@@ -38,7 +32,7 @@ def render_graph_SPPM():
     return g
 
 # Load Cornell Box scene as default
-m.loadScene('test_scenes/cornell_box.pyscene')
+#m.loadScene('test_scenes/cornell_box.pyscene')
 
 # Attach render graph
 m.addGraph(render_graph_SPPM())
