@@ -94,6 +94,7 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(mPhotonCount, 1, 1));
 
 #ifdef _DEBUG
+    // pRenderContext->uavBarrier(pCounters.get());
     const auto counters = pCounters->getElement<PhotonCounters>(0u);
     logInfo("photons={} dispatched={} emitted={} stored={}", mPhotonCount, counters.PhotonsDispatched, counters.PhotonsEmitted, counters.PhotonStores);
 #endif

@@ -107,6 +107,8 @@ void VisualizePhotons::execute(RenderContext* pRenderContext, const RenderData& 
     auto pCounterBuffer = renderData.getResource(kCounterBuffer)->asBuffer();
     FALCOR_ASSERT(pCounterBuffer);
     var["gCounters"] = pCounterBuffer;
+    // TODO: Use indirect dispatch to avoid CPU-GPU sync
+    pRenderContext->uavBarrier(pCounterBuffer.get());
     const auto counters = pCounterBuffer->getElement<PhotonCounters>(0u);
 
     mpVisualizePass->execute(pRenderContext, counters.PhotonStores, 1, 1);

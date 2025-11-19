@@ -44,7 +44,7 @@ int runMain(int argc, char** argv)
     g->addEdge("TracePhotons.counters", "VisualizePhotons.counters");
 
     app.setRenderGraph(g);
-    for (uint32_t i = 0; i < 2; ++i)
+    for (uint32_t i = 0; i < 1; ++i)
         app.frame();
     app.captureOutput("out.png");
 
