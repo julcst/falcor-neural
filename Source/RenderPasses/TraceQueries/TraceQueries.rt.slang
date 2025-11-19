@@ -13,7 +13,7 @@ import PhotonQuery;
 
 RWStructuredBuffer<PhotonQuery> gPhotonQueries;
 RWStructuredBuffer<AABB> gQueryAABBs;
-RWStructuredBuffer<uint4> gQueryAccumulation;
+RWStructuredBuffer<float4> gQueryAccumulation;
 RWStructuredBuffer<SPPMCounters> gCounters; // SPPM counters (single element)
 
 cbuffer CB
