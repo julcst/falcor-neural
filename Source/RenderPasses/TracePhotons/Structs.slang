@@ -1,4 +1,4 @@
-// Structured SPPM debug counters interface using a typed struct, shared between host/device.
+// Structured counters interface using a typed struct, shared between host/device.
 #pragma once
 
 #include "Utils/HostDeviceShared.slangh"

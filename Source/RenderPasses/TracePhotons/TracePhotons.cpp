@@ -12,7 +12,7 @@ const char kShaderFile[] = "RenderPasses/TracePhotons/TracePhotons.rt.slang";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
-const uint32_t kMaxPayloadSizeBytes = 72u;
+const uint32_t kMaxPayloadSizeBytes = 3u * sizeof(float4);
 const uint32_t kMaxRecursionDepth = 1u;
 
 const std::string kPhotonBuffer = "photons";
@@ -33,7 +33,6 @@ Properties TracePhotons::getProperties() const
 RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
 {
     // Define the required resources here
-    logInfo("TracePhotons::reflect called");
     RenderPassReflection reflector;
     reflector.addOutput(kPhotonBuffer, "Traced photons")
              .rawBuffer(mPhotonCount * mMaxBounces * sizeof(PhotonHit))
@@ -102,7 +101,12 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     mFrameCount++;
 }
 
-void TracePhotons::renderUI(Gui::Widgets& widget) {}
+void TracePhotons::renderUI(Gui::Widgets& widget) {
+    if (widget.var("Photon Count", mPhotonCount, 1u, 1u << 20u))
+    {
+        requestRecompile(); // Update buffer sizes
+    }
+}
 
 void TracePhotons::prepareLightingStructure(RenderContext* pRenderContext)
 {

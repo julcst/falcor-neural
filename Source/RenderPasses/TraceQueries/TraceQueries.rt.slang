@@ -9,12 +9,10 @@ import Rendering.Materials.TexLODTypes;
 import Utils.Math.MathHelpers;
 import Utils.Math.AABB;
 import Utils.Timing.GpuTimer;
-import PhotonQuery;
+import Query;
 
-RWStructuredBuffer<PhotonQuery> gPhotonQueries;
+RWStructuredBuffer<Query> gPhotonQueries;
 RWStructuredBuffer<AABB> gQueryAABBs;
-RWStructuredBuffer<float4> gQueryAccumulation;
-RWStructuredBuffer<SPPMCounters> gCounters; // SPPM counters (single element)
 
 cbuffer CB
 {
@@ -60,10 +58,9 @@ void rayGen()
     RayPayload payload;
     TraceRayScene(0, 0xff, 0 /* hitIdx */, 0 /* missIdx */, ray.toRayDesc(), payload);
 
-    PhotonQuery q = {};
+    Query q = {};
     q.pixelIndex = index;
     q.radius = gQueryRadius;
-    q.valid = 0;
     q.hit = payload.hit;
 
     HitInfo hit = HitInfo(payload.hit);
@@ -78,18 +75,14 @@ void rayGen()
 
         q.position = sd.posW;
         q.viewDir = -ray.dir;
-        q.valid = 1;
-        gQueryAccumulation[index] = uint4(0,0,0,0);
-        InterlockedAdd(gCounters[0].ValidQueries, 1);
     } else {
-        gQueryAccumulation[index] = uint4(0,0,0,0);
     }
 
     gPhotonQueries[index] = q;
 
     // Write AABB for this query directly here to avoid a separate compute pass
     AABB aabb;
-    if (q.valid != 0)
+    if (q.isValid())
     {
         float3 r = float3(q.radius);
         aabb.set(q.position - r, q.position + r);
