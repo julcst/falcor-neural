@@ -1,5 +1,4 @@
 #include "Scene/SceneDefines.slangh"
-#include "RenderPasses/SPPM/SPPMDebug.slangh"
 
 import Scene.Raytracing;
 import Scene.Shading;
@@ -43,7 +42,7 @@ void anyHit(inout RayPayload p: SV_RayPayload, BuiltInTriangleIntersectionAttrib
 void closestHit(inout RayPayload p: SV_RayPayload, BuiltInTriangleIntersectionAttributes attribs: SV_IntersectionAttributes)
 {
     TriangleHit th; th.instanceID = getGeometryInstanceID(); th.primitiveIndex = PrimitiveIndex(); th.barycentrics = attribs.barycentrics;
-    p.hit = HitInfo(th).data;
+    p.hit = th.pack();
 }
 
 [shader("raygeneration")]

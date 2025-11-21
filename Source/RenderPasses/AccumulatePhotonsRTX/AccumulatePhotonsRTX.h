@@ -48,9 +48,31 @@ public:
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
-    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override {}
+    virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
+    void prepareVars();
+    void buildQueryAcceleration(RenderContext* pRenderContext, ref<Buffer> pQueryAABBBuffer);
+
+    ref<Scene> mpScene;
+
+    // Ray tracing program state (program, SBT, vars)
+    struct {
+        ref<Program> pProgram;
+        ref<RtBindingTable> pBindingTable;
+        ref<RtProgramVars> pVars;
+    } mTracer;
+
+    ref<ComputePass> mpVisualizePass;
+
+    // Acceleration structure resources
+    ref<RtAccelerationStructure> mpQueryBLAS;
+    ref<RtAccelerationStructure> mpQueryTLAS;
+    ref<Buffer> mpQueryBlasStorage;
+    ref<Buffer> mpQueryBlasScratch;
+    ref<Buffer> mpQueryTlasStorage;
+    ref<Buffer> mpQueryTlasScratch;
+    ref<Buffer> mpQueryInstanceBuffer;
 };

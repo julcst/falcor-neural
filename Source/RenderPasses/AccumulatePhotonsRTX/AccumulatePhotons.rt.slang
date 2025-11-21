@@ -1,29 +1,25 @@
 #include "Utils/Math/MathConstants.slangh"
-#include "RenderPasses/SPPM/SPPMDebug.slangh"
 
-import PhotonQuery;
-import PhotonHit;
-import Scene.Raytracing;
+import RenderPasses.TraceQueries.Query;
+import RenderPasses.TracePhotons.Structs;
 import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
+import DebugCounters;
 
 // Resources
 RaytracingAccelerationStructure gQueryAS;
-StructuredBuffer<PhotonQuery>  gPhotonQueries;
-RWStructuredBuffer<uint4>      gQueryAccumulation;
-StructuredBuffer<PhotonHit>    gPhotonHits;
-RWStructuredBuffer<SPPMCounters> gCounters; // single element counters struct
+StructuredBuffer<Query> gPhotonQueries;
+StructuredBuffer<PhotonHit> gPhotonHits;
+StructuredBuffer<PhotonCounters> gCounters;
+RWStructuredBuffer<DebugCounters> gDebugCounters;
+RWByteAddressBuffer gQueryAccumulation; // float3 + uint per pixel
 
 cbuffer CB
 {
-    uint  gQueryCount;
-    float gAccumScale;
+    uint gQueryCount;
 }
 
 struct Payload { float3 flux; };
-
-[shader("miss")]
-void miss(inout Payload p : SV_RayPayload) { }
 
 // Procedural intersection: treat each primitive index as a sphere defined by PhotonQuery (position, radius)
 struct QueryIsectAttribs { };
@@ -32,62 +28,50 @@ struct QueryIsectAttribs { };
 void queryIntersection()
 {
     // Count intersection shader invocation attempts (only when AABB was traversed for this primitive)
-    InterlockedAdd(gCounters[0].IntersectorCalls, 1);
-    uint qi = PrimitiveIndex();
-    if (qi >= gQueryCount) return;
-    PhotonQuery q = gPhotonQueries[qi];
-    if (q.valid == 0) return;
+    InterlockedAdd(gDebugCounters[0].IntersectorCalls, 1);
+    let qi = PrimitiveIndex();
+    // if (qi >= gQueryCount) return;
+    let q = gPhotonQueries[qi];
+    if (!q.isValid()) return; // Should never happen
 
     // World-space ray
-    float3 center = WorldRayOrigin();
+    let center = WorldRayOrigin();
 
-    float3 diff = center - q.position;
-    float dist2 = dot(diff, diff);
-    if (dist2 > q.radius * q.radius) return;
+    let diff = center - q.position;
+    let dist2 = dot(diff, diff);
+    let r2 = q.radius * q.radius;
+    if (dist2 > r2) return;
 
-    QueryIsectAttribs attribs;
+    QueryIsectAttribs attribs; // TODO: pass Query data
     ReportHit(1e-6, 0, attribs);
 }
-
-
 
 [shader("anyhit")]
 void queryAnyHit(inout Payload p : SV_RayPayload)
 {
-    uint qi = PrimitiveIndex();
-    if (qi >= gQueryCount) { IgnoreHit(); return; }
-    PhotonQuery q = gPhotonQueries[qi];
-    if (q.valid == 0) { IgnoreHit(); return; }
-
-    // Count candidate hit
-    InterlockedAdd(gCounters[0].Candidates, 1);
+    let qi = PrimitiveIndex();
+    let q = gPhotonQueries[qi];
 
     let wo = q.viewDir;
     let wi = WorldRayDirection();
-    TriangleHit th = HitInfo(q.hit).getTriangleHit();
-    uint materialID = gScene.getMaterialID(th.instanceID);
-    VertexData v = gScene.getVertexData(th);
-    ShadingData sd = gScene.materials.prepareShadingData(v, materialID, wi);
+    let th = HitInfo(q.hit).getTriangleHit();
+    let materialID = gScene.getMaterialID(th.instanceID);
+    let v = gScene.getVertexData(th);
+    let sd = gScene.materials.prepareShadingData(v, materialID, wi);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
-    TinyUniformSampleGenerator sg = TinyUniformSampleGenerator(42u);
-    float r2 = q.radius * q.radius;
-    float3 outgoing_flux = p.flux * mi.eval(sd, wo, sg) * M_1_PI / (abs(dot(wo, sd.faceN)) * r2);
+    var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
+    let r2 = q.radius * q.radius;
+    let outgoing_flux = p.flux * mi.eval(sd, wo, sg) * M_1_PI / (abs(dot(wo, sd.faceN)) * r2);
 
-    uint4 inc = uint4(
-        (uint)max(0.0, outgoing_flux.x * gAccumScale + 0.5),
-        (uint)max(0.0, outgoing_flux.y * gAccumScale + 0.5),
-        (uint)max(0.0, outgoing_flux.z * gAccumScale + 0.5),
-        1u
-    );
-
-    InterlockedAdd(gQueryAccumulation[q.pixelIndex].x, inc.x);
-    InterlockedAdd(gQueryAccumulation[q.pixelIndex].y, inc.y);
-    InterlockedAdd(gQueryAccumulation[q.pixelIndex].z, inc.z);
-    InterlockedAdd(gQueryAccumulation[q.pixelIndex].w, inc.w);
+    let offset = qi * sizeof(float4);
+    gQueryAccumulation.InterlockedAddF32(offset + 0 * sizeof(float), outgoing_flux.x);
+    gQueryAccumulation.InterlockedAddF32(offset + 1 * sizeof(float), outgoing_flux.y);
+    gQueryAccumulation.InterlockedAddF32(offset + 2 * sizeof(float), outgoing_flux.z);
+    gQueryAccumulation.InterlockedAdd(offset + 3 * sizeof(float), 1u);
 
     // Count accumulation event (per hit processed)
-    InterlockedAdd(gCounters[0].Accumulations, 1);
+    InterlockedAdd(gDebugCounters[0].Accumulations, 1);
 
     IgnoreHit(); // visit all overlaps
 }
@@ -99,7 +83,7 @@ void rayGen()
     if (idx >= gCounters[0].PhotonsEmitted) return;
 
     // Count rays launched in intersect pass
-    InterlockedAdd(gCounters[0].IntersectRaygen, 1);
+    InterlockedAdd(gDebugCounters[0].RaygenCalls, 1);
 
     PhotonHit ph = gPhotonHits[idx];
 
@@ -107,7 +91,7 @@ void rayGen()
     r.Origin = ph.posW;
     r.Direction = ph.wi; // Encode incoming direction in ray direction to save payload space
     r.TMin = 0.0;
-    r.TMax = 1e-6;
+    r.TMax = 1e-6; // Make ray infinitesimally short
 
     Payload pl;
     pl.flux = ph.flux;

@@ -512,12 +512,9 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     ensureASBuffer(mpQueryBlasStorage, blasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query BLAS");
     ensureASBuffer(mpQueryBlasScratch, blasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query BLAS Scratch");
 
-    if (!mpQueryBLAS)
-    {
-        RtAccelerationStructure::Desc desc;
-        desc.setKind(RtAccelerationStructureKind::BottomLevel).setBuffer(mpQueryBlasStorage, 0, mpQueryBlasStorage->getSize());
-        mpQueryBLAS = RtAccelerationStructure::create(mpDevice, desc);
-    }
+    RtAccelerationStructure::Desc desc;
+    desc.setKind(RtAccelerationStructureKind::BottomLevel).setBuffer(mpQueryBlasStorage, 0, mpQueryBlasStorage->getSize());
+    mpQueryBLAS = RtAccelerationStructure::create(mpDevice, desc);
 
     RtAccelerationStructure::BuildDesc blasBuild = {};
     blasBuild.inputs = blasInputs;
@@ -526,6 +523,7 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     blasBuild.scratchData = mpQueryBlasScratch->getGpuAddress();
 
     pRenderContext->buildAccelerationStructure(blasBuild, 0, nullptr);
+    pRenderContext->submit();
     pRenderContext->uavBarrier(mpQueryBlasStorage.get());
 
     RtInstanceDesc instanceDesc = {
@@ -557,12 +555,9 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     ensureASBuffer(mpQueryTlasStorage, tlasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query TLAS");
     ensureASBuffer(mpQueryTlasScratch, tlasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query TLAS Scratch");
 
-    if (!mpQueryTLAS)
-    {
-        RtAccelerationStructure::Desc desc;
-        desc.setKind(RtAccelerationStructureKind::TopLevel).setBuffer(mpQueryTlasStorage, 0, mpQueryTlasStorage->getSize());
-        mpQueryTLAS = RtAccelerationStructure::create(mpDevice, desc);
-    }
+    RtAccelerationStructure::Desc desc;
+    desc.setKind(RtAccelerationStructureKind::TopLevel).setBuffer(mpQueryTlasStorage, 0, mpQueryTlasStorage->getSize());
+    mpQueryTLAS = RtAccelerationStructure::create(mpDevice, desc);
 
     RtAccelerationStructure::BuildDesc tlasBuild = {};
     tlasBuild.inputs = tlasInputs;
@@ -571,6 +566,7 @@ void SPPM::buildQueryAcceleration(RenderContext* pRenderContext)
     tlasBuild.scratchData = mpQueryTlasScratch->getGpuAddress();
 
     pRenderContext->buildAccelerationStructure(tlasBuild, 0, nullptr);
+    pRenderContext->submit();
     pRenderContext->uavBarrier(mpQueryTlasStorage.get());
 }
 

@@ -3,6 +3,11 @@ add_plugin(AccumulatePhotonsRTX)
 target_sources(AccumulatePhotonsRTX PRIVATE
     AccumulatePhotonsRTX.cpp
     AccumulatePhotonsRTX.h
+    AccumulatePhotons.rt.slang
+    DebugCounters.slang
+    Visualize.cs.slang
 )
+
+target_copy_shaders(AccumulatePhotonsRTX RenderPasses/AccumulatePhotonsRTX)
 
 target_source_group(AccumulatePhotonsRTX "RenderPasses")

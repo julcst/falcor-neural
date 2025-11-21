@@ -4,7 +4,7 @@ import RenderPasses.TracePhotons.Structs;
 
 StructuredBuffer<PhotonHit> gPhotonHits;
 StructuredBuffer<PhotonCounters> gCounters;
-RWTexture2D<float4>         gOutput;
+RWTexture2D<float4> gOutput;
 
 cbuffer CB
 {

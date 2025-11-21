@@ -5,6 +5,8 @@ namespace
 {
 const char kShaderFile[] = "RenderPasses/TraceQueries/TraceQueries.rt.slang";
 const char kQueryRadius[] = "queryRadius";
+const char kQueries[] = "queries";
+const char kAABBs[] = "aabbs";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -45,11 +47,11 @@ RenderPassReflection TraceQueries::reflect(const CompileData& compileData)
 
     RenderPassReflection reflector;
 
-    reflector.addOutput("gPhotonQueries", "Per-pixel photon queries")
+    reflector.addOutput(kQueries, "Per-pixel photon queries")
         .rawBuffer(queryCount * sizeof(Query))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
-    reflector.addOutput("gQueryAABBs", "Per-pixel query AABBs")
+    reflector.addOutput(kAABBs, "Per-pixel query AABBs")
         .rawBuffer(queryCount * sizeof(AABB))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
@@ -86,8 +88,8 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     var["CB"]["gQueryRadius"] = mQueryRadius;
 
     // Get the buffers allocated by the RenderGraph reflection.
-    const auto& pQueryResource = renderData.getResource("gPhotonQueries");
-    const auto& pQueryAABBResource = renderData.getResource("gQueryAABBs");
+    const auto& pQueryResource = renderData.getResource(kQueries);
+    const auto& pQueryAABBResource = renderData.getResource(kAABBs);
     FALCOR_ASSERT(pQueryResource);
     FALCOR_ASSERT(pQueryAABBResource);
     auto pQueryBuffer = pQueryResource->asBuffer();
@@ -99,7 +101,7 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     var["gPhotonQueries"] = pQueryBuffer;
     var["gQueryAABBs"] = pQueryAABBBuffer;
 
-    logInfo("sizeof(AABB)={} sizeof(Query)={}", var["gQueryAABBs"].getType()->asArrayType()->getElementByteStride(), var["gPhotonQueries"].getType()->getByteSize());
+    logInfo("sizeof(AABB)={} sizeof(Query)={}", var["gQueryAABBs"].getType()->getByteSize(), var["gPhotonQueries"].getType()->getByteSize());
 
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(frameDim.x, frameDim.y, 1));
 
