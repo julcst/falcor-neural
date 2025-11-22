@@ -60,11 +60,11 @@ RenderPassReflection VisualizePhotons::reflect(const CompileData& compileData)
 
     reflector.addInput(kPhotonBuffer, "Traced photons")
         .rawBuffer(0)
-        .bindFlags(ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
     
     reflector.addInput(kCounterBuffer, "Photon Counters")
         .rawBuffer(0)
-        .bindFlags(ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
 
     reflector.addOutput(kOutputColor, "Photon visualization")
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
@@ -82,6 +82,19 @@ void VisualizePhotons::execute(RenderContext* pRenderContext, const RenderData& 
     FALCOR_ASSERT(pPhotonBuffer);
     auto pOutput = renderData.getTexture(kOutputColor);
     FALCOR_ASSERT(pOutput);
+
+    pRenderContext->uavBarrier(pPhotonBuffer.get());
+    auto mean = float3(0.f);
+    auto minF = float3(INFINITY);
+    auto maxF = float3(-INFINITY);
+    for (const auto photon : pPhotonBuffer->getElements<PhotonHit>())
+    {
+        mean += photon.flux;
+        minF = min(minF, photon.flux);
+        maxF = max(maxF, photon.flux);
+    }
+    mean /= float(pPhotonBuffer->getElementCount());
+    logInfo("mean=({}, {}, {}) min=({}, {}, {}) max=({}, {}, {})\n", mean.x, mean.y, mean.z, minF.x, minF.y, minF.z, maxF.x, maxF.y, maxF.z);
 
     pRenderContext->clearUAV(pOutput->getUAV().get(), float4(0.f));
 

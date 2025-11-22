@@ -2,6 +2,7 @@
 
 import RenderPasses.TraceQueries.Query;
 import RenderPasses.TracePhotons.Structs;
+import Scene.Raytracing;
 import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
 import DebugCounters;
@@ -85,7 +86,7 @@ void rayGen()
     // Count rays launched in intersect pass
     InterlockedAdd(gDebugCounters[0].RaygenCalls, 1);
 
-    PhotonHit ph = gPhotonHits[idx];
+    let ph = gPhotonHits[idx];
 
     RayDesc r;
     r.Origin = ph.posW;
@@ -94,7 +95,8 @@ void rayGen()
     r.TMax = 1e-6; // Make ray infinitesimally short
 
     Payload pl;
-    pl.flux = ph.flux;
+    //pl.flux = ph.flux * 1e14;
+    pl.flux = float3(1.0);
     // Use no special ray flags to allow any-hit invocation for non-opaque geometry.
     TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);
 }

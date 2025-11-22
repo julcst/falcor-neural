@@ -33,17 +33,35 @@ Properties AccumulatePhotonsRTX::getProperties() const
 
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
 {
-    // Define the required resources here
-    RenderPassReflection reflector;
-    const auto& queries = reflector.addInput(kQueryBuffer, "Buffer containing ray query results.").rawBuffer(0);
-    reflector.addInput(kQueryAABBBuffer, "Buffer containing ray query AABBs.").rawBuffer(0);
-    reflector.addInput(kPhotonBuffer, "Buffer containing photons to be accumulated.").rawBuffer(0);
-    reflector.addInput(kPhotonCounters, "Buffer containing photon counters.").rawBuffer(0);
     const auto queryCount = 1166400; // TODO: Extract from dictionary
     logInfo("queryCount={}", queryCount);
-    reflector.addInternal("debugCounters", "Buffer for debug counters.").rawBuffer(sizeof(DebugCounters)).bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
-    reflector.addInternal(kAccumulatorBuffer, "Buffer to accumulate outgoing flux and photon counts per query.").rawBuffer(queryCount * sizeof(float4)); // TODO: match query count
-    reflector.addOutput(kOutput, "Output texture showing accumulated radiance.").texture2D(0, 0).format(ResourceFormat::RGBA32Float);
+
+    // Define the required resources here
+    RenderPassReflection reflector;
+    const auto& queries = reflector.addInput(kQueryBuffer, "Buffer containing ray query results.")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInput(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
+        .rawBuffer(queryCount * sizeof(AABB))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInput(kPhotonBuffer, "Buffer containing photons to be accumulated.")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInput(kPhotonCounters, "Buffer containing photon counters.")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+
+    reflector.addInternal("debugCounters", "Buffer for debug counters.")
+        .rawBuffer(sizeof(DebugCounters))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInternal(kAccumulatorBuffer, "Buffer to accumulate outgoing flux and photon counts per query.")
+        .rawBuffer(queryCount * sizeof(float4)) // TODO: match query count
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    
+    reflector.addOutput(kOutput, "Output texture showing accumulated radiance.")
+        .texture2D(0, 0)
+        .format(ResourceFormat::RGBA32Float);
+    
     return reflector;
 }
 
@@ -105,7 +123,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
 
         // Dispatch one ray per photon hit.
         logInfo("Tracing {} photons", photonHitCount);
-        pRenderContext->raytrace(mTracer.pProgram.get(), mTracer.pVars.get(), photonHitCount, 1, 1);
+        pRenderContext->clearUAV(pAccumulatorBuffer->getUAV().get(), uint4(0));
+        mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(photonHitCount, 1, 1));
         
         pRenderContext->uavBarrier(pDebugCounters.get());
         const auto debugCounters = pDebugCounters->getElement<DebugCounters>(0u);
@@ -122,7 +141,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gAccumulator"] = pAccumulatorBuffer;
         var["gOutput"] = renderData.getTexture(kOutput);
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
-        var["CB"]["gVisualizeHeatmap"] = true;
+        var["CB"]["gVisualizeHeatmap"] = false;
 
         //pRenderContext->uavBarrier(pAccumulatorBuffer.get());
         mpVisualizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
@@ -140,9 +159,9 @@ void AccumulatePhotonsRTX::buildQueryAcceleration(RenderContext* pRenderContext,
     RtGeometryDesc geometryDesc = {};
     geometryDesc.type = RtGeometryType::ProcedurePrimitives;
     geometryDesc.flags = RtGeometryFlags::None;
-    geometryDesc.content.proceduralAABBs.count = pQueryAABBBuffer->getSize() / sizeof(AABB);
+    geometryDesc.content.proceduralAABBs.count = pQueryAABBBuffer->getSize() / sizeof(RtAABB);
     geometryDesc.content.proceduralAABBs.data = pQueryAABBBuffer->getGpuAddress();
-    geometryDesc.content.proceduralAABBs.stride = sizeof(AABB);
+    geometryDesc.content.proceduralAABBs.stride = sizeof(RtAABB);
 
     RtAccelerationStructureBuildInputs blasInputs = {};
     blasInputs.kind = RtAccelerationStructureKind::BottomLevel;
@@ -192,19 +211,14 @@ void AccumulatePhotonsRTX::buildQueryAcceleration(RenderContext* pRenderContext,
         .accelerationStructure = mpQueryBLAS->getGpuAddress(),
     };
 
-    if (!mpQueryInstanceBuffer)
-    {
-        logInfo("Creating query instance buffer");
-        mpQueryInstanceBuffer = mpDevice->createBuffer(sizeof(RtInstanceDesc), ResourceBindFlags::AccelerationStructure, MemoryType::Upload);
-        mpQueryInstanceBuffer->setName("SPPM Query TLAS Instances");
-    }
-    mpQueryInstanceBuffer->setBlob(&instanceDesc, 0, sizeof(instanceDesc));
-
     RtAccelerationStructureBuildInputs tlasInputs = {};
     tlasInputs.kind = RtAccelerationStructureKind::TopLevel;
     tlasInputs.flags = RtAccelerationStructureBuildFlags::PreferFastTrace;
     tlasInputs.descCount = 1;
-    tlasInputs.instanceDescs = mpQueryInstanceBuffer->getGpuAddress();
+
+    auto allocation = mpDevice->getUploadHeap()->allocate(sizeof(RtInstanceDesc), sizeof(RtInstanceDesc));
+    std::memcpy(allocation.pData, &instanceDesc, sizeof(RtInstanceDesc));
+    tlasInputs.instanceDescs = allocation.getGpuAddress();
 
     const auto tlasPrebuild = RtAccelerationStructure::getPrebuildInfo(mpDevice.get(), tlasInputs);
 
@@ -224,7 +238,9 @@ void AccumulatePhotonsRTX::buildQueryAcceleration(RenderContext* pRenderContext,
     tlasBuild.scratchData = mpQueryTlasScratch->getGpuAddress();
 
     pRenderContext->buildAccelerationStructure(tlasBuild, 0, nullptr);
-    pRenderContext->submit();
+    
+    mpDevice->getUploadHeap()->release(allocation);
+    
     pRenderContext->uavBarrier(mpQueryTlasStorage.get());
 }
 
@@ -232,9 +248,9 @@ void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {}
 
 void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
-    mTracer.pProgram = nullptr;
-    mTracer.pBindingTable = nullptr;
-    mTracer.pVars = nullptr;
+    mTracer.pProgram.reset();
+    mTracer.pBindingTable.reset();
+    mTracer.pVars.reset();
     mpScene = pScene;
 
     if (mpScene)

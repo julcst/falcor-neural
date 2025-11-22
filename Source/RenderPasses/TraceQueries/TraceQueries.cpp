@@ -110,7 +110,7 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
 
 void TraceQueries::renderUI(Gui::Widgets& widget)
 {
-    widget.var("Query radius", mQueryRadius, 0.f, 100.f);
+    widget.var("Query radius", mQueryRadius, 0.f, 0.1f);
 }
 
 void TraceQueries::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

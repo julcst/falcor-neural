@@ -33,3 +33,5 @@
 *.swp
 
 out.png
+out/**
+out_**

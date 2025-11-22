@@ -82,6 +82,7 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
 
     const auto& pPhotonHits = renderData.getResource(kPhotonBuffer)->asBuffer();
     FALCOR_ASSERT(pPhotonHits);
+    pRenderContext->clearUAV(pPhotonHits->getUAV().get(), uint4(0));
     var["gPhotonHits"] = pPhotonHits;
 
     const auto& pCounters = renderData.getResource(kCounterBuffer)->asBuffer();
