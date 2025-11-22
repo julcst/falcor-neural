@@ -26,19 +26,9 @@ int runMain(int argc, char** argv)
     g->createPass("vbuff", "VBufferRT", Properties());
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties());
-    g->createPass("accumph", "AccumulatePhotonsRTX", Properties());
+    g->createPass("accumph", "AccumulatePhotonsRTX", Properties(nlohmann::json {{"visualizeHeatmap", true}}));
     g->createPass("TraceQueries", "TraceQueries", Properties());
 
-    // PathTracer
-    g->addEdge("vbuff.vbuffer", "pt.vbuffer");
-    g->addEdge("vbuff.viewW", "pt.viewW");
-    g->addEdge("vbuff.mvec", "pt.mvec");
-    g->addEdge("pt.color", "accum.input");
-
-    // VisualizePhotons
-    //g->addEdge("VisualizePhotons.dst", "tonemap.src");
-
-    // TracePhotons
     for (const auto& output : g->getAvailableOutputs())
     {
         logInfo("RenderGraph output: {}", output);
@@ -47,23 +37,33 @@ int runMain(int argc, char** argv)
     {
         logInfo("{}:{}", name, value);
     }
-    
+
+    // PathTracer
+    g->addEdge("vbuff.vbuffer", "pt.vbuffer");
+    g->addEdge("vbuff.viewW", "pt.viewW");
+    g->addEdge("vbuff.mvec", "pt.mvec");
+    g->addEdge("pt.color", "accum.input");
+
+    // VisualizePhotons
     g->addEdge("TracePhotons.photons", "VisualizePhotons.photons");
     g->addEdge("TracePhotons.counters", "VisualizePhotons.counters");
+
+    // SPPM
     g->addEdge("TracePhotons.photons", "accumph.photons");
     g->addEdge("TracePhotons.counters", "accumph.photonCounters");
     g->addEdge("TraceQueries.queries", "accumph.queries");
     g->addEdge("TraceQueries.aabbs", "accumph.queryAABBs");
     g->addEdge("accumph.output", "tonemap.src");
 
-    //g->addEdge("accum.output", "tonemap.src");
-
+    g->markOutput("accumph.output");
     g->markOutput("tonemap.dst");
+    g->markOutput("VisualizePhotons.dst");
 
     app.setRenderGraph(g);
     for (uint32_t i = 0; i < 1; ++i)
         app.frame();
-    app.captureOutput("out.png");
+    for (uint32_t i = 0; i < g->getOutputCount(); ++i)
+        app.captureOutput("out_" + g->getOutputName(i) + ".exr", i);
 
     Scripting::shutdown();
     return 0;

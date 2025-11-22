@@ -24,11 +24,24 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, AccumulatePhotonsRTX>();
 }
 
-AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {}
+AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
+    for (const auto& [key, value] : props)
+    {
+        if (key == "visualizeHeatmap")
+        {
+            mVisualizeHeatmap = value;
+        }
+        else {
+            logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
+        }
+    }
+}
 
 Properties AccumulatePhotonsRTX::getProperties() const
 {
-    return {};
+    Properties props;
+    props["visualizeHeatmap"] = mVisualizeHeatmap;
+    return props;
 }
 
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
@@ -141,7 +154,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gAccumulator"] = pAccumulatorBuffer;
         var["gOutput"] = renderData.getTexture(kOutput);
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
-        var["CB"]["gVisualizeHeatmap"] = false;
+        var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
 
         //pRenderContext->uavBarrier(pAccumulatorBuffer.get());
         mpVisualizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));

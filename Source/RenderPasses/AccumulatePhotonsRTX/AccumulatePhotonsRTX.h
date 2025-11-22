@@ -56,6 +56,8 @@ private:
     void prepareVars();
     void buildQueryAcceleration(RenderContext* pRenderContext, ref<Buffer> pQueryAABBBuffer);
 
+    bool mVisualizeHeatmap = false;
+
     ref<Scene> mpScene;
 
     // Ray tracing program state (program, SBT, vars)

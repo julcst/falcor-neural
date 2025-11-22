@@ -83,7 +83,7 @@ void rayGen()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dispatchDims = DispatchRaysDimensions().xy;
 
-    const float invRejection = 1.f / gGlobalRejectionProb;
+    //const float invRejection = 1.f / gGlobalRejectionProb;
 
     SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5); // TODO: Why * 5 here?
     
@@ -133,8 +133,8 @@ void rayGen()
             float3 storeFlux = photonFlux;
             if (!isCaustic) // Treat as global
             {
-                keep = sampleNext1D(sg) <= gGlobalRejectionProb;
-                storeFlux *= invRejection;
+                //keep = sampleNext1D(sg) <= gGlobalRejectionProb;
+                //storeFlux *= invRejection;
             }
             if (keep)
             {
@@ -146,7 +146,8 @@ void rayGen()
                 {
                     gPhotonHits[idx].posW = sd.posW;
                     gPhotonHits[idx].wi = -ray.Direction;
-                    gPhotonHits[idx].flux = storeFlux;
+                    //gPhotonHits[idx].flux = storeFlux;
+                    gPhotonHits[idx].flux = float3(1.0);
                 }
             }
         }
@@ -162,16 +163,16 @@ void rayGen()
         thp *= bsdfSample.weight;
 
         // Russian Roulette
-        const float rrVal = luminance(thp) * kRussianRouletteWeight;
-        const float prob = max(0.f, 1.f - rrVal);
-        if (sampleNext1D(sg) < prob)
-        {
-            return; // Photon is absorbed
-        }
-        else
-        {
-            thp /= (1.f - prob);
-        }
+        // const float rrVal = luminance(thp) * kRussianRouletteWeight;
+        // const float prob = max(0.f, 1.f - rrVal);
+        // if (sampleNext1D(sg) < prob)
+        // {
+        //     return; // Photon is absorbed
+        // }
+        // else
+        // {
+        //     thp /= (1.f - prob);
+        // }
 
         // Update Photon
         isCaustic = !reflectedDiffuse;

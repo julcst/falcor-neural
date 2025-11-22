@@ -40,7 +40,7 @@ private:
     // Configuration
     uint mPhotonCount = 1000000;            ///< Number of photons to trace per frame.
     uint mMaxBounces = 5;                   ///< Max number of bounces per photon.
-    float mGlobalRejectionProb = 0.0f;      ///< Rejection probability
+    float mGlobalRejectionProb = 1.0f;      ///< Rejection probability
 
     // Runtime data
     /// Frame count since scene was loaded.
