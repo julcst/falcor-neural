@@ -45,7 +45,7 @@ private:
     // they are accessed via `renderData.getResource()` at execute time.
 
     // Configuration.
-    float mQueryRadius = 1.f;
+    float mQueryRadius = 0.005f;
 
     // Runtime state
     uint32_t mFrameCount = 0;                 ///< Frame counter since last scene change.
