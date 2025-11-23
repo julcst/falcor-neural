@@ -1,3 +1,5 @@
+#include "Utils/Math/MathConstants.slangh"
+
 import RenderPasses.TraceQueries.Query;
 import RenderPasses.TracePhotons.Structs;
 
@@ -44,7 +46,9 @@ void main(uint3 tid : SV_DispatchThreadID)
     let photons = asfloat(acc.w);
 
     let r2 = query.radius * query.radius;
-    let radiance = flux / (photonCount * r2) + query.emission;
+    // let weight = 1.0f / (photonCount * r2 * M_PI);
+    let weight = 1.0f / (photonCount * r2); // FIXME: Where is PI?
+    let radiance = flux * weight + query.emission;
 
     gOutput[px] = gVisualizeHeatmap ? float4(photons, heatmap(mapTo01(photons)).xy, 1.0) : float4(radiance, 1.0);
 }

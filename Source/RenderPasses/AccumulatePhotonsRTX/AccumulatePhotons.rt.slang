@@ -65,7 +65,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     let r2 = q.radius * q.radius;
     let cosThetaO = abs(dot(wo, sd.faceN));
     if (cosThetaO < 1e-6) return;
-    let outgoing_flux = p.flux * mi.eval(sd, wo, sg) * M_1_PI / cosThetaO; // /r²
+    let outgoing_flux = (p.flux * mi.eval(sd, wo, sg)) / cosThetaO;
 
     let offset = qi * sizeof(float4);
     gQueryAccumulation.InterlockedAddF32(offset + 0 * sizeof(float), outgoing_flux.x);
