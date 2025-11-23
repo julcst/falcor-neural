@@ -45,7 +45,7 @@ public:
 
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
-    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
@@ -57,6 +57,7 @@ private:
     void buildQueryAcceleration(RenderContext* pRenderContext, ref<Buffer> pQueryAABBBuffer);
 
     bool mVisualizeHeatmap = false;
+    uint32_t mQueryCount = 0; // Automatically derived from input data
 
     ref<Scene> mpScene;
 

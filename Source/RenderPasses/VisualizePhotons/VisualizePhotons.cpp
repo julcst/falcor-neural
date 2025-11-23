@@ -83,18 +83,18 @@ void VisualizePhotons::execute(RenderContext* pRenderContext, const RenderData& 
     auto pOutput = renderData.getTexture(kOutputColor);
     FALCOR_ASSERT(pOutput);
 
-    pRenderContext->uavBarrier(pPhotonBuffer.get());
-    auto mean = float3(0.f);
-    auto minF = float3(INFINITY);
-    auto maxF = float3(-INFINITY);
-    for (const auto photon : pPhotonBuffer->getElements<PhotonHit>())
-    {
-        mean += photon.flux;
-        minF = min(minF, photon.flux);
-        maxF = max(maxF, photon.flux);
-    }
-    mean /= float(pPhotonBuffer->getElementCount());
-    logInfo("mean=({}, {}, {}) min=({}, {}, {}) max=({}, {}, {})\n", mean.x, mean.y, mean.z, minF.x, minF.y, minF.z, maxF.x, maxF.y, maxF.z);
+    // pRenderContext->uavBarrier(pPhotonBuffer.get());
+    // auto mean = float3(0.f);
+    // auto minF = float3(INFINITY);
+    // auto maxF = float3(-INFINITY);
+    // for (const auto photon : pPhotonBuffer->getElements<PhotonHit>())
+    // {
+    //     mean += photon.flux;
+    //     minF = min(minF, photon.flux);
+    //     maxF = max(maxF, photon.flux);
+    // }
+    // mean /= float(pPhotonBuffer->getElementCount());
+    // logInfo("mean=({}, {}, {}) min=({}, {}, {}) max=({}, {}, {})\n", mean.x, mean.y, mean.z, minF.x, minF.y, minF.z, maxF.x, maxF.y, maxF.z);
 
     pRenderContext->clearUAV(pOutput->getUAV().get(), float4(0.f));
 

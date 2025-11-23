@@ -1,5 +1,6 @@
 #include "AccumulatePhotonsRTX.h"
 #include "../TracePhotons/Structs.slang"
+#include "../TraceQueries/Query.slang"
 #include "DebugCounters.slang"
 
 namespace
@@ -12,6 +13,7 @@ const char kPhotonBuffer[] = "photons";
 const char kPhotonCounters[] = "photonCounters";
 const char kAccumulatorBuffer[] = "accumulator";
 const char kOutput[] = "output";
+const char kDebugCounters[] = "debugCounters";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -46,16 +48,13 @@ Properties AccumulatePhotonsRTX::getProperties() const
 
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
 {
-    const auto queryCount = 1166400; // TODO: Extract from dictionary
-    logInfo("queryCount={}", queryCount);
-
     // Define the required resources here
     RenderPassReflection reflector;
     const auto& queries = reflector.addInput(kQueryBuffer, "Buffer containing ray query results.")
-        .rawBuffer(0)
+        .rawBuffer(mQueryCount * sizeof(Query))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInput(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
-        .rawBuffer(queryCount * sizeof(AABB))
+        .rawBuffer(mQueryCount * sizeof(AABB))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInput(kPhotonBuffer, "Buffer containing photons to be accumulated.")
         .rawBuffer(0)
@@ -64,11 +63,11 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .rawBuffer(0)
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
-    reflector.addInternal("debugCounters", "Buffer for debug counters.")
+    reflector.addInternal(kDebugCounters, "Buffer for debug counters.")
         .rawBuffer(sizeof(DebugCounters))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kAccumulatorBuffer, "Buffer to accumulate outgoing flux and photon counts per query.")
-        .rawBuffer(queryCount * sizeof(float4)) // TODO: match query count
+        .rawBuffer(mQueryCount * sizeof(float4)) // TODO: match query count
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     
     reflector.addOutput(kOutput, "Output texture showing accumulated radiance.")
@@ -76,6 +75,20 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .format(ResourceFormat::RGBA32Float);
     
     return reflector;
+}
+
+void AccumulatePhotonsRTX::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    for (auto i = 0; i < compileData.connectedResources.getFieldCount(); ++i) {
+        const auto& field = compileData.connectedResources.getField(i);
+        logInfo("Connected resource: {} (type={})", field->getName(), field->getWidth());
+    }
+    const auto queryCount = compileData.connectedResources.getField(kQueryBuffer)->getWidth() / sizeof(Query);
+    logInfo("queryCount={}", queryCount);
+    if (mQueryCount != queryCount) {
+        mQueryCount = queryCount;
+        FALCOR_CHECK(false, "Recompute query count");
+    }
 }
 
 void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderData& renderData)
@@ -95,12 +108,12 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     FALCOR_ASSERT(pQueryAABBBuffer);
     logInfo("queryCount={}", queryCount);
 
-    const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
-    auto valid = 0u;
-    for (const auto aabb : aabbs) {
-        if (aabb.valid()) valid += 1u;
-    }
-    logInfo("valid={}%", (100u * valid) / aabbs.size());
+    // const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
+    // auto valid = 0u;
+    // for (const auto aabb : aabbs) {
+    //     if (aabb.valid()) valid += 1u;
+    // }
+    // logInfo("valid={}%", (100u * valid) / aabbs.size());
 
     // Build query acceleration structure
     buildQueryAcceleration(pRenderContext, pQueryAABBBuffer);
@@ -109,11 +122,13 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     const auto pPhotonBuffer = renderData[kPhotonBuffer]->asBuffer();
     const auto pPhotonCounters = renderData[kPhotonCounters]->asBuffer();
     const auto pAccumulatorBuffer = renderData[kAccumulatorBuffer]->asBuffer();
-    const auto pDebugCounters = renderData["debugCounters"]->asBuffer();
+    const auto pDebugCounters = renderData[kDebugCounters]->asBuffer();
     // FALCOR_ASSERT(mpQueryTLAS);
     FALCOR_ASSERT(pQueryBuffer); FALCOR_ASSERT(pAccumulatorBuffer);
     FALCOR_ASSERT(pPhotonBuffer); FALCOR_ASSERT(pPhotonCounters);
     FALCOR_ASSERT(pDebugCounters);
+
+    FALCOR_ASSERT_GE(pAccumulatorBuffer->getSize(), queryCount * sizeof(float4));
 
     // Intersect photons
     {
