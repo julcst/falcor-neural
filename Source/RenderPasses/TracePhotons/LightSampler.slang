@@ -152,6 +152,9 @@ struct LightSampler {
 
         float triangleSelectionPdf = gScene.lightCollection.fluxData[triangleIndex].flux * emissiveSampler._emissivePower.invWeightsSum;
 
+        if (triangleSelectionPdf <= 1e-6f)
+            return false;
+
         // Sample emissive triangle
         const EmissiveTriangle tri = gScene.lightCollection.getTriangle(triangleIndex);
         const float3 barycentrics = sample_triangle(sampleNext2D(sg));
@@ -162,7 +165,7 @@ struct LightSampler {
         pls.flux = gScene.materials.evalEmissive(tri.materialID, uv) * tri.area;
 
         pls.posW = computeRayOrigin(pls.posW, tri.normal); // Offset as this light is real geometry
-        pls.flux /= triangleSelectionPdf;
+        pls.flux /= triangleSelectionPdf; // FIXME This is zero or very small in the first frame
 
         float lightDirPDF = 1.0;
         float3 woLocal = sample_cosine_hemisphere_concentric(sampleNext2D(sg), lightDirPDF);

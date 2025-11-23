@@ -769,3 +769,8 @@ float3 normalizeSafe(float3 v)
     float len = length(v);
     return len > 0.f ? v / len : float3(0.f);
 }
+
+float divFallback(float a, float b, float fallback = 0.f)
+{
+    return b != 0.f ? a / b : fallback;
+}

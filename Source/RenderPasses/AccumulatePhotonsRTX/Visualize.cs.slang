@@ -1,4 +1,9 @@
+import RenderPasses.TraceQueries.Query;
+import RenderPasses.TracePhotons.Structs;
+
 ByteAddressBuffer gAccumulator;
+StructuredBuffer<PhotonCounters> gCounters;
+StructuredBuffer<Query> gPhotonQueries;
 RWTexture2D<float4> gOutput;
 
 cbuffer CB
@@ -18,10 +23,10 @@ float3 heatmap(float v)
     return c;
 }
 
-float mapTo01(uint x)
+float mapTo01(float x)
 {
     // Map integer to [0,1] for visualization
-    return log(float(x) + 1.0) / log(1000.0 + 1.0); // Assuming max ~1000 for better contrast
+    return log(x + 1.0) / log(1000.0 + 1.0); // Assuming max ~1000 for better contrast
 }
 
 [numthreads(16,16,1)]
@@ -31,12 +36,16 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (any(px >= gFrameDim)) return;
     let idx = px.x + px.y * gFrameDim.x;
 
+    let query = gPhotonQueries[idx];
+    let photonCount = gCounters[0].PhotonsEmitted;
+
     let acc = gAccumulator.Load4Aligned(idx * sizeof(float4));
     let flux = asfloat(acc.xyz);
-    let photons = acc.w;
+    let photons = asfloat(acc.w);
 
-    let radiance = flux;
+    let r2 = query.radius * query.radius;
+    let radiance = flux / (photonCount * r2);
 
-    gOutput[px] = gVisualizeHeatmap ? float4(heatmap(mapTo01(photons)), 1.0) : float4(radiance, 1.0);
+    gOutput[px] = gVisualizeHeatmap ? float4(photons, heatmap(mapTo01(photons)).xy, 1.0) : float4(radiance, 1.0);
 }
 

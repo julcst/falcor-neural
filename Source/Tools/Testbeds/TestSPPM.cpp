@@ -26,7 +26,7 @@ int runMain(int argc, char** argv)
     g->createPass("vbuff", "VBufferRT", Properties());
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties());
-    g->createPass("accumph", "AccumulatePhotonsRTX", Properties(nlohmann::json {{"visualizeHeatmap", true}}));
+    g->createPass("accumph", "AccumulatePhotonsRTX", Properties(nlohmann::json {{"visualizeHeatmap", false}}));
     g->createPass("TraceQueries", "TraceQueries", Properties());
 
     for (const auto& output : g->getAvailableOutputs())
@@ -43,6 +43,7 @@ int runMain(int argc, char** argv)
     g->addEdge("vbuff.viewW", "pt.viewW");
     g->addEdge("vbuff.mvec", "pt.mvec");
     g->addEdge("pt.color", "accum.input");
+    g->markOutput("accum.output");
 
     // VisualizePhotons
     g->addEdge("TracePhotons.photons", "VisualizePhotons.photons");
@@ -60,12 +61,13 @@ int runMain(int argc, char** argv)
     g->markOutput("VisualizePhotons.dst");
 
     app.setRenderGraph(g);
-    for (uint32_t i = 0; i < 1; ++i)
+    for (uint32_t i = 0; i < 5; ++i)
         app.frame();
     for (uint32_t i = 0; i < g->getOutputCount(); ++i)
         app.captureOutput("out_" + g->getOutputName(i) + ".exr", i);
 
     Scripting::shutdown();
+    logInfo("Log file: {}", Logger::getLogFilePath());
     return 0;
 }
 

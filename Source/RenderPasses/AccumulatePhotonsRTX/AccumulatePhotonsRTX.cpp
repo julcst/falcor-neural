@@ -130,7 +130,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gDebugCounters"] = pDebugCounters;
 
         // TODO: Use indirect dispatch to avoid CPU-GPU sync
-        //pRenderContext->uavBarrier(pPhotonCounters.get());
+        pRenderContext->uavBarrier(pPhotonCounters.get());
         const auto counters = pPhotonCounters->getElement<PhotonCounters>(0u);
         const auto photonHitCount = counters.PhotonStores;
 
@@ -153,6 +153,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         auto var = mpVisualizePass->getRootVar();
         var["gAccumulator"] = pAccumulatorBuffer;
         var["gOutput"] = renderData.getTexture(kOutput);
+        var["gPhotonQueries"] = pQueryBuffer;
+        var["gCounters"] = pPhotonCounters;
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
         var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
 

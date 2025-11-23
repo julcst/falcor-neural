@@ -103,7 +103,8 @@ void rayGen()
     bool isCaustic = false;
     bool reflectedDiffuse = false;
     float3 thp = float3(1.0);
-    float3 photonStartFlux = ls.flux;// / (dispatchDims.x * dispatchDims.y);
+    float3 photonStartFlux = ls.flux; // / (dispatchDims.x * dispatchDims.y);
+    //float3 photonStartFlux = float3(1.0);
     float3 photonFlux = photonStartFlux;
 
     // Main Raytrace Loop
@@ -146,8 +147,7 @@ void rayGen()
                 {
                     gPhotonHits[idx].posW = sd.posW;
                     gPhotonHits[idx].wi = -ray.Direction;
-                    //gPhotonHits[idx].flux = storeFlux;
-                    gPhotonHits[idx].flux = float3(1.0);
+                    gPhotonHits[idx].flux = storeFlux;
                 }
             }
         }

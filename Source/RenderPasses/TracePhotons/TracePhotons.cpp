@@ -146,13 +146,16 @@ void TracePhotons::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
 {
     // Clear data for previous scene.
     // After changing scene, the raytracing program should to be recreated.
-    mTracer.pProgram = nullptr;
-    mTracer.pBindingTable = nullptr;
-    mTracer.pVars = nullptr;
+    mTracer.pProgram.reset();
+    mTracer.pBindingTable.reset();
+    mTracer.pVars.reset();
     mFrameCount = 0;
+    mpEmissiveSampler.reset();
 
     // Set new scene.
     mpScene = pScene;
+
+    prepareLightingStructure(pRenderContext);
 
     if (mpScene)
     {
@@ -175,6 +178,10 @@ void TracePhotons::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
         }
 
         mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+        if (mpEmissiveSampler)
+        {
+            mTracer.pProgram->addDefines(mpEmissiveSampler->getDefines());
+        }
     }
 }
 

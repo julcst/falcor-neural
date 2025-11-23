@@ -63,13 +63,15 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
 
     var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
     let r2 = q.radius * q.radius;
-    let outgoing_flux = p.flux * mi.eval(sd, wo, sg) * M_1_PI / (abs(dot(wo, sd.faceN)) * r2);
+    let cosThetaO = abs(dot(wo, sd.faceN));
+    if (cosThetaO < 1e-6) return;
+    let outgoing_flux = p.flux * mi.eval(sd, wo, sg) * M_1_PI / cosThetaO; // /r²
 
     let offset = qi * sizeof(float4);
     gQueryAccumulation.InterlockedAddF32(offset + 0 * sizeof(float), outgoing_flux.x);
     gQueryAccumulation.InterlockedAddF32(offset + 1 * sizeof(float), outgoing_flux.y);
     gQueryAccumulation.InterlockedAddF32(offset + 2 * sizeof(float), outgoing_flux.z);
-    gQueryAccumulation.InterlockedAdd(offset + 3 * sizeof(float), 1u);
+    gQueryAccumulation.InterlockedAddF32(offset + 3 * sizeof(float), 1.0);
 
     // Count accumulation event (per hit processed)
     InterlockedAdd(gDebugCounters[0].Accumulations, 1);
@@ -95,8 +97,7 @@ void rayGen()
     r.TMax = 1e-6; // Make ray infinitesimally short
 
     Payload pl;
-    //pl.flux = ph.flux * 1e14;
-    pl.flux = float3(1.0);
+    pl.flux = ph.flux;
     // Use no special ray flags to allow any-hit invocation for non-opaque geometry.
     TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);
 }
