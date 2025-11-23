@@ -137,6 +137,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         // Dispatch one ray per photon hit.
         logInfo("Tracing {} photons", photonHitCount);
         pRenderContext->clearUAV(pAccumulatorBuffer->getUAV().get(), uint4(0));
+        pRenderContext->clearUAV(pDebugCounters->getUAV().get(), uint4(0));
         mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(photonHitCount, 1, 1));
         
         pRenderContext->uavBarrier(pDebugCounters.get());
