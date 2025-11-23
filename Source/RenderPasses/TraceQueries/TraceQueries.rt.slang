@@ -72,6 +72,7 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0), (uint)MaterialInstanceHints::AdjustShadingNormal);
         let props = mi.getProperties(sd);
 
+        q.emission = props.emission;
         q.position = sd.posW;
         q.viewDir = -ray.dir;
     } else {

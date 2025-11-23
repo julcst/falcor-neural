@@ -19,6 +19,8 @@ struct Query
     float3 viewDir;
     uint pixelIndex;
 
+    float3 emission;
+
 #ifndef HOST_CODE
     HitInfo getHitInfo() {
         return HitInfo(hit);

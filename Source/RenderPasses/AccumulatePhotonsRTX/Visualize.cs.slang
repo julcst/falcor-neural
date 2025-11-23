@@ -44,7 +44,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     let photons = asfloat(acc.w);
 
     let r2 = query.radius * query.radius;
-    let radiance = flux / (photonCount * r2);
+    let radiance = flux / (photonCount * r2) + query.emission;
 
     gOutput[px] = gVisualizeHeatmap ? float4(photons, heatmap(mapTo01(photons)).xy, 1.0) : float4(radiance, 1.0);
 }
