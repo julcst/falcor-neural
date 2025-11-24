@@ -2,10 +2,12 @@
 
 import RenderPasses.TraceQueries.Query;
 import RenderPasses.TracePhotons.Structs;
+import Structs;
 
 ByteAddressBuffer gAccumulator;
 StructuredBuffer<PhotonCounters> gCounters;
 StructuredBuffer<Query> gPhotonQueries;
+RWStructuredBuffer<QueryState> gQueryStates;
 RWTexture2D<float4> gOutput;
 
 cbuffer CB
@@ -41,15 +43,12 @@ void main(uint3 tid : SV_DispatchThreadID)
     let query = gPhotonQueries[idx];
     let photonCount = gCounters[0].PhotonsEmitted;
 
-    let acc = gAccumulator.Load4Aligned(idx * sizeof(float4));
-    let flux = asfloat(acc.xyz);
-    let photons = asfloat(acc.w);
+    let acc = Accumulator(gAccumulator.Load4Aligned(idx * sizeof(float4)));
+    gQueryStates[idx].applyRadiusReduction(acc, 0.7f);
+    let radiance = gQueryStates[idx].getRadiance(photonCount) + query.emission;
 
-    let r2 = query.radius * query.radius;
-    // let weight = 1.0f / (photonCount * r2 * M_PI);
-    let weight = 1.0f / (photonCount * r2); // FIXME: Where is PI?
-    let radiance = flux * weight + query.emission;
-
-    gOutput[px] = gVisualizeHeatmap ? float4(photons, heatmap(mapTo01(photons)).xy, 1.0) : float4(radiance, 1.0);
+    gOutput[px] = gVisualizeHeatmap ?
+        float4(acc.collectedPhotons, heatmap(mapTo01(acc.collectedPhotons)).xy, 1.0) :
+        float4(radiance, 1.0);
 }
 

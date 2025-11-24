@@ -14,12 +14,13 @@ struct Query
     uint4 hit;
 
     float3 position;
-    float radius;
+    float _pad0;
 
     float3 viewDir;
-    uint pixelIndex;
+    float _pad1;
 
     float3 emission;
+    float _pad2;
 
 #ifndef HOST_CODE
     HitInfo getHitInfo() {

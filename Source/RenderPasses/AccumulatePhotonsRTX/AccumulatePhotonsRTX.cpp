@@ -2,18 +2,24 @@
 #include "../TracePhotons/Structs.slang"
 #include "../TraceQueries/Query.slang"
 #include "DebugCounters.slang"
+#include "Structs.slang"
 
 namespace
 {
 const char kShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/AccumulatePhotons.rt.slang";
-const char kComputeFile[] = "RenderPasses/AccumulatePhotonsRTX/Visualize.cs.slang";
+const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
+const char kVisualizeComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Visualize.cs.slang";
+
 const char kQueryBuffer[] = "queries";
 const char kQueryAABBBuffer[] = "queryAABBs";
+const char kQuerySphereBuffer[] = "querySpheres";
+const char kQueryStateBuffer[] = "queryStates";
 const char kPhotonBuffer[] = "photons";
 const char kPhotonCounters[] = "photonCounters";
 const char kAccumulatorBuffer[] = "accumulator";
 const char kOutput[] = "output";
 const char kDebugCounters[] = "debugCounters";
+const char kQueryRadius[] = "queryRadius";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -29,11 +35,11 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
     for (const auto& [key, value] : props)
     {
-        if (key == "visualizeHeatmap")
-        {
+        if (key == "visualizeHeatmap") {
             mVisualizeHeatmap = value;
-        }
-        else {
+        } else if (key == kQueryRadius) {
+            mQueryRadius = props[kQueryRadius];
+        } else {
             logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
         }
     }
@@ -43,6 +49,7 @@ Properties AccumulatePhotonsRTX::getProperties() const
 {
     Properties props;
     props["visualizeHeatmap"] = mVisualizeHeatmap;
+    props[kQueryRadius] = mQueryRadius;
     return props;
 }
 
@@ -50,11 +57,8 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
 {
     // Define the required resources here
     RenderPassReflection reflector;
-    const auto& queries = reflector.addInput(kQueryBuffer, "Buffer containing ray query results.")
+    reflector.addInput(kQueryBuffer, "Buffer containing ray query results.")
         .rawBuffer(mQueryCount * sizeof(Query))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
-    reflector.addInput(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
-        .rawBuffer(mQueryCount * sizeof(AABB))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInput(kPhotonBuffer, "Buffer containing photons to be accumulated.")
         .rawBuffer(0)
@@ -68,6 +72,15 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kAccumulatorBuffer, "Buffer to accumulate outgoing flux and photon counts per query.")
         .rawBuffer(mQueryCount * sizeof(float4)) // TODO: match query count
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInternal(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
+        .rawBuffer(mQueryCount * sizeof(AABB))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInternal(kQuerySphereBuffer, "Buffer for query geometry..")
+        .rawBuffer(mQueryCount * sizeof(Sphere)) // TODO: match query count
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInternal(kQueryStateBuffer, "Buffer to keep radius and flux.")
+        .rawBuffer(mQueryCount * sizeof(QueryState)) // TODO: match query count
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     
     reflector.addOutput(kOutput, "Output texture showing accumulated radiance.")
@@ -87,7 +100,7 @@ void AccumulatePhotonsRTX::compile(RenderContext* pRenderContext, const CompileD
     logInfo("queryCount={}", queryCount);
     if (mQueryCount != queryCount) {
         mQueryCount = queryCount;
-        FALCOR_CHECK(false, "Recompute query count");
+        FALCOR_CHECK(false, "Recompute query count"); // Force retry of reflect
     }
 }
 
@@ -104,45 +117,66 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     
     // Get inputs
     const auto pQueryAABBBuffer = renderData[kQueryAABBBuffer]->asBuffer();
-    const auto queryCount = pQueryAABBBuffer->getSize() / sizeof(AABB);
-    FALCOR_ASSERT(pQueryAABBBuffer);
-    logInfo("queryCount={}", queryCount);
-
-    // const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
-    // auto valid = 0u;
-    // for (const auto aabb : aabbs) {
-    //     if (aabb.valid()) valid += 1u;
-    // }
-    // logInfo("valid={}%", (100u * valid) / aabbs.size());
-
-    // Build query acceleration structure
-    buildQueryAcceleration(pRenderContext, pQueryAABBBuffer);
-
     const auto pQueryBuffer = renderData[kQueryBuffer]->asBuffer();
+    const auto pQuerySphereBuffer = renderData[kQuerySphereBuffer]->asBuffer();
+    const auto pQueryStateBuffer = renderData[kQueryStateBuffer]->asBuffer();
     const auto pPhotonBuffer = renderData[kPhotonBuffer]->asBuffer();
     const auto pPhotonCounters = renderData[kPhotonCounters]->asBuffer();
     const auto pAccumulatorBuffer = renderData[kAccumulatorBuffer]->asBuffer();
     const auto pDebugCounters = renderData[kDebugCounters]->asBuffer();
-    // FALCOR_ASSERT(mpQueryTLAS);
+    FALCOR_ASSERT(pQueryAABBBuffer);
+    FALCOR_ASSERT(pQuerySphereBuffer); FALCOR_ASSERT(pQueryStateBuffer);
     FALCOR_ASSERT(pQueryBuffer); FALCOR_ASSERT(pAccumulatorBuffer);
     FALCOR_ASSERT(pPhotonBuffer); FALCOR_ASSERT(pPhotonCounters);
     FALCOR_ASSERT(pDebugCounters);
+    FALCOR_ASSERT_GE(pAccumulatorBuffer->getSize(), mQueryCount * sizeof(float4));
 
-    FALCOR_ASSERT_GE(pAccumulatorBuffer->getSize(), queryCount * sizeof(float4));
-
-    // Intersect photons
     {
-        FALCOR_PROFILE(pRenderContext, "IntersectPhotons");
+        FALCOR_PROFILE(pRenderContext, "PrepareQueries");
+
+        auto var = mpPreparationPass->getRootVar();
+        var["gQueries"] = pQueryBuffer;
+        var["gQueryStates"] = pQueryStateBuffer;
+        var["gQueryAABBs"] = pQueryAABBBuffer;
+        var["gQuerySpheres"] = pQuerySphereBuffer;
+        var["CB"]["gQueryCount"] = mQueryCount;
+        var["CB"]["gReset"] = true;
+        //var["CB"]["gReset"] = mpScene->getUpdates() != IScene::UpdateFlags::None;
+        var["CB"]["gInitialRadius"] = mQueryRadius;
+
+        logInfo("Preparing {} queries", mQueryCount);
+        mpPreparationPass->execute(pRenderContext, mQueryCount, 1);
+    }
+
+    pRenderContext->uavBarrier(pQueryAABBBuffer.get());
+    pRenderContext->submit(true);
+    
+    const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
+    auto valid = 0u;
+    for (const auto aabb : aabbs) {
+        if (aabb.valid()) valid += 1u;
+    }
+    logInfo("valid={}%", (100u * valid) / aabbs.size());
+
+    {
+        // Build query acceleration structure
+        buildQueryAcceleration(pRenderContext, pQueryAABBBuffer);
+        FALCOR_ASSERT(mpQueryTLAS);
+    }
+
+    {
+        FALCOR_PROFILE(pRenderContext, "AccumulatePhotonsRTX");
         
         if (!mTracer.pVars) prepareVars();
         auto var = mTracer.pVars->getRootVar();
 
         var["gQueryAS"].setAccelerationStructure(mpQueryTLAS);
         var["gPhotonQueries"] = pQueryBuffer;
-        var["gQueryAccumulation"] = pAccumulatorBuffer;
+        var["gQuerySpheres"] = pQuerySphereBuffer;
         var["gPhotonHits"] = pPhotonBuffer;
         var["gCounters"] = pPhotonCounters;
         var["gDebugCounters"] = pDebugCounters;
+        var["gQueryAccumulation"] = pAccumulatorBuffer;
 
         // TODO: Use indirect dispatch to avoid CPU-GPU sync
         pRenderContext->uavBarrier(pPhotonCounters.get());
@@ -171,6 +205,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gOutput"] = renderData.getTexture(kOutput);
         var["gPhotonQueries"] = pQueryBuffer;
         var["gCounters"] = pPhotonCounters;
+        var["gQueryStates"] = pQueryStateBuffer;
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
         var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
 
@@ -304,10 +339,19 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
+    if (!mpPreparationPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kPreparationComputeShaderFile);
+        desc.csEntry("main");
+
+        mpPreparationPass = ComputePass::create(mpDevice, desc);
+    }
+
     if (!mpVisualizePass)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary(kComputeFile);
+        desc.addShaderLibrary(kVisualizeComputeShaderFile);
         desc.csEntry("main");
 
         mpVisualizePass = ComputePass::create(mpDevice, desc);

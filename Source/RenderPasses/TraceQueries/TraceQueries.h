@@ -44,9 +44,6 @@ private:
     // Resources written by the trace query shader. The render graph allocates these buffers and
     // they are accessed via `renderData.getResource()` at execute time.
 
-    // Configuration.
-    float mQueryRadius = 0.005f;
-
     // Runtime state
     uint32_t mFrameCount = 0;                 ///< Frame counter since last scene change.
 };

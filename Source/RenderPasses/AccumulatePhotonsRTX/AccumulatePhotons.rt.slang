@@ -6,10 +6,12 @@ import Scene.Raytracing;
 import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
 import DebugCounters;
+import Structs;
 
 // Resources
 RaytracingAccelerationStructure gQueryAS;
 StructuredBuffer<Query> gPhotonQueries;
+StructuredBuffer<Sphere> gQuerySpheres;
 StructuredBuffer<PhotonHit> gPhotonHits;
 StructuredBuffer<PhotonCounters> gCounters;
 RWStructuredBuffer<DebugCounters> gDebugCounters;
@@ -22,7 +24,6 @@ cbuffer CB
 
 struct Payload { float3 flux; };
 
-// Procedural intersection: treat each primitive index as a sphere defined by PhotonQuery (position, radius)
 struct QueryIsectAttribs { };
 
 [shader("intersection")]
@@ -31,17 +32,9 @@ void queryIntersection()
     // Count intersection shader invocation attempts (only when AABB was traversed for this primitive)
     InterlockedAdd(gDebugCounters[0].IntersectorCalls, 1);
     let qi = PrimitiveIndex();
-    // if (qi >= gQueryCount) return;
-    let q = gPhotonQueries[qi];
-    if (!q.isValid()) return; // Should never happen
+    let p = WorldRayOrigin();
 
-    // World-space ray
-    let center = WorldRayOrigin();
-
-    let diff = center - q.position;
-    let dist2 = dot(diff, diff);
-    let r2 = q.radius * q.radius;
-    if (dist2 > r2) return;
+    if (!gQuerySpheres[qi].contains(p)) return;
 
     QueryIsectAttribs attribs; // TODO: pass Query data
     ReportHit(1e-6, 0, attribs);
@@ -62,7 +55,6 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
     var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
-    let r2 = q.radius * q.radius;
     let cosThetaO = abs(dot(wo, sd.faceN));
     if (cosThetaO < 1e-6) return;
     let outgoing_flux = (p.flux * mi.eval(sd, wo, sg)) / cosThetaO;
@@ -71,7 +63,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     gQueryAccumulation.InterlockedAddF32(offset + 0 * sizeof(float), outgoing_flux.x);
     gQueryAccumulation.InterlockedAddF32(offset + 1 * sizeof(float), outgoing_flux.y);
     gQueryAccumulation.InterlockedAddF32(offset + 2 * sizeof(float), outgoing_flux.z);
-    gQueryAccumulation.InterlockedAddF32(offset + 3 * sizeof(float), 1.0);
+    gQueryAccumulation.InterlockedAdd(offset + 3 * sizeof(float), 1u);
 
     // Count accumulation event (per hit processed)
     InterlockedAdd(gDebugCounters[0].Accumulations, 1);

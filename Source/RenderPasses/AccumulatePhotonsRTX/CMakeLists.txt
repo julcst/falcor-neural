@@ -5,6 +5,8 @@ target_sources(AccumulatePhotonsRTX PRIVATE
     AccumulatePhotonsRTX.h
     AccumulatePhotons.rt.slang
     DebugCounters.slang
+    Preparation.cs.slang
+    Structs.slang
     Visualize.cs.slang
 )
 

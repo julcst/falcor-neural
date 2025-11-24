@@ -11,13 +11,11 @@ import Utils.Timing.GpuTimer;
 import Query;
 
 RWStructuredBuffer<Query> gPhotonQueries;
-RWStructuredBuffer<AABB> gQueryAABBs;
 
 cbuffer CB
 {
     uint2 gFrameDim;
     uint gFrameIndex;
-    float gQueryRadius;
 }
 
 struct RayPayload { PackedHitInfo hit; };
@@ -58,8 +56,6 @@ void rayGen()
     TraceRayScene(0, 0xff, 0 /* hitIdx */, 0 /* missIdx */, ray.toRayDesc(), payload);
 
     Query q = {};
-    q.pixelIndex = index;
-    q.radius = gQueryRadius;
     q.hit = payload.hit;
 
     HitInfo hit = HitInfo(payload.hit);
@@ -75,21 +71,7 @@ void rayGen()
         q.emission = props.emission;
         q.position = sd.posW;
         q.viewDir = -ray.dir;
-    } else {
     }
 
     gPhotonQueries[index] = q;
-
-    // Write AABB for this query directly here to avoid a separate compute pass
-    AABB aabb;
-    if (q.isValid())
-    {
-        float3 r = float3(q.radius);
-        aabb.set(q.position - r, q.position + r);
-    }
-    else
-    {
-        aabb.invalidate();
-    }
-    gQueryAABBs[index] = aabb;
 }

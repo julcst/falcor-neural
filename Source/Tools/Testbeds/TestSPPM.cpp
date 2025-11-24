@@ -50,7 +50,7 @@ int runMain(int argc, char** argv)
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(nlohmann::json {{"visualizeHeatmap", false}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties());
-    g->createPass("Error", "ErrorMeasurePass", Properties());
+    g->createPass("Error", "ErrorMeasurePass", Properties(nlohmann::json  {{"SelectedOutputId", "Difference"}}));
 
     for (const auto& output : g->getAvailableOutputs())
     {
@@ -69,7 +69,6 @@ int runMain(int argc, char** argv)
     g->addEdge("TracePhotons.photons", "AccumPh.photons");
     g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
     g->addEdge("TraceQueries.queries", "AccumPh.queries");
-    g->addEdge("TraceQueries.aabbs", "AccumPh.queryAABBs");
     g->addEdge("AccumPh.output", "Accum.input");
 
     g->addEdge("Accum.output", "Error.Source");
@@ -78,6 +77,7 @@ int runMain(int argc, char** argv)
     g->markOutput("AccumPh.output");
     g->markOutput("Accum.output");
     g->markOutput("VisualizePhotons.dst");
+    g->markOutput("Error.Output");
 
     app.setRenderGraph(g);
     for (uint32_t i = 0; i < 32; ++i)

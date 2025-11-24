@@ -4,9 +4,7 @@
 namespace
 {
 const char kShaderFile[] = "RenderPasses/TraceQueries/TraceQueries.rt.slang";
-const char kQueryRadius[] = "queryRadius";
 const char kQueries[] = "queries";
-const char kAABBs[] = "aabbs";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -29,14 +27,11 @@ TraceQueries::TraceQueries(ref<Device> pDevice, const Properties& props) : Rende
 Properties TraceQueries::getProperties() const
 {
     Properties props;
-    props[kQueryRadius] = mQueryRadius;
     return props;
 }
 
 void TraceQueries::setProperties(const Properties& props)
 {
-    if (props.has(kQueryRadius))
-        mQueryRadius = props[kQueryRadius];
 }
 
 // This should recompile on resolution change, adjusting buffer sizes
@@ -49,10 +44,6 @@ RenderPassReflection TraceQueries::reflect(const CompileData& compileData)
 
     reflector.addOutput(kQueries, "Per-pixel photon queries")
         .rawBuffer(queryCount * sizeof(Query))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
-
-    reflector.addOutput(kAABBs, "Per-pixel query AABBs")
-        .rawBuffer(queryCount * sizeof(AABB))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
     return reflector;
@@ -85,33 +76,22 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameDim"] = frameDim;
     var["CB"]["gFrameIndex"] = mFrameCount;
-    var["CB"]["gQueryRadius"] = mQueryRadius;
 
     // Get the buffers allocated by the RenderGraph reflection.
-    const auto& pQueryResource = renderData.getResource(kQueries);
-    const auto& pQueryAABBResource = renderData.getResource(kAABBs);
-    FALCOR_ASSERT(pQueryResource);
-    FALCOR_ASSERT(pQueryAABBResource);
-    auto pQueryBuffer = pQueryResource->asBuffer();
-    auto pQueryAABBBuffer = pQueryAABBResource->asBuffer();
+    auto pQueryBuffer = renderData[kQueries]->asBuffer();
     FALCOR_ASSERT(pQueryBuffer);
-    FALCOR_ASSERT(pQueryAABBBuffer);
     // TODO: Assert correct sizes
 
     var["gPhotonQueries"] = pQueryBuffer;
-    var["gQueryAABBs"] = pQueryAABBBuffer;
 
-    logInfo("sizeof(AABB)={} sizeof(Query)={}", var["gQueryAABBs"].getType()->getByteSize(), var["gPhotonQueries"].getType()->getByteSize());
+    logInfo("sizeof(Query)={}", var["gPhotonQueries"].operator Falcor::ref<Falcor::Buffer>()->getStructSize());
 
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(frameDim.x, frameDim.y, 1));
 
     mFrameCount++;
 }
 
-void TraceQueries::renderUI(Gui::Widgets& widget)
-{
-    widget.var("Query radius", mQueryRadius, 0.f, 0.1f);
-}
+void TraceQueries::renderUI(Gui::Widgets& widget) {}
 
 void TraceQueries::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {

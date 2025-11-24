@@ -58,6 +58,7 @@ private:
 
     bool mVisualizeHeatmap = false;
     uint32_t mQueryCount = 0; // Automatically derived from input data
+    float mQueryRadius = 0.005f;
 
     ref<Scene> mpScene;
 
@@ -68,6 +69,7 @@ private:
         ref<RtProgramVars> pVars;
     } mTracer;
 
+    ref<ComputePass> mpPreparationPass;
     ref<ComputePass> mpVisualizePass;
 
     // Acceleration structure resources
