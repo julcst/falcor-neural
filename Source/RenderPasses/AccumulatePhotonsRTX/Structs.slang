@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Utils/Math/MathConstants.slangh"
 #include "Utils/HostDeviceShared.slangh"
 
 BEGIN_NAMESPACE_FALCOR
@@ -44,7 +45,7 @@ struct QueryState {
         let r2 = radius * radius;
         // let weight = 1.0f / (photonCount * r2 * M_PI);
         let weight = 1.0f / (photonCount * r2); // FIXME: Where is PI?
-        return totalFlux * weight;
+        return totalFlux * weight * M_PI; // FIXME: Why PI here?
     }
 #endif
 };

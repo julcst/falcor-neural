@@ -57,8 +57,10 @@ private:
     void buildQueryAcceleration(RenderContext* pRenderContext, ref<Buffer> pQueryAABBBuffer);
 
     bool mVisualizeHeatmap = false;
+    float mQueryRadius = 0.01f;
+
     uint32_t mQueryCount = 0; // Automatically derived from input data
-    float mQueryRadius = 0.005f;
+    uint32_t mGlobalPhotonCounter = 0;
 
     ref<Scene> mpScene;
 

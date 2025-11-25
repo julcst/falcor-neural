@@ -69,18 +69,16 @@ int runMain(int argc, char** argv)
     g->addEdge("TracePhotons.photons", "AccumPh.photons");
     g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
     g->addEdge("TraceQueries.queries", "AccumPh.queries");
-    g->addEdge("AccumPh.output", "Accum.input");
 
-    g->addEdge("Accum.output", "Error.Source");
+    g->addEdge("AccumPh.output", "Error.Source");
     g->addEdge("Ref.dst", "Error.Reference");
 
     g->markOutput("AccumPh.output");
-    g->markOutput("Accum.output");
     g->markOutput("VisualizePhotons.dst");
     g->markOutput("Error.Output");
 
     app.setRenderGraph(g);
-    for (uint32_t i = 0; i < 32; ++i)
+    for (uint32_t i = 0; i < 128; ++i)
         app.frame();
     for (uint32_t i = 0; i < g->getOutputCount(); ++i)
         app.captureOutput("out_" + g->getOutputName(i) + ".exr", i);

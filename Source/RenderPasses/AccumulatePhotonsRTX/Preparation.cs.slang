@@ -28,15 +28,14 @@ void main(uint3 tid : SV_DispatchThreadID)
     }
 
     let q = gQueries[idx];
-    let r = 0.005f;
-    // let r = gQueryStates[idx].radius; // FIXME: Why does this not work
+    let r = gQueryStates[idx].radius;
 
 
     // NOTE: For some weird reason this works
     gQueryAABBs[idx] = AABB(q.position - r, q.position + r);
     gQuerySpheres[idx] = Sphere(q.position, r * r);
 
-    // But this eg does not
+    // FIXME: But this eg does not
     // if (q.isValid()) {
     //     gQueryAABBs[idx] = AABB(q.position - r, q.position + r);
     //     gQuerySpheres[idx] = Sphere(q.position, r * r);

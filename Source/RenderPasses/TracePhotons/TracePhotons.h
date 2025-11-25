@@ -38,7 +38,7 @@ private:
     std::unique_ptr<EmissivePowerSampler> mpEmissiveSampler;    ///< Emissive light sampler or nullptr if not used.
 
     // Configuration
-    uint mPhotonCount = 1000000;            ///< Number of photons to trace per frame.
+    uint mPhotonCount = 2u<<20u;            ///< Number of photons to trace per frame.
     uint mMaxBounces = 5;                   ///< Max number of bounces per photon.
     float mGlobalRejectionProb = 1.0f;      ///< Rejection probability
 

@@ -5,7 +5,6 @@ import RenderPasses.TracePhotons.Structs;
 import Structs;
 
 ByteAddressBuffer gAccumulator;
-StructuredBuffer<PhotonCounters> gCounters;
 StructuredBuffer<Query> gPhotonQueries;
 RWStructuredBuffer<QueryState> gQueryStates;
 RWTexture2D<float4> gOutput;
@@ -13,6 +12,7 @@ RWTexture2D<float4> gOutput;
 cbuffer CB
 {
     uint2 gFrameDim;
+    uint gGlobalPhotonCount;
     bool gVisualizeHeatmap;
 }
 
@@ -41,11 +41,12 @@ void main(uint3 tid : SV_DispatchThreadID)
     let idx = px.x + px.y * gFrameDim.x;
 
     let query = gPhotonQueries[idx];
-    let photonCount = gCounters[0].PhotonsEmitted;
 
     let acc = Accumulator(gAccumulator.Load4Aligned(idx * sizeof(float4)));
-    gQueryStates[idx].applyRadiusReduction(acc, 0.7f);
-    let radiance = gQueryStates[idx].getRadiance(photonCount) + query.emission;
+    var q = gQueryStates[idx];
+    let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission;
+    q.applyRadiusReduction(acc, 0.7f);
+    gQueryStates[idx] = q;
 
     gOutput[px] = gVisualizeHeatmap ?
         float4(acc.collectedPhotons, heatmap(mapTo01(acc.collectedPhotons)).xy, 1.0) :

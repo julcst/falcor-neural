@@ -140,23 +140,20 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gQueryAABBs"] = pQueryAABBBuffer;
         var["gQuerySpheres"] = pQuerySphereBuffer;
         var["CB"]["gQueryCount"] = mQueryCount;
-        var["CB"]["gReset"] = true;
-        //var["CB"]["gReset"] = mpScene->getUpdates() != IScene::UpdateFlags::None;
+        var["CB"]["gReset"] = mpScene->getUpdates() != IScene::UpdateFlags::None;
         var["CB"]["gInitialRadius"] = mQueryRadius;
 
         logInfo("Preparing {} queries", mQueryCount);
         mpPreparationPass->execute(pRenderContext, mQueryCount, 1);
     }
 
-    pRenderContext->uavBarrier(pQueryAABBBuffer.get());
-    pRenderContext->submit(true);
-    
-    const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
-    auto valid = 0u;
-    for (const auto aabb : aabbs) {
-        if (aabb.valid()) valid += 1u;
-    }
-    logInfo("valid={}%", (100u * valid) / aabbs.size());
+    pRenderContext->uavBarrier(pQueryAABBBuffer.get()); // TODO: Is this necessary?
+    // const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
+    // auto valid = 0u;
+    // for (const auto aabb : aabbs) {
+    //     if (aabb.valid()) valid += 1u;
+    // }
+    // logInfo("valid={}%", (100u * valid) / aabbs.size());
 
     {
         // Build query acceleration structure
@@ -182,6 +179,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         pRenderContext->uavBarrier(pPhotonCounters.get());
         const auto counters = pPhotonCounters->getElement<PhotonCounters>(0u);
         const auto photonHitCount = counters.PhotonStores;
+        mGlobalPhotonCounter += photonHitCount;
 
         // Dispatch one ray per photon hit.
         logInfo("Tracing {} photons", photonHitCount);
@@ -204,8 +202,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gAccumulator"] = pAccumulatorBuffer;
         var["gOutput"] = renderData.getTexture(kOutput);
         var["gPhotonQueries"] = pQueryBuffer;
-        var["gCounters"] = pPhotonCounters;
         var["gQueryStates"] = pQueryStateBuffer;
+        var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
         var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
 
