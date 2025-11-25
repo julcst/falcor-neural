@@ -33,12 +33,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
 
     // NOTE: For some weird reason this works
-    AABB aabb;
-    if (q.isValid()) {
-        gQueryAABBs[idx] = AABB(q.position - r, q.position + r);
-    } else {
-        aabb.invalidate();
-    }
+    gQueryAABBs[idx] = AABB(q.position - r, q.position + r);
     gQuerySpheres[idx] = Sphere(q.position, r * r);
 
     // But this eg does not
