@@ -17,17 +17,28 @@ const uint32_t kMaxRecursionDepth = 1u;
 
 const std::string kPhotonBuffer = "photons";
 const std::string kCounterBuffer = "counters";
+
+// Properties
+const std::string kPhotonCount = "photonCount";
+const std::string kMaxBounces = "maxBounces";
 } // namespace
 
 TracePhotons::TracePhotons(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
     // Create a sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     FALCOR_ASSERT(mpSampleGenerator);
+    for (const auto& [key, value] : props) {
+        if (key == kPhotonCount) mPhotonCount = value;
+        else if (key == kMaxBounces) mMaxBounces = value;
+    }
 }
 
 Properties TracePhotons::getProperties() const
 {
-    return {};
+    Properties props;
+    props[kPhotonCount] = mPhotonCount;
+    props[kMaxBounces] = mMaxBounces;
+    return props;
 }
 
 RenderPassReflection TracePhotons::reflect(const CompileData& compileData)

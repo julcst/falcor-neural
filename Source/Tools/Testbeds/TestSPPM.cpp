@@ -46,8 +46,8 @@ int runMain(int argc, char** argv)
 
     g->createPass("Ref", "ImageLoader", Properties(nlohmann::json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
-    g->createPass("TracePhotons", "TracePhotons", Properties());
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(nlohmann::json {{"visualizeHeatmap", false}}));
+    g->createPass("TracePhotons", "TracePhotons", Properties(nlohmann::json {{"photonCount", 2<<22}}));
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(nlohmann::json {{"visualizeHeatmap", false}, {"radius", 0.005f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("Error", "ErrorMeasurePass", Properties(nlohmann::json  {{"SelectedOutputId", "Difference"}}));
@@ -78,8 +78,11 @@ int runMain(int argc, char** argv)
     g->markOutput("Error.Output");
 
     app.setRenderGraph(g);
+    //app.getDevice()->getProfiler()->startCapture();
     for (uint32_t i = 0; i < 128; ++i)
         app.frame();
+    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+
     for (uint32_t i = 0; i < g->getOutputCount(); ++i)
         app.captureOutput("out_" + g->getOutputName(i) + ".exr", i);
 

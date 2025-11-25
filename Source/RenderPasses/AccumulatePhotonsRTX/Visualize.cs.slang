@@ -14,6 +14,7 @@ cbuffer CB
     uint2 gFrameDim;
     uint gGlobalPhotonCount;
     bool gVisualizeHeatmap;
+    float gAlpha;
 }
 
 float3 heatmap(float v)
@@ -44,7 +45,7 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     let acc = Accumulator(gAccumulator.Load4Aligned(idx * sizeof(float4)));
     var q = gQueryStates[idx];
-    q.applyRadiusReduction(acc, 0.7f);
+    q.applyRadiusReduction(acc, gAlpha);
     let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission;
     gQueryStates[idx] = q;
 

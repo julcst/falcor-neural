@@ -10,16 +10,26 @@ const char kShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/AccumulatePhotons.
 const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
 const char kVisualizeComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Visualize.cs.slang";
 
+
+// Inputs
 const char kQueryBuffer[] = "queries";
+const char kPhotonBuffer[] = "photons";
+const char kPhotonCounters[] = "photonCounters";
+
+// Internal
 const char kQueryAABBBuffer[] = "queryAABBs";
 const char kQuerySphereBuffer[] = "querySpheres";
 const char kQueryStateBuffer[] = "queryStates";
-const char kPhotonBuffer[] = "photons";
-const char kPhotonCounters[] = "photonCounters";
 const char kAccumulatorBuffer[] = "accumulator";
-const char kOutput[] = "output";
 const char kDebugCounters[] = "debugCounters";
-const char kQueryRadius[] = "queryRadius";
+
+// Output
+const char kOutput[] = "output";
+
+// Properties
+const char kVisualizeHeatmap[] = "visualizeHeatmap";
+const char kQueryRadius[] = "radius";
+const char kRadiusAlpha[] = "alpha";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -35,10 +45,12 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
     for (const auto& [key, value] : props)
     {
-        if (key == "visualizeHeatmap") {
+        if (key == kVisualizeHeatmap) {
             mVisualizeHeatmap = value;
         } else if (key == kQueryRadius) {
             mQueryRadius = props[kQueryRadius];
+        } else if (key == kRadiusAlpha) {
+            mAlpha = props[kRadiusAlpha];
         } else {
             logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
         }
@@ -48,8 +60,9 @@ AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties
 Properties AccumulatePhotonsRTX::getProperties() const
 {
     Properties props;
-    props["visualizeHeatmap"] = mVisualizeHeatmap;
+    props[kVisualizeHeatmap] = mVisualizeHeatmap;
     props[kQueryRadius] = mQueryRadius;
+    props[kRadiusAlpha] = mAlpha;
     return props;
 }
 
@@ -206,6 +219,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
         var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
+        var["CB"]["gAlpha"] = mAlpha;
 
         //pRenderContext->uavBarrier(pAccumulatorBuffer.get());
         mpVisualizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
