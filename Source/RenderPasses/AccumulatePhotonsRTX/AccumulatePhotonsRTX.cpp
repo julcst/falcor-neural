@@ -343,7 +343,7 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         desc.addShaderLibrary(kPreparationComputeShaderFile);
         desc.csEntry("main");
 
-        mpPreparationPass = ComputePass::create(mpDevice, desc);
+        mpPreparationPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines()); // NOTE: Needs scene defines for hit types
     }
 
     if (!mpVisualizePass)

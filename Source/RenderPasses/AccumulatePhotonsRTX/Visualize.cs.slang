@@ -44,8 +44,8 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     let acc = Accumulator(gAccumulator.Load4Aligned(idx * sizeof(float4)));
     var q = gQueryStates[idx];
-    let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission;
     q.applyRadiusReduction(acc, 0.7f);
+    let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission;
     gQueryStates[idx] = q;
 
     gOutput[px] = gVisualizeHeatmap ?

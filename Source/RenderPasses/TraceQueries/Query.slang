@@ -27,6 +27,7 @@ struct Query
         return HitInfo(hit);
     }
 
+    // NOTE: This function needs hit defines to be set
     bool isValid() {
         return getHitInfo().isValid();
     }
