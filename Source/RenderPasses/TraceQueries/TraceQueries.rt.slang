@@ -71,6 +71,10 @@ void rayGen()
         q.emission = props.emission;
         q.position = sd.posW;
         q.viewDir = -ray.dir;
+        q.roughness = props.roughness;
+        q.normal = props.guideNormal;
+        q.diffuse = props.diffuseReflectionAlbedo;
+        q.specular = props.specularReflectionAlbedo;
     }
 
     gPhotonQueries[index] = q;
