@@ -74,7 +74,7 @@ private:
     } mTracer;
 
     ref<ComputePass> mpPreparationPass;
-    ref<ComputePass> mpVisualizePass;
+    ref<ComputePass> mpFinalizePass;
 
     // Acceleration structure resources
     ref<RtAccelerationStructure> mpQueryBLAS;

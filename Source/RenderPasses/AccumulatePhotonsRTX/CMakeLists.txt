@@ -7,7 +7,7 @@ target_sources(AccumulatePhotonsRTX PRIVATE
     DebugCounters.slang
     Preparation.cs.slang
     Structs.slang
-    Visualize.cs.slang
+    Finalize.cs.slang
 )
 
 target_copy_shaders(AccumulatePhotonsRTX RenderPasses/AccumulatePhotonsRTX)

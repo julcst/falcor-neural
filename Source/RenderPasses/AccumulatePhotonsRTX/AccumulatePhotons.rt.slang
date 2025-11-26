@@ -5,6 +5,7 @@ import RenderPasses.TracePhotons.Structs;
 import Scene.Raytracing;
 import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
+import Utils.Color.ColorHelpers;
 import DebugCounters;
 import Structs;
 
@@ -46,6 +47,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     let qi = PrimitiveIndex();
     let q = gPhotonQueries[qi];
 
+    // TODO: Prefetch material?
     let wo = q.viewDir;
     let wi = WorldRayDirection();
     let th = HitInfo(q.hit).getTriangleHit();
@@ -54,10 +56,11 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     let sd = gScene.materials.prepareShadingData(v, materialID, wi);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
-    var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
     let cosThetaO = abs(dot(wo, sd.faceN));
-    if (cosThetaO < 1e-6) return;
+    if (cosThetaO < 1e-6) IgnoreHit();
+    var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
     let outgoing_flux = (p.flux * mi.eval(sd, wo, sg)) / cosThetaO;
+    if (luminance(outgoing_flux) < 1e-5) IgnoreHit(); // Skip expensive atomic ops for negligible contributions
 
     let offset = qi * sizeof(float4);
     gQueryAccumulation.InterlockedAddF32(offset + 0 * sizeof(float), outgoing_flux.x);
@@ -67,8 +70,6 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
 
     // Count accumulation event (per hit processed)
     InterlockedAdd(gDebugCounters[0].Accumulations, 1);
-
-    IgnoreHit(); // visit all overlaps
 }
 
 [shader("raygeneration")]

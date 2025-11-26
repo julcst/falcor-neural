@@ -8,7 +8,7 @@ namespace
 {
 const char kShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/AccumulatePhotons.rt.slang";
 const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
-const char kVisualizeComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Visualize.cs.slang";
+const char kFinalizeComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Finalize.cs.slang";
 
 
 // Inputs
@@ -211,7 +211,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     {
         FALCOR_PROFILE(pRenderContext, "ComputeFinalRadiance");
 
-        auto var = mpVisualizePass->getRootVar();
+        auto var = mpFinalizePass->getRootVar();
         var["gAccumulator"] = pAccumulatorBuffer;
         var["gOutput"] = renderData.getTexture(kOutput);
         var["gPhotonQueries"] = pQueryBuffer;
@@ -222,7 +222,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["CB"]["gAlpha"] = mAlpha;
 
         //pRenderContext->uavBarrier(pAccumulatorBuffer.get());
-        mpVisualizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
+        mpFinalizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
     }
 }
 
@@ -360,13 +360,13 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         mpPreparationPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines()); // NOTE: Needs scene defines for hit types
     }
 
-    if (!mpVisualizePass)
+    if (!mpFinalizePass)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary(kVisualizeComputeShaderFile);
+        desc.addShaderLibrary(kFinalizeComputeShaderFile);
         desc.csEntry("main");
 
-        mpVisualizePass = ComputePass::create(mpDevice, desc);
+        mpFinalizePass = ComputePass::create(mpDevice, desc);
     }
 }
 
