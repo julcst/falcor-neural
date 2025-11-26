@@ -30,6 +30,19 @@ set_target_properties(fmt PROPERTIES
     FOLDER "Libraries"
 )
 
+# tiny-cuda-nn
+set(TCNN_EXTERNAL_FMT fmt)
+add_subdirectory(tiny-cuda-nn)
+
+# Ensure it follows Falcor ABI rules
+target_compile_definitions(tiny-cuda-nn PUBLIC _GLIBCXX_USE_CXX11_ABI=0)
+
+# Force C++17 to fix compilation
+set_target_properties(tiny-cuda-nn PROPERTIES
+    CXX_STANDARD 17
+    CUDA_STANDARD 17
+)
+
 # glfw
 message(STATUS "Configure glfw")
 set(GLFW_BUILD_EXAMPLES OFF)
@@ -47,7 +60,6 @@ add_subdirectory(pybind11)
 
 # vulkan-headers
 add_subdirectory(vulkan-headers)
-
 
 # -----------------------------------------------------------------------------
 # Dependencies in local files
