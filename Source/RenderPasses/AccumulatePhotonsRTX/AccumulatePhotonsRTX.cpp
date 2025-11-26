@@ -192,7 +192,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         pRenderContext->uavBarrier(pPhotonCounters.get());
         const auto counters = pPhotonCounters->getElement<PhotonCounters>(0u);
         const auto photonHitCount = counters.PhotonStores;
-        mGlobalPhotonCounter += photonHitCount;
+        mGlobalPhotonCounter += counters.PhotonsEmitted;
 
         // Dispatch one ray per photon hit.
         logInfo("Tracing {} photons", photonHitCount);

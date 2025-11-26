@@ -43,8 +43,8 @@ struct QueryState {
         //let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
         let photonCount = totalPhotonCount;
         let r2 = radius * radius;
-        let weight = 1.0f / (photonCount * r2 * M_PI);
-        return totalFlux * weight * M_PI * M_PI; // FIXME: Why PI² here?
+        let weight = 1.0f / (photonCount * r2); // FIXME: Why no PI here?
+        return totalFlux * weight;
     }
 #endif
 };

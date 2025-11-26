@@ -79,7 +79,7 @@ int runMain(int argc, char** argv)
 
     app.setRenderGraph(g);
     //app.getDevice()->getProfiler()->startCapture();
-    for (uint32_t i = 0; i < 128; ++i)
+    for (uint32_t i = 0; i < 256; ++i)
         app.frame();
     //app.getDevice()->getProfiler()->endCapture()->writeToFile();
 
