@@ -34,7 +34,7 @@ using namespace Falcor;
 class QuerySubsampling : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(QuerySubsampling, "QuerySubsampling", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(QuerySubsampling, "QuerySubsampling", "Randomly subsamples a buffer of queries.");
 
     static ref<QuerySubsampling> create(ref<Device> pDevice, const Properties& props)
     {
@@ -53,4 +53,10 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
+    void preparePass();
+
+    uint32_t mOutputCount = 1024;
+    uint32_t mFrameCount = 0;
+
+    ref<ComputePass> mpSubsamplePass;
 };

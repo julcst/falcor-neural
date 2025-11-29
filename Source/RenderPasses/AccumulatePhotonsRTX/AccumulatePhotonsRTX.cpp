@@ -24,7 +24,8 @@ const char kAccumulatorBuffer[] = "accumulator";
 const char kDebugCounters[] = "debugCounters";
 
 // Output
-const char kOutput[] = "output";
+const char kOutputTexture[] = "outputTexture";
+const char kOutputBuffer[] = "outputBuffer";
 
 // Properties
 const char kVisualizeHeatmap[] = "visualizeHeatmap";
@@ -84,21 +85,26 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .rawBuffer(sizeof(DebugCounters))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kAccumulatorBuffer, "Buffer to accumulate outgoing flux and photon counts per query.")
-        .rawBuffer(mQueryCount * sizeof(float4)) // TODO: match query count
+        .rawBuffer(mQueryCount * sizeof(float4))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
         .rawBuffer(mQueryCount * sizeof(AABB))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kQuerySphereBuffer, "Buffer for query geometry..")
-        .rawBuffer(mQueryCount * sizeof(Sphere)) // TODO: match query count
+        .rawBuffer(mQueryCount * sizeof(Sphere))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kQueryStateBuffer, "Buffer to keep radius and flux.")
-        .rawBuffer(mQueryCount * sizeof(QueryState)) // TODO: match query count
+        .rawBuffer(mQueryCount * sizeof(QueryState))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     
-    reflector.addOutput(kOutput, "Output texture showing accumulated radiance.")
+    reflector.addOutput(kOutputTexture, "Output texture showing accumulated radiance.")
         .texture2D(0, 0)
         .format(ResourceFormat::RGBA32Float);
+
+    reflector.addOutput(kOutputBuffer, "Output radiance buffer")
+        .rawBuffer(mQueryCount * sizeof(float3))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Optional);
     
     return reflector;
 }
@@ -211,11 +217,20 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     {
         FALCOR_PROFILE(pRenderContext, "ComputeFinalRadiance");
 
+        // Specialize program
+        // These defines should not modify the program vars. Do not trigger program vars re-creation.
+        const auto pOutputTexture = renderData.getTexture(kOutputTexture);
+        mpFinalizePass->addDefine("OUTPUT_TEXTURE", pOutputTexture ? "1" : "0");
+        const auto pOutputBuffer = renderData[kOutputBuffer];
+        mpFinalizePass->addDefine("OUTPUT_BUFFER", pOutputBuffer ? "1" : "0");
+
+        // All defines should be set up to this point
         auto var = mpFinalizePass->getRootVar();
         var["gAccumulator"] = pAccumulatorBuffer;
-        var["gOutput"] = renderData.getTexture(kOutput);
         var["gPhotonQueries"] = pQueryBuffer;
         var["gQueryStates"] = pQueryStateBuffer;
+        if (pOutputTexture) var["gOutputTexture"] = pOutputTexture;
+        if (pOutputBuffer) var["gOutputBuffer"] = pOutputBuffer;
         var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
         var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;

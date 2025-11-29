@@ -7,7 +7,8 @@ import Structs;
 ByteAddressBuffer gAccumulator;
 StructuredBuffer<Query> gPhotonQueries;
 RWStructuredBuffer<QueryState> gQueryStates;
-RWTexture2D<float4> gOutput;
+RWTexture2D<float4> gOutputTexture;
+RWStructuredBuffer<float3> gOutputBuffer;
 
 cbuffer CB
 {
@@ -49,8 +50,14 @@ void main(uint3 tid : SV_DispatchThreadID)
     let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission;
     gQueryStates[idx] = q;
 
-    gOutput[px] = gVisualizeHeatmap ?
+#if OUTPUT_TEXTURE
+    gOutputTexture[px] = gVisualizeHeatmap ?
         float4(acc.collectedPhotons, heatmap(mapTo01(acc.collectedPhotons)).xy, 1.0) :
         float4(radiance, 1.0);
+#endif
+
+#if OUTPUT_BUFFER
+    gOutputBuffer[idx] = radiance;
+#endif
 }
 

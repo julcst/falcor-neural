@@ -31,6 +31,123 @@
  * for pseudorandom number generation.
  */
 
+
+// convert 2D seed to 1D
+// 2 imad
+uint seed(uint2 p) {
+    return 19u * p.x + 47u * p.y + 101u;
+}
+
+// convert 3D seed to 1D
+uint seed(uint3 p) {
+    return 19u * p.x + 47u * p.y + 101u * p.z + 131u;
+}
+
+// convert 4D seed to 1D
+uint seed(uint4 p) {
+	return 19u * p.x + 47u * p.y + 101u * p.z + 131u * p.w + 173u;
+}
+
+// Integer Hash - I
+// - Inigo Quilez, Integer Hash - I, 2017
+//   https://www.shadertoy.com/view/llGSzw
+uint iqint1(uint n)
+{
+    // integer hash copied from Hugo Elias
+	n = (n << 13U) ^ n;
+    n = n * (n * n * 15731U + 789221U) + 1376312589U;
+
+    return n;
+}
+
+// https://www.pcg-random.org/
+uint pcg(uint v)
+{
+	uint state = v * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+ /*
+Copyright 2020 Mark Jarzynski & Marc Olano
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+uint2 pcg2d(uint2 v)
+{
+    v = v * 1664525u + 1013904223u;   
+
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+
+    v ^= v>>16u;
+    
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    
+    v ^= v>>16u;
+
+    return v;
+}
+
+/*
+Copyright 2020 Mark Jarzynski & Marc Olano
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+uint3 pcg3d(uint3 v)
+{
+    v = v * 1664525u + 1013904223u;   
+
+    v.x += v.y*v.z;
+    v.y += v.z*v.x;
+    v.z += v.x*v.y;
+
+    v ^= v>>16u;
+
+    v.x += v.y*v.z;
+    v.y += v.z*v.x;
+    v.z += v.x*v.y;
+
+    return v;
+}
+
+/*
+Copyright 2020 Mark Jarzynski & Marc Olano
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+uint4 pcg4d(uint4 v)
+{
+    v = v * 1664525u + 1013904223u;   
+
+    v.x += v.y*v.w;
+    v.y += v.z*v.x;
+    v.z += v.x*v.y;
+    v.w += v.y*v.z;
+
+    v ^= v>>16u;
+
+    v.x += v.y*v.w;
+    v.y += v.z*v.x;
+    v.z += v.x*v.y;
+    v.w += v.y*v.z;
+
+    return v;
+}
+
 /**
  * 32-bit (non-cryptographic) hash function by Robert Jenkins.
  * This is a perfect hash function (no collisions).

@@ -26,32 +26,105 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "QuerySubsampling.h"
+#include "../TraceQueries/Query.slang"
+
+namespace
+{
+const char kShaderFile[] = "RenderPasses/QuerySubsampling/QuerySubsampling.cs.slang";
+
+const char kInputQueries[] = "queries";
+const char kOutputQueries[] = "sample";
+
+const char kOutputCount[] = "count";
+}
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
     registry.registerClass<RenderPass, QuerySubsampling>();
 }
 
-QuerySubsampling::QuerySubsampling(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {}
+QuerySubsampling::QuerySubsampling(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+{
+    for (const auto& [key, value] : props)
+    {
+        if (key == kOutputCount)
+        {
+            mOutputCount = value;
+        }
+        else
+        {
+            logWarning("Unrecognized property '{}' in QuerySubsampling render pass.", key);
+        }
+    }
+}
 
 Properties QuerySubsampling::getProperties() const
 {
-    return {};
+    Properties props;
+    props[kOutputCount] = mOutputCount;
+    return props;
 }
 
 RenderPassReflection QuerySubsampling::reflect(const CompileData& compileData)
 {
-    // Define the required resources here
     RenderPassReflection reflector;
-    // reflector.addOutput("dst");
-    // reflector.addInput("src");
+    reflector.addInput(kInputQueries, "Buffer containing input queries.")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addOutput(kOutputQueries, "Buffer containing randomly subsampled queries.")
+        .rawBuffer(mOutputCount * sizeof(Query))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     return reflector;
 }
 
 void QuerySubsampling::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData.getTexture("src");
+    FALCOR_PROFILE(pRenderContext, "QuerySubsampling");
+
+    const auto pInputQueries = renderData[kInputQueries]->asBuffer();
+    const auto pOutputQueries = renderData[kOutputQueries]->asBuffer();
+    
+    FALCOR_ASSERT(pInputQueries);
+    FALCOR_ASSERT(pOutputQueries);
+
+    const uint32_t inputCount = pInputQueries->getSize() / sizeof(Query);
+    
+    if (inputCount == 0)
+    {
+        logWarning("Input query buffer is empty.");
+        return;
+    }
+
+    preparePass();
+
+    auto var = mpSubsamplePass->getRootVar();
+    var["gInputQueries"] = pInputQueries;
+    var["gOutputQueries"] = pOutputQueries;
+    var["CB"]["gInputCount"] = inputCount;
+    var["CB"]["gOutputCount"] = mOutputCount;
+    var["CB"]["gFrameCount"] = mFrameCount;
+
+    mpSubsamplePass->execute(pRenderContext, mOutputCount, 1);
+
+    mFrameCount++;
 }
 
-void QuerySubsampling::renderUI(Gui::Widgets& widget) {}
+void QuerySubsampling::renderUI(Gui::Widgets& widget)
+{
+    if (widget.var("Output Count", mOutputCount, 1u, 1u << 20u))
+    {
+        requestRecompile();
+    }
+}
+
+void QuerySubsampling::preparePass()
+{
+    if (!mpSubsamplePass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kShaderFile);
+        desc.csEntry("main");
+
+        mpSubsamplePass = ComputePass::create(mpDevice, desc);
+    }
+}

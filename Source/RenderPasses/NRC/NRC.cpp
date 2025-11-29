@@ -27,9 +27,12 @@
  **************************************************************************/
 #include "NRC.h"
 #include "Utils/CudaUtils.h"
+#include "../TraceQueries/Query.slang"
+#include "NRC.slang"
 
-const uint32_t NRC_INPUT_SIZE = 3 + 3 + 3 + 1 + 3 + 3; // pos (3) + wo (3) + n (3) + rough (1) + diff (3) + spec (3)
-const uint32_t NRC_OUTPUT_SIZE = 3;
+const char kQueriesToInputsFile[] = "RenderPasses/NRC/QueriesToInputs.cs.slang";
+const char kOutputsToTextureFile[] = "RenderPasses/NRC/OutputsToTexture.cs.slang";
+
 const nlohmann::json CONFIG {
     {"encoding", {
         {"otype", "Composite"},
@@ -224,6 +227,40 @@ void NRC::compile(RenderContext* pRenderContext, const CompileData& compileData)
 
 void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    // Prepare passes
+    if (!mpQueriesToInputsPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kQueriesToInputsFile);
+        desc.csEntry("main");
+        mpQueriesToInputsPass = ComputePass::create(mpDevice, desc);
+    }
+    if (!mpOutputsToTexturePass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kOutputsToTextureFile);
+        desc.csEntry("main");
+        mpOutputsToTexturePass = ComputePass::create(mpDevice, desc);
+    }
+
+    // Run QueriesToInputs for Inference
+    {
+        auto var = mpQueriesToInputsPass->getRootVar();
+        var["gQueries"] = renderData[kInferenceInput]->asBuffer();
+        var["gInputFloat"] = renderData[kInferenceInputFloat]->asBuffer();
+        var["CB"]["gCount"] = mInferenceSize;
+        mpQueriesToInputsPass->execute(pRenderContext, mInferenceSize, 1, 1);
+    }
+
+    // Run QueriesToInputs for Training
+    {
+        auto var = mpQueriesToInputsPass->getRootVar();
+        var["gQueries"] = renderData[kTrainInput]->asBuffer();
+        var["gInputFloat"] = renderData[kTrainInputFloat]->asBuffer();
+        var["CB"]["gCount"] = mTrainSize;
+        mpQueriesToInputsPass->execute(pRenderContext, mTrainSize, 1, 1);
+    }
+
     tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), mTrainSize, NRC_INPUT_SIZE};
     tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), mTrainSize, NRC_OUTPUT_SIZE};
     tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), mInferenceSize, NRC_INPUT_SIZE};
@@ -241,7 +278,16 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
 
     {
         model->inference(inferenceInput, inferenceOutput);
-        // TODO: Copy to texture
+        
+        // Copy to texture
+        auto var = mpOutputsToTexturePass->getRootVar();
+        var["gInferenceOutput"] = renderData[kInferenceOutputFloat]->asBuffer();
+        var["gOutput"] = renderData[kOutput]->asTexture();
+        
+        Falcor::uint2 resolution = { renderData[kOutput]->asTexture()->getWidth(), renderData[kOutput]->asTexture()->getHeight() };
+        var["CB"]["gResolution"] = resolution;
+        
+        mpOutputsToTexturePass->execute(pRenderContext, resolution.x, resolution.y, 1);
     }
 }
 

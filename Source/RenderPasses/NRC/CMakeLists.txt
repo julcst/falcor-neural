@@ -24,7 +24,13 @@ target_sources(NRC PRIVATE
     NRC.h
     TCNNBridge.cu
     TCNNBridge.h
+    NRC.slang
+    OutputsToTexture.cs.slang
+    QueriesToInputs.cs.slang
 )
 
+target_copy_shaders(NRC RenderPasses/NRC)
+
 set_target_properties(NRC PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
 target_source_group(NRC "RenderPasses")

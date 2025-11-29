@@ -32,7 +32,6 @@
 
 #include <memory>
 
-#include <tiny-cuda-nn/common_host.h>
 #include <tiny-cuda-nn/gpu_matrix.h>
 
 using namespace Falcor;
@@ -65,4 +64,7 @@ private:
     uint32_t mInferenceSize = 128;
     uint32_t mTrainSize = 128;
     uint32_t mTrainSteps = 4;
+
+    ref<ComputePass> mpQueriesToInputsPass;
+    ref<ComputePass> mpOutputsToTexturePass;
 };
