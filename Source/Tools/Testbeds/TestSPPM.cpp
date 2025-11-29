@@ -116,7 +116,7 @@ int runMain(int argc, char** argv)
         app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
 
     // NRC
-    auto nrc = graphSPPM(app.getDevice());
+    auto nrc = graphNRC(app.getDevice());
     app.setRenderGraph(nrc);
     //app.getDevice()->getProfiler()->startCapture();
     for (uint32_t i = 0; i < 256; ++i)

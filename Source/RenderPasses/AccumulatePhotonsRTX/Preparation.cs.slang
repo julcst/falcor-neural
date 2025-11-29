@@ -22,12 +22,18 @@ void main(uint3 tid : SV_DispatchThreadID)
 {
     let idx = tid.x;
     if (idx >= gQueryCount) return;
+    let q = gQueries[idx];
 
-    if (gReset) {
+    bool shouldReset = gReset;
+
+    // Check if query has changed
+    // TODO: Handle this more elegantly
+    shouldReset |= any(gQuerySpheres[idx].center != q.position);
+
+    if (shouldReset) {
         gQueryStates[idx] = QueryState(float3(0), 0.0f, gInitialRadius);
     }
-
-    let q = gQueries[idx];
+    
     let r = gQueryStates[idx].radius;
     
     if (q.isValid()) {
