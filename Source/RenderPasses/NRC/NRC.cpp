@@ -25,12 +25,12 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "NRC.cuh"
+#include "NRC.h"
 #include "Utils/CudaUtils.h"
 
 const uint32_t NRC_INPUT_SIZE = 3 + 3 + 3 + 1 + 3 + 3; // pos (3) + wo (3) + n (3) + rough (1) + diff (3) + spec (3)
 const uint32_t NRC_OUTPUT_SIZE = 3;
-const tcnn::json CONFIG {
+const nlohmann::json CONFIG {
     {"encoding", {
         {"otype", "Composite"},
         {"nested", {
@@ -173,8 +173,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 }
 
 NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
-    nrcModel = tcnn::create_from_config(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG);
-    nrcModel.network->set_jit_fusion(tcnn::supports_jit_fusion());
+    model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG);
 }
 
 Properties NRC::getProperties() const
@@ -234,15 +233,14 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         uint32_t batchSize = mTrainSize / mTrainSteps;
         for (uint32_t offset = 0; offset < mTrainSize; offset += batchSize) {
             // TODO: Limit training to the samples generated in this step to improve performance
-            auto ctx = nrcModel.trainer->training_step(trainInput.slice_cols(offset, batchSize), trainTarget.slice_cols(offset, batchSize));
-            float loss = nrcModel.trainer->loss(*ctx);
+            float loss = model->training_step(trainInput.slice_cols(offset, batchSize), trainTarget.slice_cols(offset, batchSize));
             logInfo("Training loss: {}", loss);
             //lossHistory.push_back(loss);
         }
     }
 
     {
-        nrcModel.network->inference(inferenceInput, inferenceOutput);
+        model->inference(inferenceInput, inferenceOutput);
         // TODO: Copy to texture
     }
 }

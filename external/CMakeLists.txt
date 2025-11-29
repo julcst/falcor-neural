@@ -22,16 +22,8 @@ endif()
 add_library(args INTERFACE)
 target_include_directories(args INTERFACE args)
 
-# fmt
-message(STATUS "Configure fmt")
-add_subdirectory(fmt)
-set_target_properties(fmt PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    FOLDER "Libraries"
-)
-
 # tiny-cuda-nn
-set(TCNN_EXTERNAL_FMT fmt)
+# set(TCNN_EXTERNAL_FMT fmt)
 add_subdirectory(tiny-cuda-nn)
 # Ensure it follows Falcor ABI rules
 target_compile_definitions(tiny-cuda-nn PUBLIC _GLIBCXX_USE_CXX11_ABI=0)
@@ -39,7 +31,19 @@ target_compile_definitions(tiny-cuda-nn PUBLIC _GLIBCXX_USE_CXX11_ABI=0)
 set_target_properties(tiny-cuda-nn PROPERTIES
     CXX_STANDARD 17
     CUDA_STANDARD 17
+    POSITION_INDEPENDENT_CODE ON # Required for shared libs
+)
+set_target_properties(tiny-cuda-nn-resources PROPERTIES
     POSITION_INDEPENDENT_CODE ON
+)
+
+# Use fmt of tiny-cuda-nn instead to avoid conflicts
+# fmt
+# message(STATUS "Configure fmt")
+# add_subdirectory(fmt)
+set_target_properties(fmt PROPERTIES
+    POSITION_INDEPENDENT_CODE ON # Still needs to be PIC
+    FOLDER "Libraries"
 )
 
 # glfw

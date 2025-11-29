@@ -28,29 +28,14 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "TCNNBridge.h"
 
-#include <cuda.h>
-#include <cuda_runtime.h>
+#include <memory>
 
 #include <tiny-cuda-nn/common_host.h>
 #include <tiny-cuda-nn/gpu_matrix.h>
-#include <tiny-cuda-nn/config.h>
 
-using Falcor::RenderPass;
-using Falcor::ref;
-using Falcor::make_ref;
-using Falcor::Properties;
-using Falcor::Device;
-using Falcor::RenderContext;
-using Falcor::Gui;
-using Falcor::RenderPassReflection;
-using Falcor::logInfo;
-using Falcor::ResourceBindFlags;
-using Falcor::ResourceFormat;
-using Falcor::RenderData;
-using Falcor::Scene;
-using Falcor::MouseEvent;
-using Falcor::KeyboardEvent;
+using namespace Falcor;
 
 class NRC : public RenderPass
 {
@@ -74,7 +59,7 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
 
 private:
-    tcnn::TrainableModel nrcModel;
+    std::unique_ptr<ITCNNModel> model;
 
     // Config
     uint32_t mInferenceSize = 128;

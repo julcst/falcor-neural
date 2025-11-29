@@ -20,8 +20,10 @@ set_target_properties(${target} PROPERTIES
 set_property(GLOBAL APPEND PROPERTY FALCOR_PLUGIN_TARGETS ${target})
 
 target_sources(NRC PRIVATE
-    NRC.cu
-    NRC.cuh
+    NRC.cpp
+    NRC.h
+    TCNNBridge.cu
+    TCNNBridge.h
 )
 
 set_target_properties(NRC PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
