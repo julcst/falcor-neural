@@ -24,6 +24,7 @@ target_include_directories(args INTERFACE args)
 
 # tiny-cuda-nn
 # set(TCNN_EXTERNAL_FMT fmt)
+set(TCNN_HALF_PRECISION ON)
 add_subdirectory(tiny-cuda-nn)
 # Ensure it follows Falcor ABI rules
 target_compile_definitions(tiny-cuda-nn PUBLIC _GLIBCXX_USE_CXX11_ABI=0)

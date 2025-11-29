@@ -195,17 +195,17 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInput(kTrainTarget, "Training target radiance")
         .rawBuffer(0)
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
 
     reflector.addInternal(kInferenceInputFloat, "Inference queries as float matrix")
         .rawBuffer(mInferenceSize * NRC_INPUT_SIZE * sizeof(float))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     reflector.addInternal(kInferenceOutputFloat, "Inference output as float matrix")
         .rawBuffer(mInferenceSize * NRC_OUTPUT_SIZE * sizeof(float))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     reflector.addInternal(kTrainInputFloat, "Training queries as float matrix")
         .rawBuffer(mTrainSize * NRC_INPUT_SIZE * sizeof(float)) // TODO: match query count
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     
     reflector.addOutput(kOutput, "Inference output")
         .texture2D(0, 0)
@@ -216,8 +216,10 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
 
 void NRC::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    const auto inferenceSize = compileData.defaultTexDims.x * compileData.defaultTexDims.y;
-    const uint32_t trainSize = 128;
+    const auto inferenceSize = compileData.connectedResources.getField(kInferenceInput)->getWidth() / sizeof(Query);
+    FALCOR_ASSERT_EQ(inferenceSize % tcnn::BATCH_SIZE_GRANULARITY, 0);
+    const auto trainSize = compileData.connectedResources.getField(kTrainInput)->getWidth() / sizeof(Query);
+    FALCOR_ASSERT_EQ(trainSize % tcnn::BATCH_SIZE_GRANULARITY, 0);
     if (mInferenceSize != inferenceSize || mTrainSize != trainSize) {
         mInferenceSize = inferenceSize;
         mTrainSize = trainSize;
@@ -261,10 +263,10 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpQueriesToInputsPass->execute(pRenderContext, mTrainSize, 1, 1);
     }
 
-    tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), mTrainSize, NRC_INPUT_SIZE};
-    tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), mTrainSize, NRC_OUTPUT_SIZE};
-    tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), mInferenceSize, NRC_INPUT_SIZE};
-    tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), mInferenceSize, NRC_OUTPUT_SIZE};
+    tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
+    tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mTrainSize};
+    tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
+    tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
 
     {
         uint32_t batchSize = mTrainSize / mTrainSteps;

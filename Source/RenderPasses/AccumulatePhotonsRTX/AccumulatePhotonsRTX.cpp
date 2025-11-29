@@ -231,7 +231,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gPhotonQueries"] = pQueryBuffer;
         var["gQueryStates"] = pQueryStateBuffer;
         if (pOutputTexture) var["gOutputTexture"] = pOutputTexture;
-        if (pOutputBuffer) var["gOutputBuffer"] = pOutputBuffer;
+        if (pOutputBuffer) var["gOutputBuffer"] = pOutputBuffer->asBuffer();
         var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
         var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;

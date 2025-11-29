@@ -61,8 +61,8 @@ private:
     std::unique_ptr<ITCNNModel> model;
 
     // Config
-    uint32_t mInferenceSize = 128;
-    uint32_t mTrainSize = 128;
+    uint32_t mInferenceSize = 0;
+    uint32_t mTrainSize = 0;
     uint32_t mTrainSteps = 4;
 
     ref<ComputePass> mpQueriesToInputsPass;

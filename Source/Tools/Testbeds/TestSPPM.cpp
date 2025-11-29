@@ -75,8 +75,9 @@ ref<RenderGraph> graphNRC(ref<Device> pDevice) {
     g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
     g->addEdge("qsamp.sample", "AccumPh.queries");
 
-    g->addEdge("qsamp.queries", "nrc.trainInput");
+    g->addEdge("qsamp.sample", "nrc.trainInput");
     g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
+    g->addEdge("TraceQueries.queries", "nrc.inferenceInput");
 
     g->markOutput("nrc.output");
     return g;
@@ -106,14 +107,14 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    auto sppm = graphSPPM(app.getDevice());
-    app.setRenderGraph(sppm);
-    //app.getDevice()->getProfiler()->startCapture();
-    for (uint32_t i = 0; i < 256; ++i)
-        app.frame();
-    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
-    for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
-        app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
+    // auto sppm = graphSPPM(app.getDevice());
+    // app.setRenderGraph(sppm);
+    // //app.getDevice()->getProfiler()->startCapture();
+    // for (uint32_t i = 0; i < 256; ++i)
+    //     app.frame();
+    // //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+    // for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
+    //     app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
 
     // NRC
     auto nrc = graphNRC(app.getDevice());
