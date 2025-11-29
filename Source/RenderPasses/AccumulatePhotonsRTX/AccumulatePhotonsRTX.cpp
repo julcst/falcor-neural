@@ -99,7 +99,8 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
     
     reflector.addOutput(kOutputTexture, "Output texture showing accumulated radiance.")
         .texture2D(0, 0)
-        .format(ResourceFormat::RGBA32Float);
+        .format(ResourceFormat::RGBA32Float)
+        .flags(RenderPassReflection::Field::Flags::Optional);
 
     reflector.addOutput(kOutputBuffer, "Output radiance buffer")
         .rawBuffer(mQueryCount * sizeof(float3))
