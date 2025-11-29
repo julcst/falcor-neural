@@ -176,7 +176,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 }
 
 NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
-    model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG);
+    model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump());
 }
 
 Properties NRC::getProperties() const

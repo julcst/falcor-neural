@@ -27,6 +27,6 @@ struct TCNNModel : ITCNNModel {
     }
 };
 
-std::unique_ptr<ITCNNModel> create_model(uint32_t input_dims, uint32_t output_dims, const tcnn::json& config) {
-    return std::make_unique<TCNNModel>(input_dims, output_dims, config);
+std::unique_ptr<ITCNNModel> create_model(uint32_t input_dims, uint32_t output_dims, const std::string& config) {
+    return std::make_unique<TCNNModel>(input_dims, output_dims, tcnn::json::parse(config));
 }
