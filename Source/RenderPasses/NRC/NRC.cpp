@@ -30,7 +30,6 @@
 #include "../TraceQueries/Query.slang"
 #include "NRC.slang"
 
-const char kQueriesToInputsFile[] = "RenderPasses/NRC/QueriesToInputs.cs.slang";
 const char kOutputsToTextureFile[] = "RenderPasses/NRC/OutputsToTexture.cs.slang";
 
 const nlohmann::json CONFIG {
@@ -163,9 +162,7 @@ const std::string kInferenceInput = "inferenceInput";
 const std::string kTrainInput = "trainInput";
 const std::string kTrainTarget = "trainTarget";
 // Internal
-const std::string kInferenceInputFloat = "inferenceInputFloat";
 const std::string kInferenceOutputFloat = "inferenceOutputFloat";
-const std::string kTrainInputFloat = "trainInputFloat";
 //Output
 const std::string kOutput = "output";
 }
@@ -187,24 +184,18 @@ Properties NRC::getProperties() const
 RenderPassReflection NRC::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInferenceInput, "Inference queries")
-        .rawBuffer(0)
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
-    reflector.addInput(kTrainInput, "Training queries")
-        .rawBuffer(0)
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInferenceInput, "Inference inputs")
+        .rawBuffer(mInferenceSize * sizeof(NRCInput))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
+    reflector.addInput(kTrainInput, "Training inputs")
+        .rawBuffer(mTrainSize * sizeof(NRCInput))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     reflector.addInput(kTrainTarget, "Training target radiance")
-        .rawBuffer(0)
+        .rawBuffer(mTrainSize * sizeof(NRCOutput))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
 
-    reflector.addInternal(kInferenceInputFloat, "Inference queries as float matrix")
-        .rawBuffer(mInferenceSize * NRC_INPUT_SIZE * sizeof(float))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     reflector.addInternal(kInferenceOutputFloat, "Inference output as float matrix")
         .rawBuffer(mInferenceSize * NRC_OUTPUT_SIZE * sizeof(float))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
-    reflector.addInternal(kTrainInputFloat, "Training queries as float matrix")
-        .rawBuffer(mTrainSize * NRC_INPUT_SIZE * sizeof(float)) // TODO: match query count
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     
     reflector.addOutput(kOutput, "Inference output")
@@ -216,9 +207,9 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
 
 void NRC::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    const auto inferenceSize = compileData.connectedResources.getField(kInferenceInput)->getWidth() / sizeof(Query);
+    const auto inferenceSize = compileData.connectedResources.getField(kInferenceInput)->getWidth() / sizeof(NRCInput);
     FALCOR_ASSERT_EQ(inferenceSize % tcnn::BATCH_SIZE_GRANULARITY, 0);
-    const auto trainSize = compileData.connectedResources.getField(kTrainInput)->getWidth() / sizeof(Query);
+    const auto trainSize = compileData.connectedResources.getField(kTrainInput)->getWidth() / sizeof(NRCInput);
     FALCOR_ASSERT_EQ(trainSize % tcnn::BATCH_SIZE_GRANULARITY, 0);
     if (mInferenceSize != inferenceSize || mTrainSize != trainSize) {
         mInferenceSize = inferenceSize;
@@ -230,13 +221,6 @@ void NRC::compile(RenderContext* pRenderContext, const CompileData& compileData)
 void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     // Prepare passes
-    if (!mpQueriesToInputsPass)
-    {
-        ProgramDesc desc;
-        desc.addShaderLibrary(kQueriesToInputsFile);
-        desc.csEntry("main");
-        mpQueriesToInputsPass = ComputePass::create(mpDevice, desc);
-    }
     if (!mpOutputsToTexturePass)
     {
         ProgramDesc desc;
@@ -245,27 +229,21 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpOutputsToTexturePass = ComputePass::create(mpDevice, desc);
     }
 
-    // Run QueriesToInputs for Inference
-    {
-        auto var = mpQueriesToInputsPass->getRootVar();
-        var["gQueries"] = renderData[kInferenceInput]->asBuffer();
-        var["gInputFloat"] = renderData[kInferenceInputFloat]->asBuffer();
-        var["CB"]["gCount"] = mInferenceSize;
-        mpQueriesToInputsPass->execute(pRenderContext, mInferenceSize, 1, 1);
-    }
+    pRenderContext->submit(true); // Because we will use Cuda next we first need to explicitly wait for the current command queue to finish
 
-    // Run QueriesToInputs for Training
-    {
-        auto var = mpQueriesToInputsPass->getRootVar();
-        var["gQueries"] = renderData[kTrainInput]->asBuffer();
-        var["gInputFloat"] = renderData[kTrainInputFloat]->asBuffer();
-        var["CB"]["gCount"] = mTrainSize;
-        mpQueriesToInputsPass->execute(pRenderContext, mTrainSize, 1, 1);
-    }
+    // for (auto i : {10u, 50u, 1000u}) {
+    //     const auto s = renderData[kTrainInput]->asBuffer()->getElement<NRCInput>(i);
+    //     logInfo("TrainInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
+    // }
 
-    tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
+    // for (auto i : {10u, 50u, 1000u}) {
+    //     const auto s = renderData[kInferenceInput]->asBuffer()->getElement<NRCInput>(i);
+    //     logInfo("InferenceInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
+    // }
+
+    tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
     tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mTrainSize};
-    tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
+    tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
     tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
 
     {

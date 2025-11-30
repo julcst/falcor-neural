@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "QuerySubsampling.h"
 #include "../TraceQueries/Query.slang"
+#include "../NRC/NRC.slang"
 
 namespace
 {
@@ -34,6 +35,8 @@ const char kShaderFile[] = "RenderPasses/QuerySubsampling/QuerySubsampling.cs.sl
 
 const char kInputQueries[] = "queries";
 const char kOutputQueries[] = "sample";
+const char kInputNRC[] = "nrcInput";
+const char kOutputNRC[] = "nrcOutput";
 
 const char kOutputCount[] = "count";
 }
@@ -74,6 +77,16 @@ RenderPassReflection QuerySubsampling::reflect(const CompileData& compileData)
     reflector.addOutput(kOutputQueries, "Buffer containing randomly subsampled queries.")
         .rawBuffer(mOutputCount * sizeof(Query))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+
+    reflector.addInput(kInputNRC, "Buffer containing input NRC inputs.")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+    reflector.addOutput(kOutputNRC, "Buffer containing randomly subsampled NRC inputs.")
+        .rawBuffer(mOutputCount * sizeof(NRCInput))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
     return reflector;
 }
 
@@ -94,8 +107,14 @@ void QuerySubsampling::execute(RenderContext* pRenderContext, const RenderData& 
         logWarning("Input query buffer is empty.");
         return;
     }
+    
+    auto pInputNRC = renderData[kInputNRC];
+    auto pOutputNRC = renderData[kOutputNRC];
+
+    bool nrcInputs = pInputNRC && pOutputNRC;
 
     preparePass();
+    mpSubsamplePass->addDefine("SUBSAMPLE_NRC", nrcInputs ? "1" : "0");
 
     auto var = mpSubsamplePass->getRootVar();
     var["gInputQueries"] = pInputQueries;
@@ -103,7 +122,12 @@ void QuerySubsampling::execute(RenderContext* pRenderContext, const RenderData& 
     var["CB"]["gInputCount"] = inputCount;
     var["CB"]["gOutputCount"] = mOutputCount;
     var["CB"]["gFrameCount"] = mFrameCount;
+    if (nrcInputs) {
+        var["gInputNRC"] = pInputNRC->asBuffer();
+        var["gOutputNRC"] = pOutputNRC->asBuffer();
+    }
 
+    logInfo("Drawing {} from {} queries with nrc={}", mOutputCount, inputCount, nrcInputs);
     mpSubsamplePass->execute(pRenderContext, mOutputCount, 1);
 
     mFrameCount++;

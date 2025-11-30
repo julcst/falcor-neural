@@ -11,21 +11,13 @@ BEGIN_NAMESPACE_FALCOR
 
 struct NRCInput {
     float3 position;
+    float roughness;
     float3 wo;
     float3 wn;
-    float roughness;
     float3 diffuse;
     float3 specular;
-#ifndef HOST_CODE
-    __init(Query q) {
-        position = q.position;
-        wo = q.viewDir;
-        wn = q.normal;
-        roughness = q.roughness;
-        diffuse = q.diffuse;
-        specular = q.specular;
-    }
 
+#ifndef HOST_CODE
     __init() {
         position = {};
         wo = {};

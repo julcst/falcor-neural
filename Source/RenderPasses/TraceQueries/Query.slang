@@ -14,16 +14,13 @@ struct Query
     uint4 hit;
 
     float3 position;
-    float roughness;
+    // TODO: Padding?
 
     float3 viewDir;
-    float _pad1;
 
     float3 emission;
 
     float3 normal;
-    float3 specular;
-    float3 diffuse;
 
 #ifndef HOST_CODE
     HitInfo getHitInfo() {

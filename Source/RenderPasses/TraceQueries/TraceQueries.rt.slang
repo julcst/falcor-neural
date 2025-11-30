@@ -9,8 +9,10 @@ import Utils.Math.MathHelpers;
 import Utils.Math.AABB;
 import Utils.Timing.GpuTimer;
 import Query;
+import RenderPasses.NRC.NRC;
 
 RWStructuredBuffer<Query> gPhotonQueries;
+RWStructuredBuffer<NRCInput> gNRCInput;
 
 cbuffer CB
 {
@@ -58,6 +60,10 @@ void rayGen()
     Query q = {};
     q.hit = payload.hit;
 
+#if OUTPUT_NRC_INPUT
+    NRCInput nrc = {};
+#endif
+
     HitInfo hit = HitInfo(payload.hit);
     if (hit.isValid())
     {
@@ -71,11 +77,21 @@ void rayGen()
         q.emission = props.emission;
         q.position = sd.posW;
         q.viewDir = -ray.dir;
-        q.roughness = props.roughness;
         q.normal = props.guideNormal;
-        q.diffuse = props.diffuseReflectionAlbedo;
-        q.specular = props.specularReflectionAlbedo;
+
+    #if OUTPUT_NRC_INPUT
+        nrc.position = sd.posW;
+        nrc.wo = -ray.dir;
+        nrc.wn = props.guideNormal;
+        nrc.roughness = props.roughness;
+        nrc.diffuse = props.diffuseReflectionAlbedo;
+        nrc.specular = props.specularReflectionAlbedo;
+    #endif
     }
 
     gPhotonQueries[index] = q;
+
+#if OUTPUT_NRC_INPUT
+    gNRCInput[index] = nrc;
+#endif
 }

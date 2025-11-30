@@ -1,10 +1,12 @@
 #include "TraceQueries.h"
 #include "Query.slang"
+#include "../NRC/NRC.slang"
 
 namespace
 {
 const char kShaderFile[] = "RenderPasses/TraceQueries/TraceQueries.rt.slang";
 const char kQueries[] = "queries";
+const char kNRCInput[] = "nrcInput";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -46,6 +48,11 @@ RenderPassReflection TraceQueries::reflect(const CompileData& compileData)
         .rawBuffer(queryCount * sizeof(Query))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
+    reflector.addOutput(kNRCInput, "NRC Input samples")
+        .rawBuffer(queryCount * sizeof(NRCInput))
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
     return reflector;
 }
 
@@ -61,6 +68,9 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     {
         FALCOR_THROW("This render pass does not support scene changes that require shader recompilation.");
     }
+
+    auto pNRCInput = renderData[kNRCInput];
+    mTracer.pProgram->addDefine("OUTPUT_NRC_INPUT", pNRCInput ? "1" : "0");
 
     if (!mTracer.pVars)
         prepareVars();
@@ -83,6 +93,7 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     // TODO: Assert correct sizes
 
     var["gPhotonQueries"] = pQueryBuffer;
+    if (pNRCInput) var["gNRCInput"] = pNRCInput->asBuffer();
 
     logInfo("sizeof(Query)={}", var["gPhotonQueries"].operator Falcor::ref<Falcor::Buffer>()->getStructSize());
 
