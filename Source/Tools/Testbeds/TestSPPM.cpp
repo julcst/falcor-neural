@@ -89,6 +89,20 @@ ref<RenderGraph> graphNRC(ref<Device> pDevice) {
     return g;
 }
 
+ref<RenderGraph> graphPTQuery(ref<Device> pDevice) {
+    auto g = RenderGraph::create(pDevice, "PTQuery");
+
+    g->createPass("TraceQueries", "TraceQueries", Properties());
+    g->createPass("PTQuery", "PathTracerQuery", Properties());
+    g->createPass("B2T", "BufferToTexture", Properties());
+
+    g->addEdge("TraceQueries.queries", "PTQuery.queries");
+    g->addEdge("PTQuery.radiance", "B2T.input");
+
+    g->markOutput("B2T.output");
+    return g;
+}
+
 int runMain(int argc, char** argv)
 {
     // Start Python interprete
@@ -112,25 +126,33 @@ int runMain(int argc, char** argv)
         app.captureOutput("out_ref.exr");
     }
 
-    // SPPM
-    auto sppm = graphSPPM(app.getDevice());
-    app.setRenderGraph(sppm);
-    //app.getDevice()->getProfiler()->startCapture();
+    // // SPPM
+    // auto sppm = graphSPPM(app.getDevice());
+    // app.setRenderGraph(sppm);
+    // //app.getDevice()->getProfiler()->startCapture();
+    // for (uint32_t i = 0; i < 16; ++i)
+    //     app.frame();
+    // //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+    // for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
+    //     app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
+
+    // // NRC
+    // auto nrc = graphNRC(app.getDevice());
+    // app.setRenderGraph(nrc);
+    // //app.getDevice()->getProfiler()->startCapture();
+    // for (uint32_t i = 0; i < 256; ++i)
+    //     app.frame();
+    // //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+    // for (uint32_t i = 0; i < nrc->getOutputCount(); ++i)
+    //     app.captureOutput("out_" + nrc->getOutputName(i) + ".exr", i);
+
+    // PT Query
+    auto ptQuery = graphPTQuery(app.getDevice());
+    app.setRenderGraph(ptQuery);
     for (uint32_t i = 0; i < 16; ++i)
         app.frame();
-    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
-    for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
-        app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
-
-    // NRC
-    auto nrc = graphNRC(app.getDevice());
-    app.setRenderGraph(nrc);
-    //app.getDevice()->getProfiler()->startCapture();
-    for (uint32_t i = 0; i < 256; ++i)
-        app.frame();
-    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
-    for (uint32_t i = 0; i < nrc->getOutputCount(); ++i)
-        app.captureOutput("out_" + nrc->getOutputName(i) + ".exr", i);
+    for (uint32_t i = 0; i < ptQuery->getOutputCount(); ++i)
+        app.captureOutput("out_" + ptQuery->getOutputName(i) + ".exr", i);
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());
