@@ -68,6 +68,11 @@ ref<RenderGraph> graphNRC(ref<Device> pDevice) {
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
     g->createPass("nrc", "NRC", Properties());
+    g->createPass("visPh", "VisualizePhotons", Properties());
+
+    g->addEdge("TracePhotons.photons", "visPh.photons");
+    g->addEdge("TracePhotons.counters", "visPh.counters");
+    g->markOutput("visPh.dst");
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
 
@@ -107,14 +112,14 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    // auto sppm = graphSPPM(app.getDevice());
-    // app.setRenderGraph(sppm);
-    // //app.getDevice()->getProfiler()->startCapture();
-    // for (uint32_t i = 0; i < 256; ++i)
-    //     app.frame();
-    // //app.getDevice()->getProfiler()->endCapture()->writeToFile();
-    // for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
-    //     app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
+    auto sppm = graphSPPM(app.getDevice());
+    app.setRenderGraph(sppm);
+    //app.getDevice()->getProfiler()->startCapture();
+    for (uint32_t i = 0; i < 256; ++i)
+        app.frame();
+    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+    for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
+        app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
 
     // NRC
     auto nrc = graphNRC(app.getDevice());

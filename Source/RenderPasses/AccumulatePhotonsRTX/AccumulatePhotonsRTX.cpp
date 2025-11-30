@@ -133,6 +133,9 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     {
         FALCOR_THROW("This render pass does not support scene changes that require shader recompilation.");
     }
+
+    auto shouldReset = mpScene->getUpdates() != IScene::UpdateFlags::None; // Reset accumulation on scene change
+    shouldReset |= mGlobalPhotonCounter == 0u; // Or in first frame
     
     // Get inputs
     const auto pQueryAABBBuffer = renderData[kQueryAABBBuffer]->asBuffer();
@@ -160,7 +163,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gQuerySpheres"] = pQuerySphereBuffer;
         var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gQueryCount"] = mQueryCount;
-        var["CB"]["gReset"] = mpScene->getUpdates() != IScene::UpdateFlags::None;
+        var["CB"]["gReset"] = shouldReset;
         var["CB"]["gInitialRadius"] = mQueryRadius;
 
         logInfo("Preparing {} queries", mQueryCount);
