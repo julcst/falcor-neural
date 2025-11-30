@@ -42,7 +42,7 @@ struct QueryState {
     float3 getRadiance(uint totalPhotonCount) {
         let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
         let r2 = radius * radius;
-        let weight = 1.0f / (photonCount * r2); // FIXME: Why no PI here?
+        let weight = 1.0f / (photonCount * r2 * M_PI);
         return totalFlux * weight;
     }
 #endif

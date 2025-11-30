@@ -76,10 +76,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
 void rayGen()
 {
     uint idx = DispatchRaysIndex().x;
-    if (idx >= gCounters[0].PhotonsEmitted) return;
-
-    // Count rays launched in intersect pass
-    InterlockedAdd(gDebugCounters[0].RaygenCalls, 1);
+    if (idx >= gCounters[0].PhotonStores) return;
 
     let ph = gPhotonHits[idx];
 
