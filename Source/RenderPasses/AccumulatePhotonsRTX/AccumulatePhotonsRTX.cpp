@@ -159,6 +159,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gQueryStates"] = pQueryStateBuffer;
         var["gQueryAABBs"] = pQueryAABBBuffer;
         var["gQuerySpheres"] = pQuerySphereBuffer;
+        var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gQueryCount"] = mQueryCount;
         var["CB"]["gReset"] = mpScene->getUpdates() != IScene::UpdateFlags::None;
         var["CB"]["gInitialRadius"] = mQueryRadius;

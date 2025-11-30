@@ -24,8 +24,8 @@ struct QueryState {
     float3 totalFlux;
     float totalCollectedPhotons;
 
+    uint totalPhotonCountAtBirth;
     float radius; // TODO: Maintain separate radius for caustics
-    // uint totalPhotonCountAtBirth;
 
 #ifndef HOST_CODE 
     [mutating]
@@ -40,8 +40,7 @@ struct QueryState {
     }
 
     float3 getRadiance(uint totalPhotonCount) {
-        //let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
-        let photonCount = totalPhotonCount;
+        let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
         let r2 = radius * radius;
         let weight = 1.0f / (photonCount * r2); // FIXME: Why no PI here?
         return totalFlux * weight;

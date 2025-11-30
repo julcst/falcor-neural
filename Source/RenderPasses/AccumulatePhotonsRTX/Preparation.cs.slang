@@ -13,6 +13,7 @@ RWStructuredBuffer<Sphere> gQuerySpheres;
 cbuffer CB
 {
     uint gQueryCount;
+    uint gGlobalPhotonCount;
     bool gReset;
     float gInitialRadius;
 }
@@ -31,7 +32,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     shouldReset |= any(gQuerySpheres[idx].center != q.position);
 
     if (shouldReset) {
-        gQueryStates[idx] = QueryState(float3(0), 0.0f, gInitialRadius);
+        gQueryStates[idx] = QueryState(float3(0), 0.0f, gGlobalPhotonCount, gInitialRadius);
     }
     
     let r = gQueryStates[idx].radius;
