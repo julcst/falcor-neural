@@ -7,7 +7,8 @@ namespace
 {
 const char kShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/AccumulatePhotons.rt.slang";
 const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
-const char kFinalizeComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Finalize.cs.slang";
+const char kFinalizeTextureComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/FinalizeTexture.cs.slang";
+const char kFinalizeBufferComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/FinalizeBuffer.cs.slang";
 
 
 // Inputs
@@ -77,7 +78,7 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .rawBuffer(0)
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInput(kPhotonCounters, "Buffer containing photon counters.")
-        .rawBuffer(0)
+        .rawBuffer(sizeof(PhotonCounters))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
     reflector.addInternal(kDebugCounters, "Buffer for debug counters.")
@@ -91,10 +92,12 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kQuerySphereBuffer, "Buffer for query geometry..")
         .rawBuffer(mQueryCount * sizeof(Sphere))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kQueryStateBuffer, "Buffer to keep radius and flux.")
         .rawBuffer(mQueryCount * sizeof(QueryState))
-        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Persistent);
     
     reflector.addOutput(kOutputTexture, "Output texture showing accumulated radiance.")
         .texture2D(0, 0)
@@ -113,7 +116,7 @@ void AccumulatePhotonsRTX::compile(RenderContext* pRenderContext, const CompileD
 {
     for (auto i = 0; i < compileData.connectedResources.getFieldCount(); ++i) {
         const auto& field = compileData.connectedResources.getField(i);
-        logInfo("Connected resource: {} (type={})", field->getName(), field->getWidth());
+        logInfo("Connected resource: {} (width={})", field->getName(), field->getWidth());
     }
     const auto queryCount = compileData.connectedResources.getField(kQueryBuffer)->getWidth() / sizeof(Query);
     logInfo("queryCount={}", queryCount);
@@ -220,28 +223,38 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     {
         FALCOR_PROFILE(pRenderContext, "ComputeFinalRadiance");
 
-        // Specialize program
-        // These defines should not modify the program vars. Do not trigger program vars re-creation.
         const auto pOutputTexture = renderData.getTexture(kOutputTexture);
-        mpFinalizePass->addDefine("OUTPUT_TEXTURE", pOutputTexture ? "1" : "0");
         const auto pOutputBuffer = renderData[kOutputBuffer];
-        mpFinalizePass->addDefine("OUTPUT_BUFFER", pOutputBuffer ? "1" : "0");
 
-        // All defines should be set up to this point
-        auto var = mpFinalizePass->getRootVar();
-        var["gAccumulator"] = pAccumulatorBuffer;
-        var["gPhotonQueries"] = pQueryBuffer;
-        var["gQueryStates"] = pQueryStateBuffer;
-        if (pOutputTexture) var["gOutputTexture"] = pOutputTexture;
-        if (pOutputBuffer) var["gOutputBuffer"] = pOutputBuffer->asBuffer();
-        var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
-        var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
-        var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
-        var["CB"]["gAlpha"] = mAlpha;
+        if (pOutputTexture)
+        {
+            auto var = mpFinalizeTexturePass->getRootVar();
+            var["gAccumulator"] = pAccumulatorBuffer;
+            var["gPhotonQueries"] = pQueryBuffer;
+            var["gQueryStates"] = pQueryStateBuffer;
+            var["gOutputTexture"] = pOutputTexture;
+            var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
+            var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
+            var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
+            var["CB"]["gAlpha"] = mAlpha;
 
-        //pRenderContext->uavBarrier(pAccumulatorBuffer.get());
-        logInfo("Collecting flux, globalPhotons={}", mGlobalPhotonCounter);
-        mpFinalizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
+            logInfo("Collecting flux (Texture), globalPhotons={}", mGlobalPhotonCounter);
+            mpFinalizeTexturePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
+        }
+        else if (pOutputBuffer)
+        {
+            auto var = mpFinalizeBufferPass->getRootVar();
+            var["gAccumulator"] = pAccumulatorBuffer;
+            var["gPhotonQueries"] = pQueryBuffer;
+            var["gQueryStates"] = pQueryStateBuffer;
+            var["gOutputBuffer"] = pOutputBuffer->asBuffer();
+            var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
+            var["CB"]["gQueryCount"] = mQueryCount;
+            var["CB"]["gAlpha"] = mAlpha;
+
+            logInfo("Collecting flux (Buffer), globalPhotons={}", mGlobalPhotonCounter);
+            mpFinalizeBufferPass->execute(pRenderContext, mQueryCount, 1, 1);
+        }
     }
 }
 
@@ -379,13 +392,22 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         mpPreparationPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines()); // NOTE: Needs scene defines for hit types
     }
 
-    if (!mpFinalizePass)
+    if (!mpFinalizeTexturePass)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary(kFinalizeComputeShaderFile);
+        desc.addShaderLibrary(kFinalizeTextureComputeShaderFile);
         desc.csEntry("main");
 
-        mpFinalizePass = ComputePass::create(mpDevice, desc);
+        mpFinalizeTexturePass = ComputePass::create(mpDevice, desc);
+    }
+
+    if (!mpFinalizeBufferPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kFinalizeBufferComputeShaderFile);
+        desc.csEntry("main");
+
+        mpFinalizeBufferPass = ComputePass::create(mpDevice, desc);
     }
 }
 

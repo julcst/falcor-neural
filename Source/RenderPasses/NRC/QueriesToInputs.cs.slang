@@ -15,6 +15,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     let idx = dispatchThreadId.x;
     if (idx >= gCount) return;
 
-    let in = NRCInput(gQueries[idx]);
+    let q = gQueries[idx];
+    let in = NRCInput(q);
     gInputFloat[idx] = in;
 }

@@ -6,7 +6,8 @@ target_sources(AccumulatePhotonsRTX PRIVATE
     AccumulatePhotons.rt.slang
     Preparation.cs.slang
     Structs.slang
-    Finalize.cs.slang
+    FinalizeTexture.cs.slang
+    FinalizeBuffer.cs.slang
 )
 
 target_copy_shaders(AccumulatePhotonsRTX RenderPasses/AccumulatePhotonsRTX)

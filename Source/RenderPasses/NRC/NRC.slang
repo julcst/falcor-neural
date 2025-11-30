@@ -25,6 +25,15 @@ struct NRCInput {
         diffuse = q.diffuse;
         specular = q.specular;
     }
+
+    __init() {
+        position = {};
+        wo = {};
+        wn = {};
+        roughness = {};
+        diffuse = {};
+        specular = {};
+    }
 #endif
 };
 
