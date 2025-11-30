@@ -39,7 +39,6 @@ float mapTo01(float x)
 void main(uint3 tid : SV_DispatchThreadID)
 {
     let px = tid.xy;
-    if (any(px >= gFrameDim)) return;
     let idx = px.x + px.y * gFrameDim.x;
 
     let query = gPhotonQueries[idx];
@@ -51,6 +50,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     gQueryStates[idx] = q;
 
 #if OUTPUT_TEXTURE
+    if (any(px >= gFrameDim)) return;
     gOutputTexture[px] = gVisualizeHeatmap ?
         float4(acc.collectedPhotons, heatmap(mapTo01(acc.collectedPhotons)).xy, 1.0) :
         float4(radiance, 1.0);

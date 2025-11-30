@@ -5,6 +5,12 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+struct DebugCounters
+{
+    uint IntersectorCalls;
+    uint Accumulations;
+};
+
 // Mutated multiple times per frame for each photon
 // Reset every frame
 struct Accumulator {

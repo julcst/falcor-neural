@@ -127,11 +127,11 @@ int runMain(int argc, char** argv)
         app.captureOutput("out_" + nrc->getOutputName(i) + ".exr", i);
 
     Scripting::shutdown();
+    logInfo("Log file: {}", Logger::getLogFilePath());
     return 0;
 }
 
 int main(int argc, char** argv)
 {
     return catchAndReportAllExceptions([&] { return runMain(argc, argv); });
-    logInfo("Log file: {}", Logger::getLogFilePath());
 }

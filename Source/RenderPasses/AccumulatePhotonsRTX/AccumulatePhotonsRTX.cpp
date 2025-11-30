@@ -1,7 +1,6 @@
 #include "AccumulatePhotonsRTX.h"
 #include "../TracePhotons/Structs.slang"
 #include "../TraceQueries/Query.slang"
-#include "DebugCounters.slang"
 #include "Structs.slang"
 
 namespace
@@ -210,9 +209,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         
         pRenderContext->uavBarrier(pDebugCounters.get());
         const auto debugCounters = pDebugCounters->getElement<DebugCounters>(0u);
-        logInfo("IntersectorCalls={}, RaygenCalls={}, Accumulations={}",
+        logInfo("IntersectorCalls={}, Accumulations={}",
             debugCounters.IntersectorCalls,
-            debugCounters.RaygenCalls,
             debugCounters.Accumulations);
     }
 
@@ -239,6 +237,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["CB"]["gAlpha"] = mAlpha;
 
         //pRenderContext->uavBarrier(pAccumulatorBuffer.get());
+        logInfo("Collecting flux, globalPhotons={}", mGlobalPhotonCounter);
         mpFinalizePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
     }
 }

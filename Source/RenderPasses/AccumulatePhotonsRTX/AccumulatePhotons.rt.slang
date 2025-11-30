@@ -6,7 +6,6 @@ import Scene.Raytracing;
 import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
 import Utils.Color.ColorHelpers;
-import DebugCounters;
 import Structs;
 
 // Resources

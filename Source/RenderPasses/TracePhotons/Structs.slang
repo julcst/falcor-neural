@@ -7,9 +7,7 @@ BEGIN_NAMESPACE_FALCOR
 
 struct PhotonCounters
 {
-    uint PhotonsDispatched;   // photons processed in grid/rt accumulation
     uint PhotonsEmitted;      // photons launched
-    uint TotalBounces;       // total photon bounces
     uint PhotonStores;        // photons stored as hits in TracePhotons
 };
 

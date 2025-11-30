@@ -107,14 +107,14 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
 #ifdef _DEBUG
     // pRenderContext->uavBarrier(pCounters.get());
     const auto counters = pCounters->getElement<PhotonCounters>(0u);
-    logInfo("photons={} dispatched={} emitted={} stored={}", mPhotonCount, counters.PhotonsDispatched, counters.PhotonsEmitted, counters.PhotonStores);
+    logInfo("photons={} emitted={} stored={}", mPhotonCount, counters.PhotonsEmitted, counters.PhotonStores);
 #endif
 
     mFrameCount++;
 }
 
 void TracePhotons::renderUI(Gui::Widgets& widget) {
-    if (widget.var("Photon Count", mPhotonCount, 1u, 1u << 20u))
+    if (widget.var("Photon Count", mPhotonCount, 1u, 1u << 24u))
     {
         requestRecompile(); // Update buffer sizes
     }

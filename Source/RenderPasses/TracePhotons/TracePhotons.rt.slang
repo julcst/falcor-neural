@@ -76,10 +76,45 @@ void closestHit(inout RayPayload rayData: SV_RayPayload, BuiltInTriangleIntersec
     rayData.packedHitInfo = HitInfo(triangleHit).data;
 }
 
+void StorePhotonAtomic(PhotonHit photonHit)
+{
+    uint idx;
+    InterlockedAdd(gCounters[0].PhotonStores, 1, idx); // Atomic increment to get unique index
+    if (idx < gPhotonHitCapacity)
+    {
+        gPhotonHits[idx] = photonHit;
+    }
+}
+
+void StorePhotonWaveIntrinsics(PhotonHit photonHit)
+{
+    // 1. WAVE COUNT: How many threads are active in the wave?
+    let waveCount = WaveActiveCountBits(true);
+    // 2. WAVE OFFSET: Index relative to the other active threads
+    let waveOffset = WavePrefixCountBits(true);
+
+    // 3. GLOBAL ALLOCATION: Elect a leader to reserve space for everyone
+    // Only needs one atomic add per wave.
+    uint globalBaseOffset = 0;
+    if (WaveIsFirstLane())
+    {
+        InterlockedAdd(gCounters[0].PhotonStores, waveCount, globalBaseOffset);
+    }
+
+    // 4. BROADCAST: The leader shares the globalBaseOffset with everyone.
+    globalBaseOffset = WaveReadLaneFirst(globalBaseOffset);
+    let idx = globalBaseOffset + waveOffset;
+        
+    // Safety check to prevent buffer overflow
+    if (idx < gPhotonHitCapacity)
+    {
+        gPhotonHits[idx] = photonHit;
+    }
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
-    InterlockedAdd(gCounters[0].PhotonsDispatched, 1);
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dispatchDims = DispatchRaysDimensions().xy;
 
@@ -123,9 +158,6 @@ void rayGen()
         let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
         let bsdfProperties = mi.getProperties(sd);
 
-        // Count a bounce whenever we hit something and proceed to sample BSDF.
-        InterlockedAdd(gCounters[0].TotalBounces, 1);
-
         // Store Photon if a diffuse surface was hit
         //if (reflectedDiffuse)
         {
@@ -140,15 +172,11 @@ void rayGen()
             if (keep)
             {
                 // Record photon store point; accumulation happens in a separate RT pass.
-                uint idx;
-                // TODO collect photons per thread then bulk append
-                InterlockedAdd(gCounters[0].PhotonStores, 1, idx); // Atomic increment to get unique index
-                if (idx < gPhotonHitCapacity)
-                {
-                    gPhotonHits[idx].posW = sd.posW;
-                    gPhotonHits[idx].wi = -ray.Direction;
-                    gPhotonHits[idx].flux = storeFlux;
-                }
+                StorePhotonWaveIntrinsics(PhotonHit(
+                    sd.posW,
+                    -ray.Direction,
+                    storeFlux
+                ));
             }
         }
 
