@@ -60,7 +60,7 @@ ref<RenderGraph> graphSPPM(ref<Device> pDevice) {
 }
 
 ref<RenderGraph> graphPhotonNRC(ref<Device> pDevice) {
-    auto g = RenderGraph::create(pDevice, "PhtonNRC");
+    auto g = RenderGraph::create(pDevice, "PhotonNRC");
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<23}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"radius", 0.005f}}));
@@ -72,7 +72,7 @@ ref<RenderGraph> graphPhotonNRC(ref<Device> pDevice) {
 
     g->addEdge("TracePhotons.photons", "visPh.photons");
     g->addEdge("TracePhotons.counters", "visPh.counters");
-    g->markOutput("visPh.dst");
+    //g->markOutput("visPh.dst");
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -93,7 +93,7 @@ ref<RenderGraph> graphNRC(ref<Device> pDevice) {
     auto g = RenderGraph::create(pDevice, "NRC");
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
     g->createPass("nrc", "NRC", Properties());
     g->createPass("PTQuery", "PathTracerQuery", Properties());
 
@@ -150,8 +150,10 @@ int runMain(int argc, char** argv)
     Testbed::Options options {};
     options.windowDesc.width = res;
     options.windowDesc.height = res;
+    // options.createWindow = true; // Toggle preview
     Testbed app { options };
-    app.loadScene("test_scenes/cornell_box.pyscene");
+    AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
+    app.loadScene("cornell_box_caustic.pyscene");
 
     // Reference PT
     if (!std::filesystem::exists("out_ref.exr")) {
@@ -162,17 +164,24 @@ int runMain(int argc, char** argv)
         app.captureOutput("out_ref.exr");
     }
 
+    // Preview
+    if (options.createWindow) {
+        auto pt = graphPT(app.getDevice());
+        app.setRenderGraph(pt);
+        app.run();
+    }
+
     // SPPM
     // render(app, graphSPPM(app.getDevice()), 128);
 
     // PhotonNRC
-    // render(app, graphPhotonNRC(app.getDevice()), 128);
+    render(app, graphPhotonNRC(app.getDevice()), 128);
 
     // NRC
     render(app, graphNRC(app.getDevice()), 128);
 
-    // // PT Query
-    //render(app, graphPTQuery(app.getDevice()));
+    // PT Query
+    // render(app, graphPTQuery(app.getDevice()));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());
