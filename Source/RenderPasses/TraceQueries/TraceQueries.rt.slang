@@ -83,8 +83,8 @@ void rayGen()
 
     #if OUTPUT_NRC_INPUT
         nrc.position = (sd.posW - gSceneMin) * gSceneScale; // Normalize to [0,1]³ for hash grid
-        nrc.wo = -ray.dir;
-        nrc.wn = props.guideNormal;
+        nrc.wo = 0.5 * (1 + -ray.dir);
+        nrc.wn = 0.5 * (1 + props.guideNormal);
         nrc.roughness = props.roughness;
         nrc.diffuse = props.diffuseReflectionAlbedo;
         nrc.specular = props.specularReflectionAlbedo;

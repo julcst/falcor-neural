@@ -19,12 +19,12 @@ struct NRCInput {
 
 #ifndef HOST_CODE
     __init() {
-        position = {};
-        wo = {};
-        wn = {};
-        roughness = {};
-        diffuse = {};
-        specular = {};
+        position = {0};
+        wo = float3(1, 0, 0);
+        wn = float3(1, 0, 0);
+        roughness = 0.5;
+        diffuse = {0};
+        specular = {0};
     }
 #endif
 };

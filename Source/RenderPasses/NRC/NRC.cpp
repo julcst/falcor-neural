@@ -54,11 +54,23 @@ const nlohmann::json CONFIG {
                 {"otype", "OneBlob"},
                 {"n_bins", 4}
             },
-            // Rest is identity -> 6 dim
+            // wo is encoded with SphericalHarmonics -> 3²=9 dim
+            {
+                {"n_dims_to_encode", 3},
+                {"otype", "SphericalHarmonics"},
+                {"degree", 3}
+            },
+            // wn is encoded with SphericalHarmonics -> 3²=9 dim
+            {
+                {"n_dims_to_encode", 3},
+                {"otype", "SphericalHarmonics"},
+                {"degree", 3}
+            },
+            // Rest is identity: diff + spec -> 6 dim
             {
                 {"otype", "Identity"}
             }
-        }} // -> 42 dim
+        }} // -> 60 dim
     }},
     {"network", {
         {"otype", "FullyFusedMLP"},
