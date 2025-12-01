@@ -29,7 +29,7 @@
 #include "RenderGraph/RenderPassHelpers.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
 #include "Rendering/Lights/EmissiveUniformSampler.h"
-
+#include "../TraceQueries/Query.slang"
 
 namespace
 {
@@ -296,14 +296,20 @@ Properties PathTracerQuery::getProperties() const
 
 RenderPassReflection PathTracerQuery::reflect(const CompileData& compileData)
 {
-    // TODO: Change
     RenderPassReflection reflector;
-    const uint2 dims = compileData.defaultTexDims;
-    uint32_t count = dims.x * dims.y;
-
     reflector.addInput(kInputQuery, "Query buffer").rawBuffer(0).bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(kOutputRadiance, "Radiance buffer").rawBuffer(count * sizeof(float3)).bindFlags(ResourceBindFlags::UnorderedAccess);
+    reflector.addOutput(kOutputRadiance, "Radiance buffer").rawBuffer(mQueryCount * sizeof(float3)).bindFlags(ResourceBindFlags::UnorderedAccess);
     return reflector;
+}
+
+void PathTracerQuery::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    const auto queryCount = compileData.connectedResources.getField(kInputQuery)->getWidth() / sizeof(Query);
+    logInfo("queryCount={}", queryCount);
+    if (mQueryCount != queryCount) {
+        mQueryCount = queryCount;
+        FALCOR_CHECK(false, "Recompile with new query count"); // Force retry of reflect
+    }
 }
 
 void PathTracerQuery::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -867,11 +873,10 @@ bool PathTracerQuery::beginFrame(RenderContext* pRenderContext, const RenderData
     }
 
     // TODO: Check
-    mQueryCount = mpQueryBuffer->getElementCount();
-    if (mpOutputBuffer->getElementCount() < mQueryCount)
+    if (mpOutputBuffer->getSize() / sizeof(float3) < mQueryCount)
     {
-        logWarning("PathTracerQuery: Output buffer is too small. {} < {}", mpOutputBuffer->getElementCount(), mQueryCount);
-        //return false;
+        logWarning("PathTracerQuery: Output buffer is too small. {} < {}", mpOutputBuffer->getSize() / sizeof(float3), mQueryCount);
+        return false;
     }
 
     if (mpScene == nullptr || !mEnabled)
@@ -950,13 +955,13 @@ void PathTracerQuery::tracePass(RenderContext* pRenderContext, const RenderData&
     var["gPathTracer"] = mpPathTracerBlock;
 
     // Dispatch.
-    logInfo("Tracing {}", mQueryCount);
+    // logInfo("Tracing {}", mQueryCount);
     mpScene->raytrace(pRenderContext, tracePass.pProgram.get(), tracePass.pVars, uint3(mQueryCount, 1, 1));
-    
-    for (uint32_t i = 0; i < 10; i++) {
-        const auto r = mpOutputBuffer->getElement<float3>(i);
-        logInfo("{} : {},{},{}", i, r.x, r.y, r.z);
-    }
+
+    // for (uint32_t i = 0; i < 10; i++) {
+    //     const auto r = mpOutputBuffer->getElement<float3>(i);
+    //     logInfo("{} : {},{},{}", i, r.x, r.y, r.z);
+    // }
 }
 
 

@@ -59,8 +59,8 @@ ref<RenderGraph> graphSPPM(ref<Device> pDevice) {
     return g;
 }
 
-ref<RenderGraph> graphNRC(ref<Device> pDevice) {
-    auto g = RenderGraph::create(pDevice, "NRC");
+ref<RenderGraph> graphPhotonNRC(ref<Device> pDevice) {
+    auto g = RenderGraph::create(pDevice, "PhtonNRC");
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<23}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"radius", 0.005f}}));
@@ -89,6 +89,27 @@ ref<RenderGraph> graphNRC(ref<Device> pDevice) {
     return g;
 }
 
+ref<RenderGraph> graphNRC(ref<Device> pDevice) {
+    auto g = RenderGraph::create(pDevice, "NRC");
+
+    g->createPass("TraceQueries", "TraceQueries", Properties());
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
+    g->createPass("nrc", "NRC", Properties());
+    g->createPass("PTQuery", "PathTracerQuery", Properties());
+
+    g->addEdge("TraceQueries.queries", "qsamp.queries");
+    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
+
+    g->addEdge("qsamp.sample", "PTQuery.queries");
+
+    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+    g->addEdge("PTQuery.radiance", "nrc.trainTarget");
+    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+
+    g->markOutput("nrc.output");
+    return g;
+}
+
 ref<RenderGraph> graphPTQuery(ref<Device> pDevice) {
     auto g = RenderGraph::create(pDevice, "PTQuery");
 
@@ -101,6 +122,21 @@ ref<RenderGraph> graphPTQuery(ref<Device> pDevice) {
 
     g->markOutput("B2T.output");
     return g;
+}
+
+void captureOutputs(Testbed& app, const ref<RenderGraph>& graph, const std::string& prefix = "out_") {
+    for (uint32_t i = 0; i < graph->getOutputCount(); ++i) {
+        app.captureOutput(prefix + graph->getName() + "." + graph->getOutputName(i) + ".exr", i);
+    }
+}
+
+void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1) {
+    app.setRenderGraph(graph);
+    //app.getDevice()->getProfiler()->startCapture();
+    for (uint32_t i = 0; i < frameCount; ++i)
+        app.frame();
+    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+    captureOutputs(app, graph);
 }
 
 int runMain(int argc, char** argv)
@@ -126,33 +162,17 @@ int runMain(int argc, char** argv)
         app.captureOutput("out_ref.exr");
     }
 
-    // // SPPM
-    // auto sppm = graphSPPM(app.getDevice());
-    // app.setRenderGraph(sppm);
-    // //app.getDevice()->getProfiler()->startCapture();
-    // for (uint32_t i = 0; i < 16; ++i)
-    //     app.frame();
-    // //app.getDevice()->getProfiler()->endCapture()->writeToFile();
-    // for (uint32_t i = 0; i < sppm->getOutputCount(); ++i)
-    //     app.captureOutput("out_" + sppm->getOutputName(i) + ".exr", i);
+    // SPPM
+    // render(app, graphSPPM(app.getDevice()), 128);
 
-    // // NRC
-    // auto nrc = graphNRC(app.getDevice());
-    // app.setRenderGraph(nrc);
-    // //app.getDevice()->getProfiler()->startCapture();
-    // for (uint32_t i = 0; i < 256; ++i)
-    //     app.frame();
-    // //app.getDevice()->getProfiler()->endCapture()->writeToFile();
-    // for (uint32_t i = 0; i < nrc->getOutputCount(); ++i)
-    //     app.captureOutput("out_" + nrc->getOutputName(i) + ".exr", i);
+    // PhotonNRC
+    // render(app, graphPhotonNRC(app.getDevice()), 128);
 
-    // PT Query
-    auto ptQuery = graphPTQuery(app.getDevice());
-    app.setRenderGraph(ptQuery);
-    for (uint32_t i = 0; i < 16; ++i)
-        app.frame();
-    for (uint32_t i = 0; i < ptQuery->getOutputCount(); ++i)
-        app.captureOutput("out_" + ptQuery->getOutputName(i) + ".exr", i);
+    // NRC
+    render(app, graphNRC(app.getDevice()), 128);
+
+    // // PT Query
+    //render(app, graphPTQuery(app.getDevice()));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());
