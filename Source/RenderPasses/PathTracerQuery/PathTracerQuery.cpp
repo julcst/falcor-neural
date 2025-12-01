@@ -877,7 +877,7 @@ bool PathTracerQuery::beginFrame(RenderContext* pRenderContext, const RenderData
     if (mpScene == nullptr || !mEnabled)
     {
         // Clear output buffer?
-        // pRenderContext->clearUAV(mpOutputBuffer->getUAV().get(), uint4(0));
+        pRenderContext->clearUAV(mpOutputBuffer->getUAV().get(), float4(0));
         return false;
     }
 
@@ -952,7 +952,7 @@ void PathTracerQuery::tracePass(RenderContext* pRenderContext, const RenderData&
     // Dispatch.
     logInfo("Tracing {}", mQueryCount);
     mpScene->raytrace(pRenderContext, tracePass.pProgram.get(), tracePass.pVars, uint3(mQueryCount, 1, 1));
-
+    
     for (uint32_t i = 0; i < 10; i++) {
         const auto r = mpOutputBuffer->getElement<float3>(i);
         logInfo("{} : {},{},{}", i, r.x, r.y, r.z);

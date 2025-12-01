@@ -273,14 +273,14 @@ struct PathTracer
 
         Query query = queryBuffer[pathID];
         path.origin = query.position;
-        path.dir = query.viewDir;
+        path.dir = -query.viewDir;
 
         // Create sample generator.
         const uint maxSpp = kSamplesPerPixel > 0 ? kSamplesPerPixel : kMaxSamplesPerPixel;
         path.sg = SampleGenerator(uint2(pathID, 0), params.seed * maxSpp + path.getSampleIdx());
 
-        // We start at vertex 0 (camera/origin).
-        path.setVertexIndex(0);
+        path.setHit(query.getHitInfo());
+        path.setVertexIndex(1);
     }
 
     /** Set up path for logging and debugging.
@@ -1052,6 +1052,7 @@ struct PathTracer
         // We use pathID directly as index
         const uint outIdx = path.id;
 
+        //outputRadiance[outIdx] = float3(path.isHit() ? 1 : 0,getTerminatedPathLength(path),dot(path.thp,path.thp));
         outputRadiance[outIdx] = path.L;
     }
 };
