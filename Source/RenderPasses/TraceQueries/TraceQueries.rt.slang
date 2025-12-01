@@ -16,8 +16,10 @@ RWStructuredBuffer<NRCInput> gNRCInput;
 
 cbuffer CB
 {
-    uint2 gFrameDim;
+    float3 gSceneMin;
     uint gFrameIndex;
+    float3 gSceneScale;
+    uint2 gFrameDim;
 }
 
 struct RayPayload { PackedHitInfo hit; };
@@ -80,7 +82,7 @@ void rayGen()
         q.normal = props.guideNormal;
 
     #if OUTPUT_NRC_INPUT
-        nrc.position = sd.posW;
+        nrc.position = (sd.posW - gSceneMin) * gSceneScale; // Normalize to [0,1]³ for hash grid
         nrc.wo = -ray.dir;
         nrc.wn = props.guideNormal;
         nrc.roughness = props.roughness;

@@ -86,6 +86,8 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameDim"] = frameDim;
     var["CB"]["gFrameIndex"] = mFrameCount;
+    var["CB"]["gSceneMin"] = mpScene->getSceneBounds().minPoint;
+    var["CB"]["gSceneScale"] = 1.0f / mpScene->getSceneBounds().extent(); // Safe on division on GPU
 
     // Get the buffers allocated by the RenderGraph reflection.
     auto pQueryBuffer = renderData[kQueries]->asBuffer();
