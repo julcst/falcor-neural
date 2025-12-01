@@ -15,6 +15,8 @@ cbuffer CB
     uint gFrameCount;
 };
 
+static const uint kMaxTrials = 3;
+
 [numthreads(256, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -23,9 +25,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (idx >= gOutputCount) return;
 
     // Random index
-    let inputIdx = pcg2d(uint2(idx, gFrameCount)).x % gInputCount;
+    var rand = pcg2d(uint2(idx, gFrameCount));
+    var inputIdx = rand.x % gInputCount;
 
-    gOutputQueries[idx] = gInputQueries[inputIdx];
+    for (uint trial = 0; trial < kMaxTrials && !gInputQueries[inputIdx].isValid(); ++trial)
+    {
+        // Draw new random index
+        rand = pcg2d(rand);
+        inputIdx = rand.x % gInputCount;
+    }
+
+    let q = gInputQueries[inputIdx];
+    if (!q.isValid()) return; // Reuse old query sample if we failed to find a valid one
+
+    gOutputQueries[idx] = q;
 
 #if SUBSAMPLE_NRC
     gOutputNRC[idx] = gInputNRC[inputIdx];
