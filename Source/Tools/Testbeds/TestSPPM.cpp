@@ -69,6 +69,7 @@ ref<RenderGraph> graphPhotonNRC(ref<Device> pDevice) {
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
     g->createPass("nrc", "NRC", Properties());
     g->createPass("visPh", "VisualizePhotons", Properties());
+    g->createPass("debug", "DebugQueryBuffer", Properties());
 
     g->addEdge("TracePhotons.photons", "visPh.photons");
     g->addEdge("TracePhotons.counters", "visPh.counters");
@@ -85,6 +86,12 @@ ref<RenderGraph> graphPhotonNRC(ref<Device> pDevice) {
     g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
     g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
     g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+
+    g->addEdge("TraceQueries.queries", "debug.queries");
+    g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
+    g->markOutput("debug.queryPosition");
+    g->markOutput("debug.queryThroughput");
+    g->markOutput("debug.nrcDiffuse");
 
     g->markOutput("nrc.output");
     return g;
@@ -134,10 +141,16 @@ void captureOutputs(Testbed& app, const ref<RenderGraph>& graph, const std::stri
 
 void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1) {
     app.setRenderGraph(graph);
-    //app.getDevice()->getProfiler()->startCapture();
-    for (uint32_t i = 0; i < frameCount; ++i)
+    logInfo("\nRender {} for {} frames\n===================================", graph->getName(), frameCount);
+    app.frame(); // First frame does not count to capture because of compilation etc.
+    app.getDevice()->getProfiler()->startCapture();
+    for (uint32_t i = 0; i < frameCount - 1; ++i)
         app.frame();
-    //app.getDevice()->getProfiler()->endCapture()->writeToFile();
+    const auto capture = app.getDevice()->getProfiler()->endCapture();
+    logInfo("\nStats for {} over {} frames\n===================================", graph->getName(), frameCount);
+    for (const auto& lane : capture->getLanes()) {
+        logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
+    }
     captureOutputs(app, graph);
 }
 
