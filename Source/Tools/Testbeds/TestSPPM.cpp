@@ -84,6 +84,7 @@ ref<RenderGraph> graphPhotonNRC(ref<Device> pDevice) {
     g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
     g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
     g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
 
     g->markOutput("nrc.output");
     return g;
@@ -105,6 +106,7 @@ ref<RenderGraph> graphNRC(ref<Device> pDevice) {
     g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
     g->addEdge("PTQuery.radiance", "nrc.trainTarget");
     g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
 
     g->markOutput("nrc.output");
     return g;
@@ -159,7 +161,7 @@ int runMain(int argc, char** argv)
     if (!std::filesystem::exists("out_ref.exr")) {
         auto pt = graphPT(app.getDevice());
         app.setRenderGraph(pt);
-        for (uint32_t i = 0; i < 1024; ++i)
+        for (uint32_t i = 0; i < 1<<13; ++i)
             app.frame();
         app.captureOutput("out_ref.exr");
     }
@@ -172,7 +174,7 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    // render(app, graphSPPM(app.getDevice()), 128);
+    render(app, graphSPPM(app.getDevice()), 32);
 
     // PhotonNRC
     render(app, graphPhotonNRC(app.getDevice()), 128);
@@ -181,7 +183,7 @@ int runMain(int argc, char** argv)
     render(app, graphNRC(app.getDevice()), 128);
 
     // PT Query
-    // render(app, graphPTQuery(app.getDevice()));
+    render(app, graphPTQuery(app.getDevice()));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

@@ -10,6 +10,7 @@ import Utils.Math.AABB;
 import Utils.Timing.GpuTimer;
 import Query;
 import RenderPasses.NRC.NRC;
+import Utils.Color.ColorHelpers;
 
 RWStructuredBuffer<Query> gPhotonQueries;
 RWStructuredBuffer<NRCInput> gNRCInput;
@@ -21,6 +22,8 @@ cbuffer CB
     float3 gSceneScale;
     uint2 gFrameDim;
 }
+
+static const uint kMaxDepth = 16;
 
 struct RayPayload { PackedHitInfo hit; };
 
@@ -47,53 +50,89 @@ void closestHit(inout RayPayload p: SV_RayPayload, BuiltInTriangleIntersectionAt
     p.hit = th.pack();
 }
 
+bool shouldTerminate(BSDFProperties props)
+{
+    // Terminate if we hit an emissive surface
+    // so we do not have to track a plus onto radiance predictions
+    // only the throughput
+    if (luminance(props.emission) > 0.f) return true;
+
+    // Terminate if the surface is sufficiently rough
+    if (props.roughness > 0.1f) return true;
+
+    // Otherwise continue tracing
+    return false;
+}
+
+void storeQuery(uint index, PackedHitInfo hit, ShadingData sd, BSDFProperties props, float3 thp)
+{
+    Query q = {};
+    q.hit = hit;
+    q.emission = props.emission;
+    q.position = sd.posW;
+    q.viewDir = sd.V;
+    q.normal = props.guideNormal;
+    q.throughput = thp;
+    gPhotonQueries[index] = q;
+
+#if OUTPUT_NRC_INPUT
+    NRCInput nrc = {};
+    nrc.position = (sd.posW - gSceneMin) * gSceneScale; // Normalize to [0,1]³ for hash grid
+    nrc.wo = 0.5 * (1 + sd.V);
+    nrc.wn = 0.5 * (1 + props.guideNormal);
+    nrc.roughness = props.roughness;
+    nrc.diffuse = props.diffuseReflectionAlbedo;
+    nrc.specular = props.specularReflectionAlbedo;
+    gNRCInput[index] = nrc;
+#endif
+}
+
 [shader("raygeneration")]
 void rayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint index = pixel.x + pixel.y * gFrameDim.x;
 
+    SampleGenerator sg = SampleGenerator(pixel, gFrameIndex);
+
     // Generate primary ray (pinhole for stability)
     Ray ray = gScene.camera.computeRayPinhole(pixel, gFrameDim);
+    RayPayload payload = {};
+    ShadingData sd = {};
+    BSDFProperties props = {};
+    float3 thpAtQuery = float3(1.0f);
+    float3 currentThp = float3(1.0f);
 
-    RayPayload payload;
-    TraceRayScene(0, 0xff, 0 /* hitIdx */, 0 /* missIdx */, ray.toRayDesc(), payload);
-
-    Query q = {};
-    q.hit = payload.hit;
-
-#if OUTPUT_NRC_INPUT
-    NRCInput nrc = {};
-#endif
-
-    HitInfo hit = HitInfo(payload.hit);
-    if (hit.isValid())
+    for (uint i = 0; i < kMaxDepth; ++i)
     {
-        TriangleHit th = hit.getTriangleHit();
-        uint materialID = gScene.getMaterialID(th.instanceID);
-        VertexData v = gScene.getVertexData(th);
-        ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir);
+        TraceRayScene(0, 0xff, 0 /* hitIdx */, 0 /* missIdx */, ray.toRayDesc(), payload);
+        HitInfo hit = HitInfo(payload.hit);
+        if (!hit.isValid()) {
+            break; // Store previous query if we miss
+        }
+
+        // Get next query
+        thpAtQuery = currentThp;
+        let th = hit.getTriangleHit();
+        let materialID = gScene.getMaterialID(th.instanceID);
+        let v = gScene.getVertexData(th);
+        sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir);
         let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0), (uint)MaterialInstanceHints::AdjustShadingNormal);
-        let props = mi.getProperties(sd);
+        props = mi.getProperties(sd);
 
-        q.emission = props.emission;
-        q.position = sd.posW;
-        q.viewDir = -ray.dir;
-        q.normal = props.guideNormal;
-
-    #if OUTPUT_NRC_INPUT
-        nrc.position = (sd.posW - gSceneMin) * gSceneScale; // Normalize to [0,1]³ for hash grid
-        nrc.wo = 0.5 * (1 + -ray.dir);
-        nrc.wn = 0.5 * (1 + props.guideNormal);
-        nrc.roughness = props.roughness;
-        nrc.diffuse = props.diffuseReflectionAlbedo;
-        nrc.specular = props.specularReflectionAlbedo;
-    #endif
+        if (shouldTerminate(props)) {
+            break; // Store current query
+        } else {
+            BSDFSample result;
+            let valid = mi.sample(sd, sg, result, true /* importanceSample */);
+            if (!valid) {
+                break; // Store current query if sampling failed
+            }
+            currentThp *= result.weight;
+            ray.dir = result.wo;
+            ray.origin = sd.computeRayOrigin(!result.isLobe(LobeType::Transmission));
+        }
     }
 
-    gPhotonQueries[index] = q;
-
-#if OUTPUT_NRC_INPUT
-    gNRCInput[index] = nrc;
-#endif
+    storeQuery(index, payload.hit, sd, props, thpAtQuery);
 }

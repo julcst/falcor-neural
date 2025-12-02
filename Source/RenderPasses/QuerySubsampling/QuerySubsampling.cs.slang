@@ -36,10 +36,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 
     let q = gInputQueries[inputIdx];
-    if (!q.isValid()) return; // Reuse old query sample if we failed to find a valid one
+    //if (!q.isValid()) return; // Reuse old query sample if we failed to find a valid one
 
     gOutputQueries[idx] = q;
-
 #if SUBSAMPLE_NRC
     gOutputNRC[idx] = gInputNRC[inputIdx];
 #endif

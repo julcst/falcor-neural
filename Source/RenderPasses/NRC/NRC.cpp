@@ -171,6 +171,7 @@ namespace
 {
 // Inputs
 const std::string kInferenceInput = "inferenceInput";
+const std::string kInferenceQueries = "inferenceQueries";
 const std::string kTrainInput = "trainInput";
 const std::string kTrainTarget = "trainTarget";
 // Internal
@@ -199,6 +200,9 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
     reflector.addInput(kInferenceInput, "Inference inputs")
         .rawBuffer(mInferenceSize * sizeof(NRCInput))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
+    reflector.addInput(kInferenceQueries, "Inference queries")
+        .rawBuffer(mInferenceSize * sizeof(Query))
+        .bindFlags(ResourceBindFlags::UnorderedAccess);
     reflector.addInput(kTrainInput, "Training inputs")
         .rawBuffer(mTrainSize * sizeof(NRCInput))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
@@ -273,6 +277,7 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         
         // Copy to texture
         auto var = mpOutputsToTexturePass->getRootVar();
+        var["gInferenceQueries"] = renderData[kInferenceQueries]->asBuffer();
         var["gInferenceOutput"] = renderData[kInferenceOutputFloat]->asBuffer();
         var["gOutput"] = renderData[kOutput]->asTexture();
         
