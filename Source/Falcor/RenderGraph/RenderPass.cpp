@@ -50,6 +50,12 @@ ref<Texture> RenderData::getTexture(const std::string_view name) const
     return pResource ? pResource->asTexture() : nullptr;
 }
 
+ref<Buffer> RenderData::getBuffer(const std::string_view name) const
+{
+    auto pResource = getResource(name);
+    return pResource ? pResource->asBuffer() : nullptr;
+}
+
 ref<RenderPass> RenderPass::create(std::string_view type, ref<Device> pDevice, const Properties& props, PluginManager& pm)
 {
     // Try to load a plugin of the same name, if render pass class is not registered yet.

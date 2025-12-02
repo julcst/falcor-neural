@@ -73,6 +73,13 @@ public:
     ref<Texture> getTexture(const std::string_view name) const;
 
     /**
+     * Get a buffer
+     * @param[in] name The name of the pass' buffer (i.e. "outputData"). No need to specify the pass' name
+     * @return If the buffer exists, a pointer to the buffer. Otherwise, nullptr
+     */
+    ref<Buffer> getBuffer(const std::string_view name) const;
+
+    /**
      * Get the global dictionary. You can use it to pass data between different passes
      */
     Dictionary& getDictionary() const { return mDictionary; }
