@@ -183,8 +183,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
 
     {
         // Build query acceleration structure
-        buildQueryAcceleration(pRenderContext, pQueryAABBBuffer);
-        FALCOR_ASSERT(mpQueryTLAS);
+        buildAccelerationStructure(pRenderContext, pQueryAABBBuffer);
+        FALCOR_ASSERT(mpTLAS);
     }
 
     {
@@ -193,7 +193,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         if (!mTracer.pVars) prepareVars();
         auto var = mTracer.pVars->getRootVar();
 
-        var["gQueryAS"].setAccelerationStructure(mpQueryTLAS);
+        var["gQueryAS"].setAccelerationStructure(mpTLAS);
         var["gPhotonQueries"] = pQueryBuffer;
         var["gQuerySpheres"] = pQuerySphereBuffer;
         var["gPhotonHits"] = pPhotonBuffer;
@@ -258,26 +258,32 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     }
 }
 
-void AccumulatePhotonsRTX::buildQueryAcceleration(RenderContext* pRenderContext, ref<Buffer> pQueryAABBBuffer)
+void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer)
 {
     FALCOR_PROFILE(pRenderContext, "BuildQueryAS");
-    FALCOR_ASSERT(pQueryAABBBuffer);
+    FALCOR_ASSERT(pAABBBuffer);
     static_assert(sizeof(AABB) == sizeof(RtAABB));
 
     // AABBs already written by TraceQueries.
 
-    RtGeometryDesc geometryDesc = {};
-    geometryDesc.type = RtGeometryType::ProcedurePrimitives;
-    geometryDesc.flags = RtGeometryFlags::None;
-    geometryDesc.content.proceduralAABBs.count = pQueryAABBBuffer->getSize() / sizeof(RtAABB);
-    geometryDesc.content.proceduralAABBs.data = pQueryAABBBuffer->getGpuAddress();
-    geometryDesc.content.proceduralAABBs.stride = sizeof(RtAABB);
+    RtGeometryDesc geometryDesc = {
+        .type = RtGeometryType::ProcedurePrimitives,
+        .flags = RtGeometryFlags::None,
+        .content = {
+            .proceduralAABBs = {
+                .count = pAABBBuffer->getSize() / sizeof(RtAABB),
+                .data = pAABBBuffer->getGpuAddress(),
+                .stride = sizeof(RtAABB),
+            }
+        }
+    };
 
-    RtAccelerationStructureBuildInputs blasInputs = {};
-    blasInputs.kind = RtAccelerationStructureKind::BottomLevel;
-    blasInputs.flags = RtAccelerationStructureBuildFlags::PreferFastTrace;
-    blasInputs.descCount = 1;
-    blasInputs.geometryDescs = &geometryDesc;
+    RtAccelerationStructureBuildInputs blasInputs = {
+        .kind = RtAccelerationStructureKind::BottomLevel,
+        .flags = RtAccelerationStructureBuildFlags::PreferFastTrace,
+        .descCount = 1,
+        .geometryDescs = &geometryDesc,
+    };
 
     const auto blasPrebuild = RtAccelerationStructure::getPrebuildInfo(mpDevice.get(), blasInputs);
 
@@ -291,24 +297,24 @@ void AccumulatePhotonsRTX::buildQueryAcceleration(RenderContext* pRenderContext,
     };
 
     logInfo("BLAS size={}, scratch size={}", blasPrebuild.resultDataMaxSize, blasPrebuild.scratchDataSize);
-    ensureASBuffer(mpQueryBlasStorage, blasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query BLAS");
-    ensureASBuffer(mpQueryBlasScratch, blasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query BLAS Scratch");
+    ensureASBuffer(mpBlasStorage, blasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query BLAS");
+    ensureASBuffer(mpBlasScratch, blasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query BLAS Scratch");
     
-    {
-        RtAccelerationStructure::Desc desc;
-        desc.setKind(RtAccelerationStructureKind::BottomLevel).setBuffer(mpQueryBlasStorage, 0, mpQueryBlasStorage->getSize());
-        mpQueryBLAS = RtAccelerationStructure::create(mpDevice, desc);
-    }
+    RtAccelerationStructure::Desc blasDesc;
+    blasDesc.setKind(RtAccelerationStructureKind::BottomLevel).setBuffer(mpBlasStorage, 0, mpBlasStorage->getSize());
+    mpBLAS = RtAccelerationStructure::create(mpDevice, blasDesc);
 
-    RtAccelerationStructure::BuildDesc blasBuild = {};
-    blasBuild.inputs = blasInputs;
-    blasBuild.dest = mpQueryBLAS.get();
-    blasBuild.source = nullptr;
-    blasBuild.scratchData = mpQueryBlasScratch->getGpuAddress();
+    // TODO: Reuse BLAS when possible
+    RtAccelerationStructure::BuildDesc blasBuild = {
+        .inputs = blasInputs,
+        .source = nullptr,
+        .dest = mpBLAS.get(),
+        .scratchData = mpBlasScratch->getGpuAddress(),
+    };
 
     pRenderContext->buildAccelerationStructure(blasBuild, 0, nullptr);
     pRenderContext->submit();
-    pRenderContext->uavBarrier(mpQueryBlasStorage.get());
+    pRenderContext->uavBarrier(mpBlasStorage.get());
 
     RtInstanceDesc instanceDesc = {
         .transform = { 1.f, 0.f, 0.f, 0.f,
@@ -318,40 +324,40 @@ void AccumulatePhotonsRTX::buildQueryAcceleration(RenderContext* pRenderContext,
         .instanceMask = 0xFF,
         .instanceContributionToHitGroupIndex = 0,
         .flags = RtGeometryInstanceFlags::None,
-        .accelerationStructure = mpQueryBLAS->getGpuAddress(),
+        .accelerationStructure = mpBLAS->getGpuAddress(),
     };
-
-    RtAccelerationStructureBuildInputs tlasInputs = {};
-    tlasInputs.kind = RtAccelerationStructureKind::TopLevel;
-    tlasInputs.flags = RtAccelerationStructureBuildFlags::PreferFastTrace;
-    tlasInputs.descCount = 1;
 
     auto allocation = mpDevice->getUploadHeap()->allocate(sizeof(RtInstanceDesc), sizeof(RtInstanceDesc));
     std::memcpy(allocation.pData, &instanceDesc, sizeof(RtInstanceDesc));
-    tlasInputs.instanceDescs = allocation.getGpuAddress();
+
+    RtAccelerationStructureBuildInputs tlasInputs = {
+        .kind = RtAccelerationStructureKind::TopLevel,
+        .flags = RtAccelerationStructureBuildFlags::PreferFastTrace,
+        .descCount = 1,
+        .instanceDescs = allocation.getGpuAddress(),
+    };
 
     const auto tlasPrebuild = RtAccelerationStructure::getPrebuildInfo(mpDevice.get(), tlasInputs);
 
-    ensureASBuffer(mpQueryTlasStorage, tlasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query TLAS");
-    ensureASBuffer(mpQueryTlasScratch, tlasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query TLAS Scratch");
+    ensureASBuffer(mpTlasStorage, tlasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query TLAS");
+    ensureASBuffer(mpTlasScratch, tlasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query TLAS Scratch");
 
-    {
-        RtAccelerationStructure::Desc desc;
-        desc.setKind(RtAccelerationStructureKind::TopLevel).setBuffer(mpQueryTlasStorage, 0, mpQueryTlasStorage->getSize());
-        mpQueryTLAS = RtAccelerationStructure::create(mpDevice, desc);
-    }
+    RtAccelerationStructure::Desc tlasDesc;
+    tlasDesc.setKind(RtAccelerationStructureKind::TopLevel).setBuffer(mpTlasStorage, 0, mpTlasStorage->getSize());
+    mpTLAS = RtAccelerationStructure::create(mpDevice, tlasDesc);
 
-    RtAccelerationStructure::BuildDesc tlasBuild = {};
-    tlasBuild.inputs = tlasInputs;
-    tlasBuild.dest = mpQueryTLAS.get();
-    tlasBuild.source = nullptr;
-    tlasBuild.scratchData = mpQueryTlasScratch->getGpuAddress();
+    RtAccelerationStructure::BuildDesc tlasBuild = {
+        .inputs = tlasInputs,
+        .source = nullptr,
+        .dest = mpTLAS.get(),
+        .scratchData = mpTlasScratch->getGpuAddress(),
+    };
 
     pRenderContext->buildAccelerationStructure(tlasBuild, 0, nullptr);
     
     mpDevice->getUploadHeap()->release(allocation);
     
-    pRenderContext->uavBarrier(mpQueryTlasStorage.get());
+    pRenderContext->uavBarrier(mpTlasStorage.get());
 }
 
 void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {}

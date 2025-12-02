@@ -46,7 +46,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     let qi = PrimitiveIndex();
     let q = gPhotonQueries[qi];
 
-    // TODO: Prefetch material?
+    // TODO: Prefetch material? Or use photon hit?
     let wo = q.viewDir;
     let wi = WorldRayDirection();
     let th = HitInfo(q.hit).getTriangleHit();

@@ -54,7 +54,7 @@ public:
 
 private:
     void prepareVars();
-    void buildQueryAcceleration(RenderContext* pRenderContext, ref<Buffer> pQueryAABBBuffer);
+    void buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer);
 
     // Config
     bool mVisualizeHeatmap = false;
@@ -78,11 +78,10 @@ private:
     ref<ComputePass> mpFinalizeBufferPass;
 
     // Acceleration structure resources
-    ref<RtAccelerationStructure> mpQueryBLAS;
-    ref<RtAccelerationStructure> mpQueryTLAS;
-    ref<Buffer> mpQueryBlasStorage;
-    ref<Buffer> mpQueryBlasScratch;
-    ref<Buffer> mpQueryTlasStorage;
-    ref<Buffer> mpQueryTlasScratch;
-    ref<Buffer> mpQueryInstanceBuffer;
+    ref<RtAccelerationStructure> mpBLAS;
+    ref<RtAccelerationStructure> mpTLAS;
+    ref<Buffer> mpBlasStorage;
+    ref<Buffer> mpBlasScratch;
+    ref<Buffer> mpTlasStorage;
+    ref<Buffer> mpTlasScratch;
 };

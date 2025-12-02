@@ -128,7 +128,7 @@ void rayGen()
         return;
 
     // Count emitted photons
-    InterlockedAdd(gCounters[0].PhotonsEmitted, 1);
+    InterlockedAdd(gCounters[0].PhotonsEmitted, 1); // TODO: remove atomic
     
     // Setup ray for tracing
     RayDesc ray = ls.getRay().toRayDesc();
