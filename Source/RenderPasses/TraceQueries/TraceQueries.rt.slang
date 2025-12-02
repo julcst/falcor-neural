@@ -11,6 +11,7 @@ import Utils.Timing.GpuTimer;
 import Query;
 import RenderPasses.NRC.NRC;
 import Utils.Color.ColorHelpers;
+import Utils.Geometry.GeometryHelpers;
 
 RWStructuredBuffer<Query> gPhotonQueries;
 RWStructuredBuffer<NRCInput> gNRCInput;
@@ -123,14 +124,14 @@ void rayGen()
         if (shouldTerminate(props)) {
             break; // Store current query
         } else {
-            BSDFSample result;
+            BSDFSample result = {};
             let valid = mi.sample(sd, sg, result, true /* importanceSample */);
             if (!valid) {
                 break; // Store current query if sampling failed
             }
             currentThp *= result.weight;
             ray.dir = result.wo;
-            ray.origin = sd.computeRayOrigin(!result.isLobe(LobeType::Transmission));
+            ray.origin = computeRayOrigin(sd.posW, dot(ray.dir, sd.faceN) > 0.0f ? sd.faceN : -sd.faceN);
         }
     }
 
