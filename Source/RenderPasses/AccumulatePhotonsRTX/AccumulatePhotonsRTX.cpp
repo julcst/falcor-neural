@@ -2,11 +2,14 @@
 #include "../TracePhotons/Structs.slang"
 #include "../TraceQueries/Query.slang"
 #include "Structs.slang"
+#include "Utils/StringUtils.h"
 
 namespace
 {
-const char kShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/AccumulatePhotons.rt.slang";
+const char kQuerySearch[] = "RenderPasses/AccumulatePhotonsRTX/QuerySearch.rt.slang";
+const char kPhotonSearch[] = "RenderPasses/AccumulatePhotonsRTX/PhotonSearch.rt.slang";
 const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
+const char kPreparePhotonsComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/PreparePhotons.cs.slang";
 const char kFinalizeTextureComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/FinalizeTexture.cs.slang";
 const char kFinalizeBufferComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/FinalizeBuffer.cs.slang";
 
@@ -18,6 +21,7 @@ const char kPhotonCounters[] = "photonCounters";
 
 // Internal
 const char kQueryAABBBuffer[] = "queryAABBs";
+const char kPhotonAABBBuffer[] = "photonAABBs";
 const char kQuerySphereBuffer[] = "querySpheres";
 const char kQueryStateBuffer[] = "queryStates";
 const char kAccumulatorBuffer[] = "accumulator";
@@ -29,12 +33,12 @@ const char kOutputBuffer[] = "outputBuffer";
 
 // Properties
 const char kVisualizeHeatmap[] = "visualizeHeatmap";
+const char kReverseSearch[] = "reverseSearch";
 const char kQueryRadius[] = "radius";
 const char kRadiusAlpha[] = "alpha";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
-const uint32_t kMaxPayloadSizeBytes = sizeof(float3);
 const uint32_t kMaxRecursionDepth = 1u;
 } // namespace
 
@@ -48,6 +52,8 @@ AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties
     {
         if (key == kVisualizeHeatmap) {
             mVisualizeHeatmap = value;
+        } else if (key == kReverseSearch) {
+            mReverseSearch = value;
         } else if (key == kQueryRadius) {
             mQueryRadius = props[kQueryRadius];
         } else if (key == kRadiusAlpha) {
@@ -62,6 +68,7 @@ Properties AccumulatePhotonsRTX::getProperties() const
 {
     Properties props;
     props[kVisualizeHeatmap] = mVisualizeHeatmap;
+    props[kReverseSearch] = mReverseSearch;
     props[kQueryRadius] = mQueryRadius;
     props[kRadiusAlpha] = mAlpha;
     return props;
@@ -90,6 +97,11 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
     reflector.addInternal(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
         .rawBuffer(mQueryCount * sizeof(AABB))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    if (mReverseSearch) {
+        reflector.addInternal(kPhotonAABBBuffer, "Buffer containing photon AABBs.")
+            .rawBuffer(mPhotonHitCount * sizeof(AABB) / 4)
+            .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+    }
     reflector.addInternal(kQuerySphereBuffer, "Buffer for query geometry..")
         .rawBuffer(mQueryCount * sizeof(Sphere))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
@@ -119,10 +131,12 @@ void AccumulatePhotonsRTX::compile(RenderContext* pRenderContext, const CompileD
         logInfo("Connected resource: {} (width={})", field->getName(), field->getWidth());
     }
     const auto queryCount = compileData.connectedResources.getField(kQueryBuffer)->getWidth() / sizeof(Query);
-    logInfo("queryCount={}", queryCount);
-    if (mQueryCount != queryCount) {
+    const auto photonHitCount = compileData.connectedResources.getField(kPhotonBuffer)->getWidth() / sizeof(PhotonHit);
+    logInfo("queryCount={}, photonHitCount={}", queryCount, photonHitCount);
+    if (mQueryCount != queryCount || mPhotonHitCount != photonHitCount) {
         mQueryCount = queryCount;
-        FALCOR_CHECK(false, "Recompute query count"); // Force retry of reflect
+        mPhotonHitCount = photonHitCount;
+        FALCOR_CHECK(false, "Recompile with new buffer sizes"); // Force retry of reflect
     }
 }
 
@@ -155,6 +169,23 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     FALCOR_ASSERT(pPhotonBuffer); FALCOR_ASSERT(pPhotonCounters);
     FALCOR_ASSERT(pDebugCounters);
     FALCOR_ASSERT_GE(pAccumulatorBuffer->getSize(), mQueryCount * sizeof(float4));
+    
+    const auto pPhotonAABBBuffer = renderData.getBuffer(kPhotonAABBBuffer);
+    FALCOR_ASSERT(pPhotonAABBBuffer || !mReverseSearch);
+    
+    const auto counters = pPhotonCounters->getElement<PhotonCounters>(0u);
+
+    if (mReverseSearch) {
+        FALCOR_PROFILE(pRenderContext, "PreparePhotons");
+
+        auto var = mpPreparePhotonsPass->getRootVar();
+        var["gPhotonHits"] = pPhotonBuffer;
+        var["gPhotonAABBs"] = pPhotonAABBBuffer;
+        var["CB"]["gPhotonHitCount"] = counters.PhotonStores;
+        var["CB"]["gRadius"] = mQueryRadius;
+
+        mpPreparePhotonsPass->execute(pRenderContext, counters.PhotonStores, 1, 1);
+    }
 
     {
         FALCOR_PROFILE(pRenderContext, "PrepareQueries");
@@ -181,14 +212,34 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     // }
     // logInfo("valid={}%", (100u * valid) / aabbs.size());
 
-    {
-        // Build query acceleration structure
-        buildAccelerationStructure(pRenderContext, pQueryAABBBuffer);
-        FALCOR_ASSERT(mpTLAS);
-    }
+    // Build query acceleration structure
+    if (mReverseSearch)
+        buildAccelerationStructure(pRenderContext, pPhotonAABBBuffer, counters.PhotonStores);
+    else
+        buildAccelerationStructure(pRenderContext, pQueryAABBBuffer, mQueryCount);
 
-    {
-        FALCOR_PROFILE(pRenderContext, "AccumulatePhotonsRTX");
+    FALCOR_ASSERT(mpTLAS);
+
+    if (mReverseSearch) {
+        FALCOR_PROFILE(pRenderContext, "PhotonSearch");
+        
+        if (!mTracer.pVars) prepareVars();
+        auto var = mTracer.pVars->getRootVar();
+
+        var["gPhotonAS"].setAccelerationStructure(mpTLAS);
+        var["gQueries"] = pQueryBuffer;
+        var["gQuerySpheres"] = pQuerySphereBuffer;
+        var["gPhotonHits"] = pPhotonBuffer;
+        var["gDebugCounters"] = pDebugCounters;
+        var["gQueryAccumulation"] = pAccumulatorBuffer;
+        var["CB"]["gQueryCount"] = mQueryCount;
+
+        pRenderContext->clearUAV(pDebugCounters->getUAV().get(), uint4(0));
+        
+        logInfo("Tracing {} queries", mQueryCount);
+        mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(mQueryCount, 1, 1));
+    } else {
+        FALCOR_PROFILE(pRenderContext, "QuerySearch");
         
         if (!mTracer.pVars) prepareVars();
         auto var = mTracer.pVars->getRootVar();
@@ -200,31 +251,26 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gCounters"] = pPhotonCounters;
         var["gDebugCounters"] = pDebugCounters;
         var["gQueryAccumulation"] = pAccumulatorBuffer;
-
-        // TODO: Use indirect dispatch to avoid CPU-GPU sync
-        pRenderContext->uavBarrier(pPhotonCounters.get());
-        const auto counters = pPhotonCounters->getElement<PhotonCounters>(0u);
-        const auto photonHitCount = counters.PhotonStores;
-        mGlobalPhotonCounter += counters.PhotonsEmitted;
-
         // Dispatch one ray per photon hit.
-        logInfo("Tracing {} photons", photonHitCount);
+        logInfo("Tracing {} photons", counters.PhotonStores);
         pRenderContext->clearUAV(pAccumulatorBuffer->getUAV().get(), uint4(0));
         pRenderContext->clearUAV(pDebugCounters->getUAV().get(), uint4(0));
-        mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(photonHitCount, 1, 1));
-        
-        pRenderContext->uavBarrier(pDebugCounters.get());
-        const auto debugCounters = pDebugCounters->getElement<DebugCounters>(0u);
-        logInfo("IntersectorCalls={}, Accumulations={}",
-            debugCounters.IntersectorCalls,
-            debugCounters.Accumulations);
+        mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(counters.PhotonStores, 1, 1));
     }
+
+    pRenderContext->uavBarrier(pDebugCounters.get());
+    const auto debugCounters = pDebugCounters->getElement<DebugCounters>(0u);
+    logInfo("IntersectorCalls={}, Accumulations={}",
+        debugCounters.IntersectorCalls,
+        debugCounters.Accumulations);
 
     {
         FALCOR_PROFILE(pRenderContext, "ComputeFinalRadiance");
 
         const auto pOutputTexture = renderData.getTexture(kOutputTexture);
         const auto pOutputBuffer = renderData[kOutputBuffer];
+
+        mGlobalPhotonCounter += counters.PhotonsEmitted;
 
         if (pOutputTexture)
         {
@@ -258,7 +304,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
     }
 }
 
-void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer)
+void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer, const uint32_t aabbCount)
 {
     FALCOR_PROFILE(pRenderContext, "BuildQueryAS");
     FALCOR_ASSERT(pAABBBuffer);
@@ -271,16 +317,17 @@ void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderCont
         .flags = RtGeometryFlags::None,
         .content = {
             .proceduralAABBs = {
-                .count = pAABBBuffer->getSize() / sizeof(RtAABB),
+                .count = aabbCount,
                 .data = pAABBBuffer->getGpuAddress(),
                 .stride = sizeof(RtAABB),
             }
         }
     };
 
+    // TODO: Optimize size
     RtAccelerationStructureBuildInputs blasInputs = {
         .kind = RtAccelerationStructureKind::BottomLevel,
-        .flags = RtAccelerationStructureBuildFlags::PreferFastTrace,
+        .flags = RtAccelerationStructureBuildFlags::PreferFastBuild | RtAccelerationStructureBuildFlags::MinimizeMemory,
         .descCount = 1,
         .geometryDescs = &geometryDesc,
     };
@@ -296,7 +343,7 @@ void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderCont
         }
     };
 
-    logInfo("BLAS size={}, scratch size={}", blasPrebuild.resultDataMaxSize, blasPrebuild.scratchDataSize);
+    logInfo("BLAS size={}, scratch size={}", formatByteSize(blasPrebuild.resultDataMaxSize), formatByteSize(blasPrebuild.scratchDataSize));
     ensureASBuffer(mpBlasStorage, blasPrebuild.resultDataMaxSize, ResourceBindFlags::AccelerationStructure, "SPPM Query BLAS");
     ensureASBuffer(mpBlasScratch, blasPrebuild.scratchDataSize, ResourceBindFlags::UnorderedAccess, "SPPM Query BLAS Scratch");
     
@@ -371,22 +418,41 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
 
     if (mpScene)
     {
-        ProgramDesc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kShaderFile);
-        desc.setMaxPayloadSize(kMaxPayloadSizeBytes);
-        desc.setMaxAttributeSize(sizeof(float));
-        desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
+        if (mReverseSearch) {
+            ProgramDesc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kPhotonSearch);
+            desc.setMaxPayloadSize(9 * sizeof(float));
+            desc.setMaxAttributeSize(2 * sizeof(float3));
+            desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
-        // Create a dummy SBT with geometryCount=1 for our custom TLAS.
-        mTracer.pBindingTable = RtBindingTable::create(0, 1, 1);
-        auto& sbt = mTracer.pBindingTable;
-        sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+            // Create a dummy SBT with geometryCount=1 for our custom TLAS.
+            mTracer.pBindingTable = RtBindingTable::create(0, 1, 1);
+            auto& sbt = mTracer.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
 
-        // Hit group for procedural queries: anyhit + intersection.
-        sbt->setHitGroup(0, 0u, desc.addHitGroup("", "queryAnyHit", "queryIntersection", mpScene->getTypeConformances())); // single entry for our custom TLAS
+            // Hit group for procedural queries: anyhit + intersection.
+            sbt->setHitGroup(0, 0u, desc.addHitGroup("", "photonAnyHit", "photonIntersection", mpScene->getTypeConformances())); // single entry for our custom TLAS
 
-        mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+            mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+        } else {
+            ProgramDesc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kQuerySearch);
+            desc.setMaxPayloadSize(sizeof(float3));
+            desc.setMaxAttributeSize(sizeof(float));
+            desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
+
+            // Create a dummy SBT with geometryCount=1 for our custom TLAS.
+            mTracer.pBindingTable = RtBindingTable::create(0, 1, 1);
+            auto& sbt = mTracer.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+
+            // Hit group for procedural queries: anyhit + intersection.
+            sbt->setHitGroup(0, 0u, desc.addHitGroup("", "queryAnyHit", "queryIntersection", mpScene->getTypeConformances())); // single entry for our custom TLAS
+
+            mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+        }
     }
 
     if (!mpPreparationPass)
@@ -396,6 +462,15 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         desc.csEntry("main");
 
         mpPreparationPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines()); // NOTE: Needs scene defines for hit types
+    }
+
+    if (!mpPreparePhotonsPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kPreparePhotonsComputeShaderFile);
+        desc.csEntry("main");
+
+        mpPreparePhotonsPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
     if (!mpFinalizeTexturePass)

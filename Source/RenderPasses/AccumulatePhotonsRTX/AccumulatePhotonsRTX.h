@@ -54,14 +54,16 @@ public:
 
 private:
     void prepareVars();
-    void buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer);
+    void buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer, const uint32_t aabbCount);
 
     // Config
     bool mVisualizeHeatmap = false;
+    bool mReverseSearch = false;
     float mQueryRadius = 0.005f;
     float mAlpha = 0.7f;
 
     uint32_t mQueryCount = 0; // Automatically derived from input data
+    uint32_t mPhotonHitCount = 0; // Automatically derived from input data
     uint32_t mGlobalPhotonCounter = 0;
 
     ref<Scene> mpScene;
@@ -74,6 +76,7 @@ private:
     } mTracer;
 
     ref<ComputePass> mpPreparationPass;
+    ref<ComputePass> mpPreparePhotonsPass;
     ref<ComputePass> mpFinalizeTexturePass;
     ref<ComputePass> mpFinalizeBufferPass;
 

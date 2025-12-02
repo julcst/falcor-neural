@@ -30,7 +30,7 @@ struct QueryIsectAttribs { };
 void queryIntersection()
 {
     // Count intersection shader invocation attempts (only when AABB was traversed for this primitive)
-    InterlockedAdd(gDebugCounters[0].IntersectorCalls, 1);
+    // InterlockedAdd(gDebugCounters[0].IntersectorCalls, 1);
     let qi = PrimitiveIndex();
     let p = WorldRayOrigin();
 
@@ -49,6 +49,9 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     // TODO: Prefetch material? Or use photon hit?
     let wo = q.viewDir;
     let wi = WorldRayDirection();
+
+    // NOTE: We have to fetch material here because MaterialsInstance is up to 128B large
+    // This is potentially inefficient however, especially for textured materials
     let th = HitInfo(q.hit).getTriangleHit();
     let materialID = gScene.getMaterialID(th.instanceID);
     let v = gScene.getVertexData(th);
@@ -68,7 +71,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     gQueryAccumulation.InterlockedAdd(offset + 3 * sizeof(float), 1u);
 
     // Count accumulation event (per hit processed)
-    InterlockedAdd(gDebugCounters[0].Accumulations, 1);
+    // InterlockedAdd(gDebugCounters[0].Accumulations, 1);
 }
 
 [shader("raygeneration")]
