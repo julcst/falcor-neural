@@ -91,6 +91,7 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
     g->markOutput("debug.queryPosition");
     g->markOutput("debug.queryThroughput");
+    g->markOutput("debug.queryEmission");
     g->markOutput("debug.nrcDiffuse");
     g->markOutput("debug.nrcWo");
     g->markOutput("debug.queryNormal");
@@ -191,7 +192,7 @@ int runMain(int argc, char** argv)
 
     // SPPM
     render(app, graphSPPM(app.getDevice(), false), 32);
-    render(app, graphSPPM(app.getDevice(), true), 32);
+    //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC
     render(app, graphPhotonNRC(app.getDevice()), 128);

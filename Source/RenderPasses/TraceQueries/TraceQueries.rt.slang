@@ -1,4 +1,5 @@
 #include "Scene/SceneDefines.slangh"
+#include "Utils/Math/MathConstants.slangh"
 
 import Scene.Raytracing;
 import Scene.Shading;
@@ -128,12 +129,15 @@ void rayGen()
         } else {
             BSDFSample result = {};
             let valid = mi.sample(sd, sg, result, true /* importanceSample */);
-            // if (!valid) {
-            //     break; // Store current query if sampling failed
-            // }
+            if (!valid) { // TODO: This sometimes fails, handle this better
+                //props.emission = float3(0, 1, 0);
+                break; // Store current query if sampling failed
+            }
             currentThp *= result.weight;
             ray.dir = result.wo;
-            ray.origin = computeRayOrigin(sd.posW, dot(ray.dir, sd.faceN) > 0.0f ? sd.faceN : -sd.faceN);
+            ray.origin = computeRayOrigin(sd.posW, dot(ray.dir, sd.faceN) >= 0.0f ? sd.faceN : -sd.faceN);
+            ray.tMin = 0.0f;
+            ray.tMax = FLT_MAX;
         }
     }
 

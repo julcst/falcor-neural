@@ -20,5 +20,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     let out = gInferenceOutput[idx];
     let query = gInferenceQueries[idx];
 
-    gOutput[pixel] = float4(out.radiance * query.throughput, 1.0);
+    let radiance = query.isValid() ? out.radiance * query.throughput : float3(0.0f);
+
+    gOutput[pixel] = float4(radiance * query.throughput, 1.0);
 }
