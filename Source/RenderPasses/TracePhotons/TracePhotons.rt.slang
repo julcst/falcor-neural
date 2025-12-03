@@ -166,9 +166,9 @@ void rayGen()
             if (keep)
             {
                 // Record photon store point; accumulation happens in a separate RT pass.
-                storePhotonWaveIntrinsics(PhotonHit(
+                storePhotonAtomic(PhotonHit(
                     sd.posW,
-                    -ray.Direction,
+                    sd.V,
                     storeFlux,
                     isCaustic
                 ));
@@ -177,11 +177,14 @@ void rayGen()
 
         // Sample Photon bounce for next iteration
         BSDFSample bsdfSample = {};
+        // TODO: Is this reciprocal for transmission?
         let validSample = mi.sample(sd, sg, bsdfSample, true /*ImportanceSampling*/);
         if (!validSample)
             return;
         ray.Origin = sd.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission)); // false is for transmissions
         ray.Direction = bsdfSample.wo;
+        ray.TMin = 0.0f;
+        ray.TMax = FLT_MAX;
         var weight = bsdfSample.weight;
 
         // Russian Roulette

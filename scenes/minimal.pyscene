@@ -62,7 +62,7 @@ smallBox.roughness = 0.5
 
 water = StandardMaterial("Water")
 water.transmissionColor = float3(0.0, 0.5, 1.0)
-water.roughness = 0
+water.roughness = 0.2
 water.metallic = 0
 water.indexOfRefraction = 1.33
 water.specularTransmission = 1
@@ -73,48 +73,22 @@ water.thinSurface = True
 
 quadMesh = TriangleMesh.createQuad()
 cubeMesh = TriangleMesh.createCube()
-waterMesh = TriangleMesh.createFromFile('meshes/water.obj', smoothNormals=True)
 
 # Create mesh instances
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Floor', Transform(scaling=float3(0.55, 1.0, 0.56))),
+    sceneBuilder.addNode('Floor', Transform(scaling=4.0)),
     sceneBuilder.addTriangleMesh(quadMesh, floor)
 )
 
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Ceiling', Transform(scaling=float3(0.55, 1.0, 0.56), translation=float3(0, 0.55, 0), rotationEulerDeg=float3(180, 0, 0))),
-    sceneBuilder.addTriangleMesh(quadMesh, ceiling)
-)
+# sceneBuilder.addMeshInstance(
+#     sceneBuilder.addNode('Left Wall', Transform(scaling=float3(0.55, 1.0, 0.56), translation=float3(-0.275, 0.275, 0), rotationEulerDeg=float3(0, 0, -90))),
+#     sceneBuilder.addTriangleMesh(quadMesh, leftWall)
+# )
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Back Wall', Transform(scaling=float3(0.55, 1.0, 0.56), translation=float3(0, 0.275, -0.275), rotationEulerDeg=float3(90, 0, 0))),
-    sceneBuilder.addTriangleMesh(quadMesh, backWall)
-)
-
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Left Wall', Transform(scaling=float3(0.55, 1.0, 0.56), translation=float3(-0.275, 0.275, 0), rotationEulerDeg=float3(0, 0, -90))),
-    sceneBuilder.addTriangleMesh(quadMesh, leftWall)
-)
-
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Right Wall', Transform(scaling=float3(0.55, 1.0, 0.56), translation=float3(0.275, 0.275, 0), rotationEulerDeg=float3(0, 0, 90))),
-    sceneBuilder.addTriangleMesh(quadMesh, rightWall)
-)
-
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Large Box', Transform(scaling=float3(0.165, 0.33, 0.165), translation=float3(-0.093, 0.165, -0.071), rotationEuler=float3(0, -1.27, 0))),
-    sceneBuilder.addTriangleMesh(cubeMesh, largeBox)
-)
-
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Small Box', Transform(scaling=float3(0.165, 0.165, 0.165), translation=float3(0.09, 0.0825, 0.111), rotationEuler=float3(0, -0.29, 0))),
-    sceneBuilder.addTriangleMesh(cubeMesh, smallBox)
-)
-
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Water', Transform(scaling=float3(0.275, 0.42, 0.275))),
-    sceneBuilder.addTriangleMesh(waterMesh, water)
+    sceneBuilder.addNode('Water', Transform(scaling=4.0, translation=float3(0, 0.3, 0))),
+    sceneBuilder.addTriangleMesh(quadMesh, water)
 )
 
 sceneBuilder.addMeshInstance(

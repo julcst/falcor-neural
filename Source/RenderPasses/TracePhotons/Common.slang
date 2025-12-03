@@ -4,11 +4,6 @@ import Scene.Shading;
 
 module Common;
 
-public float luminance(const float3 color)
-{
-    return dot(color, float3(0.2126, 0.7152, 0.0722));
-}
-
 public ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, const float3 rayDir)
 {
     VertexData v = {};
@@ -26,7 +21,7 @@ public ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, co
     if (hit.getType() == HitType::DisplacedTriangle)
     {
         const DisplacedTriangleHit displacedTriangleHit = hit.getDisplacedTriangleHit();
-        v = gScene.getVertexData(displacedTriangleHit, -rayDir);
+        v = gScene.getVertexData(displacedTriangleHit, -rayDir); // TODO: Inconsistent minus
         materialID = gScene.getMaterialID(displacedTriangleHit.instanceID);
     }
 #endif

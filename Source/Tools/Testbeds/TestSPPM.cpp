@@ -22,12 +22,12 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
 }
 
 ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false) {
-    auto g = RenderGraph::create(pDevice, fmt::format("SPPM reverse={}", reverseSearch));
+    auto g = RenderGraph::create(pDevice, reverseSearch ? "SPPM_ReverseSearch" : "SPPM");
 
     g->createPass("Ref", "ImageLoader", Properties(json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}}));
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.005f}, {"reverseSearch", reverseSearch}}));
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
     g->createPass("Error", "ErrorMeasurePass", Properties(json  {{"SelectedOutputId", "Difference"}}));
@@ -55,15 +55,15 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
 
     g->markOutput("AccumPh.outputTexture");
     g->markOutput("VisualizePhotons.dst");
-    g->markOutput("Error.Output");
+    //g->markOutput("Error.Output");
     return g;
 }
 
 ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     auto g = RenderGraph::create(pDevice, "PhotonNRC");
 
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}}));
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.005f}}));
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<22}}));
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.004f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
@@ -89,13 +89,13 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
 
     g->addEdge("TraceQueries.queries", "debug.queries");
     g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
-    g->markOutput("debug.queryPosition");
-    g->markOutput("debug.queryThroughput");
-    g->markOutput("debug.queryEmission");
-    g->markOutput("debug.nrcDiffuse");
-    g->markOutput("debug.nrcWo");
-    g->markOutput("debug.queryNormal");
-    g->markOutput("debug.nrcRoughness");
+    // g->markOutput("debug.queryPosition");
+    // g->markOutput("debug.queryThroughput");
+    // g->markOutput("debug.queryEmission");
+    // g->markOutput("debug.nrcDiffuse");
+    // g->markOutput("debug.nrcWo");
+    // g->markOutput("debug.queryNormal");
+    // g->markOutput("debug.nrcRoughness");
 
     g->markOutput("nrc.output");
     return g;
@@ -201,7 +201,7 @@ int runMain(int argc, char** argv)
     render(app, graphNRC(app.getDevice()), 128);
 
     // PT Query
-    render(app, graphPTQuery(app.getDevice()));
+    // render(app, graphPTQuery(app.getDevice()));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());
