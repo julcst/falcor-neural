@@ -103,6 +103,7 @@ void rayGen()
     BSDFProperties props = {};
     float3 thpAtQuery = float3(1.0f);
     float3 currentThp = float3(1.0f);
+    PackedHitInfo hitAtQuery = {};
 
     for (uint i = 0; i < kMaxDepth; ++i)
     {
@@ -113,6 +114,7 @@ void rayGen()
         }
 
         // Get next query
+        hitAtQuery = payload.hit;
         thpAtQuery = currentThp;
         let th = hit.getTriangleHit();
         let materialID = gScene.getMaterialID(th.instanceID);
@@ -126,14 +128,14 @@ void rayGen()
         } else {
             BSDFSample result = {};
             let valid = mi.sample(sd, sg, result, true /* importanceSample */);
-            if (!valid) {
-                break; // Store current query if sampling failed
-            }
+            // if (!valid) {
+            //     break; // Store current query if sampling failed
+            // }
             currentThp *= result.weight;
             ray.dir = result.wo;
             ray.origin = computeRayOrigin(sd.posW, dot(ray.dir, sd.faceN) > 0.0f ? sd.faceN : -sd.faceN);
         }
     }
 
-    storeQuery(index, payload.hit, sd, props, thpAtQuery);
+    storeQuery(index, hitAtQuery, sd, props, thpAtQuery);
 }

@@ -92,6 +92,9 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     g->markOutput("debug.queryPosition");
     g->markOutput("debug.queryThroughput");
     g->markOutput("debug.nrcDiffuse");
+    g->markOutput("debug.nrcWo");
+    g->markOutput("debug.queryNormal");
+    g->markOutput("debug.nrcRoughness");
 
     g->markOutput("nrc.output");
     return g;

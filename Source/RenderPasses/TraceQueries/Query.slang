@@ -15,16 +15,16 @@ struct Query
     uint4 hit;
 
     float3 position;
-    // uint hash; // To identify changes fast?
+    // uint revision; // To identify changes fast?
 
-    float3 viewDir;
+    float3 viewDir; // TODO: Octaeder
     // bool isValid;
 
-    float3 emission;
+    float3 emission; // TODO: Pack
 
-    float3 normal;
+    float3 normal; // TODO: Octaeder
 
-    float3 throughput;
+    float3 throughput; // TODO: 16 unorm
 
 #ifndef HOST_CODE
     HitInfo getHitInfo() {

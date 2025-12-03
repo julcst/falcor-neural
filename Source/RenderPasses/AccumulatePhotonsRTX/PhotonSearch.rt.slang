@@ -71,7 +71,7 @@ void photonAnyHit(inout Payload pl : SV_RayPayload, in PhotonIsectAttribs ph : S
     let sd = gScene.materials.prepareShadingData(v, materialID, wo);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
-    let cosThetaO = abs(dot(wo, sd.faceN));
+    let cosThetaO = abs(dot(wo, sd.faceN)); // TODO: faceN or guideN
     if (cosThetaO < 1e-6) IgnoreHit();
     
     var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
