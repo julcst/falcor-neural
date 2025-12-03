@@ -29,7 +29,7 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"radius", 0.005f}, {"reverseSearch", reverseSearch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
-    g->createPass("TraceQueries", "TraceQueries", Properties());
+    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
     g->createPass("Error", "ErrorMeasurePass", Properties(json  {{"SelectedOutputId", "Difference"}}));
 
     for (const auto& output : g->getAvailableOutputs())
@@ -65,7 +65,7 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"radius", 0.005f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
-    g->createPass("TraceQueries", "TraceQueries", Properties());
+    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
     g->createPass("nrc", "NRC", Properties());
     g->createPass("visPh", "VisualizePhotons", Properties());
@@ -191,7 +191,7 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    render(app, graphSPPM(app.getDevice(), false), 32);
+    render(app, graphSPPM(app.getDevice(), false), 512);
     //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC

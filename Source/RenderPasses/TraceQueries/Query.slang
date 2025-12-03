@@ -15,7 +15,7 @@ struct Query
     uint4 hit;
 
     float3 position;
-    // uint revision; // To identify changes fast?
+    uint revision; // To identify changes fast?
 
     float3 viewDir; // TODO: Octaeder
     // bool isValid;

@@ -26,13 +26,11 @@ void main(uint3 tid : SV_DispatchThreadID)
     let q = gQueries[idx];
 
     bool shouldReset = gReset;
-
     // Check if query has changed
-    // TODO: Handle this more elegantly
-    shouldReset |= any(gQuerySpheres[idx].center != q.position); // TODO: Wrong for SPPM
+    shouldReset |= gQueryStates[idx].revision != q.revision;
 
     if (shouldReset) {
-        gQueryStates[idx] = QueryState(float3(0), 0.0f, gGlobalPhotonCount, gInitialRadius);
+        gQueryStates[idx] = QueryState(gGlobalPhotonCount, gInitialRadius, q.revision);
     }
     
     let r = gQueryStates[idx].radius;

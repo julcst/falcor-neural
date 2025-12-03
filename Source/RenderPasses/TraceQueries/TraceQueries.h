@@ -29,6 +29,9 @@ public:
 private:
     void prepareVars();
 
+    // Config
+    bool mResetStatisticsPerFrame = false;  ///< Toggle between SPPM and PPM style accumulation.
+
     // Internal state
     ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded.
     ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator.
@@ -46,4 +49,5 @@ private:
 
     // Runtime state
     uint32_t mFrameCount = 0;                 ///< Frame counter since last scene change.
+    uint32_t mRevisionCounter = 0;            ///< Incremented when query statistics should change
 };

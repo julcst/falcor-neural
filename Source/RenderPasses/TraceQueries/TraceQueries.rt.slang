@@ -22,6 +22,7 @@ cbuffer CB
     float3 gSceneMin;
     uint gFrameIndex;
     float3 gSceneScale;
+    uint gRevisionCounter;
     uint2 gFrameDim;
 }
 
@@ -75,6 +76,7 @@ void storeQuery(uint index, PackedHitInfo hit, ShadingData sd, BSDFProperties pr
     q.viewDir = sd.V;
     q.normal = props.guideNormal;
     q.throughput = thp;
+    q.revision = gRevisionCounter;
     gPhotonQueries[index] = q;
 
 #if OUTPUT_NRC_INPUT
@@ -99,7 +101,6 @@ void rayGen()
 
     // Generate primary ray (pinhole for stability)
     Ray ray = gScene.camera.computeRayPinhole(pixel, gFrameDim);
-    RayPayload payload = {};
     ShadingData sd = {};
     BSDFProperties props = {};
     float3 thpAtQuery = float3(1.0f);
@@ -108,6 +109,7 @@ void rayGen()
 
     for (uint i = 0; i < kMaxDepth; ++i)
     {
+        RayPayload payload = {};
         TraceRayScene(0, 0xff, 0 /* hitIdx */, 0 /* missIdx */, ray.toRayDesc(), payload);
         HitInfo hit = HitInfo(payload.hit);
         if (!hit.isValid()) {

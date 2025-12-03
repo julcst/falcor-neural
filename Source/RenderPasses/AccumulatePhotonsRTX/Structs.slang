@@ -32,8 +32,17 @@ struct QueryState {
 
     uint totalPhotonCountAtBirth;
     float radius; // TODO: Maintain separate radius for caustics
+    uint revision; // To identify changes
 
 #ifndef HOST_CODE 
+    __init(uint photonCountAtBirth, float initialRadius, uint rev) {
+        totalFlux = float3(0.0f);
+        totalCollectedPhotons = 0.0f;
+        totalPhotonCountAtBirth = photonCountAtBirth;
+        radius = initialRadius;
+        revision = rev;
+    }
+
     [mutating]
     void applyRadiusReduction(Accumulator acc, float alpha) {
         if (acc.collectedPhotons == 0u) return; // No photons collected, no radius reduction needed

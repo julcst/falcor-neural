@@ -8,6 +8,8 @@ const char kShaderFile[] = "RenderPasses/TraceQueries/TraceQueries.rt.slang";
 const char kQueries[] = "queries";
 const char kNRCInput[] = "nrcInput";
 
+const char kResetStatisticsPerFrame[] = "resetStatisticsPerFrame";
+
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
 const uint32_t kMaxPayloadSizeBytes = sizeof(uint4);
@@ -29,11 +31,17 @@ TraceQueries::TraceQueries(ref<Device> pDevice, const Properties& props) : Rende
 Properties TraceQueries::getProperties() const
 {
     Properties props;
+    props[kResetStatisticsPerFrame] = mResetStatisticsPerFrame;
     return props;
 }
 
 void TraceQueries::setProperties(const Properties& props)
 {
+    for (const auto& [key, value] : props)
+    {
+        if (key == kResetStatisticsPerFrame) mResetStatisticsPerFrame = value;
+        else logWarning("Unrecognized property '{}' in {} render pass.", key, getName());
+    }
 }
 
 // This should recompile on resolution change, adjusting buffer sizes
@@ -69,6 +77,11 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
         FALCOR_THROW("This render pass does not support scene changes that require shader recompilation.");
     }
 
+    if (mpScene->getUpdates() != IScene::UpdateFlags::None)
+    {
+        mRevisionCounter++;
+    }
+
     auto pNRCInput = renderData[kNRCInput];
     mTracer.pProgram->addDefine("OUTPUT_NRC_INPUT", pNRCInput ? "1" : "0");
 
@@ -86,6 +99,7 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameDim"] = frameDim;
     var["CB"]["gFrameIndex"] = mFrameCount;
+    var["CB"]["gRevisionCounter"] = mRevisionCounter;
     var["CB"]["gSceneMin"] = mpScene->getSceneBounds().minPoint;
     var["CB"]["gSceneScale"] = 1.0f / mpScene->getSceneBounds().extent(); // Safe on division on GPU
 
@@ -102,6 +116,7 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(frameDim.x, frameDim.y, 1));
 
     mFrameCount++;
+    if (mResetStatisticsPerFrame) mRevisionCounter++;
 }
 
 void TraceQueries::renderUI(Gui::Widgets& widget) {}
