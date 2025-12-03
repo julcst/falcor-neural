@@ -22,10 +22,6 @@ cbuffer CB
     uint gQueryCount;
 }
 
-struct Payload { float3 flux; };
-
-struct QueryIsectAttribs { };
-
 [shader("intersection")]
 void queryIntersection()
 {
@@ -33,16 +29,20 @@ void queryIntersection()
     // InterlockedAdd(gDebugCounters[0].IntersectorCalls, 1);
     let qi = PrimitiveIndex();
     let p = WorldRayOrigin();
+    let sph = gQuerySpheres[qi];
 
-    if (!gQuerySpheres[qi].contains(p)) return;
+    if (!sph.mayContain(p)) return;
 
-    QueryIsectAttribs attribs; // TODO: pass Query data
+    QueryIsectAttribs attribs;
+    attribs.sphere = sph;
     ReportHit(1e-6, 0, attribs);
 }
 
 [shader("anyhit")]
-void queryAnyHit(inout Payload p : SV_RayPayload)
+void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttribs attribs : SV_IntersectionAttributes)
 {
+    if (!attribs.sphere.contains(WorldRayOrigin(), p.isCaustic)) IgnoreHit();
+
     let qi = PrimitiveIndex();
     let q = gPhotonQueries[qi];
 
@@ -64,7 +64,7 @@ void queryAnyHit(inout Payload p : SV_RayPayload)
     let outgoing_flux = (p.flux * mi.eval(sd, wo, sg)) / cosThetaO;
     if (luminance(outgoing_flux) < 1e-5) IgnoreHit(); // Skip expensive atomic ops for negligible contributions
 
-    let offset = qi * sizeof(float4);
+    let offset = qi * sizeof(DoubleAccumulator) + (p.isCaustic ? sizeof(float4) : 0);
     gQueryAccumulation.InterlockedAddF32(offset + 0 * sizeof(float), outgoing_flux.x);
     gQueryAccumulation.InterlockedAddF32(offset + 1 * sizeof(float), outgoing_flux.y);
     gQueryAccumulation.InterlockedAddF32(offset + 2 * sizeof(float), outgoing_flux.z);
@@ -88,8 +88,10 @@ void rayGen()
     r.TMin = 0.0;
     r.TMax = 1e-6; // Make ray infinitesimally short
 
-    Payload pl;
+    QuerySearchPayload pl;
     pl.flux = ph.flux;
+    pl.isCaustic = ph.isCaustic;
+
     // Use no special ray flags to allow any-hit invocation for non-opaque geometry.
     TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);
 }

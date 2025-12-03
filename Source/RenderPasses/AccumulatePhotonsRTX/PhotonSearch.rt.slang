@@ -14,24 +14,12 @@ StructuredBuffer<Query> gQueries;
 StructuredBuffer<Sphere> gQuerySpheres;
 StructuredBuffer<PhotonHit> gPhotonHits;
 RWStructuredBuffer<DebugCounters> gDebugCounters;
-RWStructuredBuffer<Accumulator> gQueryAccumulation; // float3 + uint per pixel
+RWStructuredBuffer<DoubleAccumulator> gQueryAccumulation; // float3 + uint per pixel
 
 cbuffer CB
 {
     uint gQueryCount;
 }
-
-
-// TODO: What is worse high payload size or duplicate fetching of material data?
-struct Payload {
-    PackedHitInfo hit;
-    Accumulator accum;
-};
-
-struct PhotonIsectAttribs {
-    float3 wi;
-    float3 flux;
-};
 
 [shader("intersection")]
 void photonIntersection()
@@ -41,22 +29,19 @@ void photonIntersection()
     let pi = PrimitiveIndex(); // Photon Index
     
     let ph = gPhotonHits[pi];
-    let qPos = WorldRayOrigin(); // Query Position
-    let diff = ph.posW - qPos;
-    let dist2 = dot(diff, diff);
 
     // Early skip?
     let qi = DispatchRaysIndex().x;
     let q = gQuerySpheres[qi];
     
-    if (dist2 > q.r2) return;
+    if (!q.contains(ph.posW, ph.isCaustic)) return;
 
-    PhotonIsectAttribs attribs = {ph.wi, ph.flux};
+    PhotonIsectAttribs attribs = {ph.wi, ph.isCaustic, ph.flux};
     ReportHit(1e-6, 0, attribs);
 }
 
 [shader("anyhit")]
-void photonAnyHit(inout Payload pl : SV_RayPayload, in PhotonIsectAttribs ph : SV_IntersectionAttributes)
+void photonAnyHit(inout PhotonSearchPayload pl : SV_RayPayload, in PhotonIsectAttribs ph : SV_IntersectionAttributes)
 {
     let wo = WorldRayDirection(); // Encoded view direction
     let wi = ph.wi; // Photon incoming direction
@@ -77,8 +62,13 @@ void photonAnyHit(inout Payload pl : SV_RayPayload, in PhotonIsectAttribs ph : S
     var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
     let outgoing_flux = (ph.flux * mi.eval(sd, wo, sg)) / cosThetaO;
 
-    pl.accum.flux += outgoing_flux;
-    pl.accum.collectedPhotons += 1;
+    if (ph.isCaustic) {
+        pl.accum.caustic.flux += outgoing_flux;
+        pl.accum.caustic.collectedPhotons++;
+    } else {
+        pl.accum.global.flux += outgoing_flux;
+        pl.accum.global.collectedPhotons++;
+    }
 
     // Count accumulation event
     // InterlockedAdd(gDebugCounters[0].Accumulations, 1);
@@ -99,7 +89,7 @@ void rayGen()
     r.TMin = 0.0;
     r.TMax = 1e-6;
 
-    Payload pl;
+    PhotonSearchPayload pl;
     pl.accum.flux = float3(0);
     pl.accum.collectedPhotons = 0;
     pl.hit = q.hit;

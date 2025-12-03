@@ -14,18 +14,21 @@ struct PhotonCounters
 struct PhotonHit
 {
     float3 posW;
-    float pad0;
+    bool isCaustic;
     float3 flux;
-    float pad1;
-    float3 wi;
-    float pad2;
+    uint pad0;
+    float3 wi; // TODO: Pack
+    uint pad1;
 
 #ifndef HOST_CODE 
-    __init(float3 posW, float3 wi, float3 flux)
+    __init(float3 posW, float3 wi, float3 flux, bool isCaustic)
     {
         this.posW = posW;
         this.wi = wi;
         this.flux = flux;
+        this.isCaustic = isCaustic;
+        this.pad0 = 0;
+        this.pad1 = 0;
     }
 #endif
 };

@@ -4,7 +4,7 @@ import RenderPasses.TraceQueries.Query;
 import RenderPasses.TracePhotons.Structs;
 import Structs;
 
-ByteAddressBuffer gAccumulator;
+StructuredBuffer<DoubleAccumulator> gAccumulator;
 StructuredBuffer<Query> gPhotonQueries;
 RWStructuredBuffer<QueryState> gQueryStates;
 RWStructuredBuffer<float3> gOutputBuffer;
@@ -13,7 +13,8 @@ cbuffer CB
 {
     uint gQueryCount;
     uint gGlobalPhotonCount;
-    float gAlpha;
+    float gGlobalAlpha;
+    float gCausticAlpha;
 }
 
 [numthreads(256,1,1)]
@@ -24,9 +25,9 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     let query = gPhotonQueries[idx];
 
-    let acc = Accumulator(gAccumulator.Load4Aligned(idx * sizeof(float4)));
+    let acc = gAccumulator[idx];
     var q = gQueryStates[idx];
-    q.applyRadiusReduction(acc, gAlpha);
+    q.applyRadiusReduction(acc, gGlobalAlpha, gCausticAlpha);
     let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission; // NOTE: radiance at query
     gQueryStates[idx] = q;
 

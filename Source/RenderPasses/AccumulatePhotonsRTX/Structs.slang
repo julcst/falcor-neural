@@ -3,6 +3,10 @@
 #include "Utils/Math/MathConstants.slangh"
 #include "Utils/HostDeviceShared.slangh"
 
+#ifndef HOST_CODE
+import Utils.Math.FormatConversion;
+#endif
+
 BEGIN_NAMESPACE_FALCOR
 
 struct DebugCounters
@@ -14,8 +18,8 @@ struct DebugCounters
 // Mutated multiple times per frame for each photon
 // Reset every frame
 struct Accumulator {
-    float3 flux;
-    uint collectedPhotons; // Optimal 16 byte alignment
+    float3 flux = float3(0.0f);
+    uint collectedPhotons = 0; // Optimal 16 byte alignment
 #ifndef HOST_CODE
     __init(uint4 raw) {
         flux = asfloat(raw.xyz);
@@ -24,41 +28,70 @@ struct Accumulator {
 #endif
 };
 
+struct DoubleAccumulator {
+    Accumulator global;
+    Accumulator caustic;
+};
+
 // Mutated once per frame after accumulation
 // Reset only on camera/scene change
 struct QueryState {
-    float3 totalFlux;
-    float totalCollectedPhotons;
+    float3 globalFlux;
+    float globalCollectedPhotons;
+
+    float3 causticFlux;
+    float causticCollectedPhotons;
 
     uint totalPhotonCountAtBirth;
-    float radius; // TODO: Maintain separate radius for caustics
+    float globalRadius; // TODO: Maintain separate radius for caustics
+    float causticRadius;
     uint revision; // To identify changes
 
 #ifndef HOST_CODE 
-    __init(uint photonCountAtBirth, float initialRadius, uint rev) {
-        totalFlux = float3(0.0f);
-        totalCollectedPhotons = 0.0f;
-        totalPhotonCountAtBirth = photonCountAtBirth;
-        radius = initialRadius;
-        revision = rev;
+    __init(uint photonCountAtBirth, float globalRadius, float causticRadius, uint rev) {
+        this.globalFlux = float3(0.0f);
+        this.globalCollectedPhotons = 0.0f;
+        this.causticFlux = float3(0.0f);
+        this.causticCollectedPhotons = 0.0f;
+        this.totalPhotonCountAtBirth = photonCountAtBirth;
+        this.globalRadius = globalRadius;
+        this.causticRadius = causticRadius;
+        this.revision = rev;
     }
 
     [mutating]
-    void applyRadiusReduction(Accumulator acc, float alpha) {
+    void applyRadiusReductionGlobal(Accumulator acc, float alpha) {
         if (acc.collectedPhotons == 0u) return; // No photons collected, no radius reduction needed
-        const float newCollectedPhotons = totalCollectedPhotons + float(acc.collectedPhotons) * alpha;
-        const float factor = newCollectedPhotons / (totalCollectedPhotons + float(acc.collectedPhotons));
-        totalCollectedPhotons = newCollectedPhotons;
-        radius *= sqrt(factor);
-        totalFlux += acc.flux;
-        totalFlux *= factor;
+        const float newCollectedPhotons = globalCollectedPhotons + float(acc.collectedPhotons) * alpha;
+        const float factor = newCollectedPhotons / (globalCollectedPhotons + float(acc.collectedPhotons));
+        globalCollectedPhotons = newCollectedPhotons;
+        globalRadius *= sqrt(factor);
+        globalFlux += acc.flux;
+        globalFlux *= factor;
+    }
+
+    [mutating]
+    void applyRadiusReductionCaustic(Accumulator acc, float alpha) {
+        if (acc.collectedPhotons == 0u) return; // No photons collected, no radius reduction needed
+        const float newCollectedPhotons = causticCollectedPhotons + float(acc.collectedPhotons) * alpha;
+        const float factor = newCollectedPhotons / (causticCollectedPhotons + float(acc.collectedPhotons));
+        causticCollectedPhotons = newCollectedPhotons;
+        causticRadius *= sqrt(factor);
+        causticFlux += acc.flux;
+        causticFlux *= factor;
+    }
+
+    [mutating]
+    void applyRadiusReduction(DoubleAccumulator acc, float alphaGlobal, float alphaCaustic) {
+        applyRadiusReductionGlobal(acc.global, alphaGlobal);
+        applyRadiusReductionCaustic(acc.caustic, alphaCaustic);
     }
 
     float3 getRadiance(uint totalPhotonCount) {
         let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
-        let r2 = radius * radius;
-        let weight = 1.0f / (photonCount * r2 * M_PI);
-        return totalFlux * weight;
+        let flux = globalFlux / (globalRadius * globalRadius) + causticFlux / (causticRadius * causticRadius);
+        let weight = 1.0f / (photonCount * M_PI);
+        return flux * weight;
     }
 #endif
 };
@@ -67,15 +100,53 @@ struct QueryState {
 // high bandwith intersection tests
 struct Sphere {
     float3 center;
-    float r2; // Optimal 16 byte alignment
+    float16_t globalR; // Half for 16B alignment
+    float16_t causticR;
+    // TODO: Is this ok?
 
 #ifndef HOST_CODE
-    bool contains(float3 p) {
+    __init(float3 center, float globalR, float causticR) {
+        this.center = center;
+        this.globalR = half(globalR);
+        this.causticR = half(causticR);
+    }
+
+    bool mayContain(float3 p) {
         let diff = p - center;
         let dist2 = dot(diff, diff);
-        return dist2 < r2;
+        let r = float(max(globalR, causticR)); // Back to float for squaring
+        return dist2 < (r * r);
+    }
+
+    bool contains(float3 p, bool isCaustic) {
+        let diff = p - center;
+        let dist2 = dot(diff, diff);
+        let globalR = float(this.globalR); // Back to float for squaring
+        let causticR = float(this.causticR);
+        return dist2 < (isCaustic ? causticR * causticR : globalR * globalR);
     }
 #endif
+};
+
+// TODO: What is worse high payload size or duplicate fetching of material data?
+struct PhotonSearchPayload {
+    uint4 hit;
+    DoubleAccumulator accum;
+};
+
+struct PhotonIsectAttribs {
+    float3 wi;
+    bool isCaustic;
+    float3 flux;
+};
+
+struct QuerySearchPayload {
+    float3 flux;
+    bool isCaustic;
+};
+
+struct QueryIsectAttribs {
+    Sphere sphere;
 };
 
 END_NAMESPACE_FALCOR

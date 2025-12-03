@@ -15,7 +15,8 @@ cbuffer CB
     uint gQueryCount;
     uint gGlobalPhotonCount;
     bool gReset;
-    float gInitialRadius;
+    float gGlobalRadius;
+    float gCausticRadius;
 }
 
 [numthreads(256,1,1)]
@@ -30,14 +31,16 @@ void main(uint3 tid : SV_DispatchThreadID)
     shouldReset |= gQueryStates[idx].revision != q.revision;
 
     if (shouldReset) {
-        gQueryStates[idx] = QueryState(gGlobalPhotonCount, gInitialRadius, q.revision);
+        gQueryStates[idx] = QueryState(gGlobalPhotonCount, gGlobalRadius, gCausticRadius, q.revision);
     }
     
-    let r = gQueryStates[idx].radius;
+    let globalR = gQueryStates[idx].globalRadius;
+    let causticR = gQueryStates[idx].causticRadius;
+    let r = max(globalR, causticR);
     
     if (q.isValid()) {
         gQueryAABBs[idx] = AABB(q.position - r, q.position + r);
-        gQuerySpheres[idx] = Sphere(q.position, r * r);
+        gQuerySpheres[idx] = Sphere(q.position, globalR, causticR);
     } else {
         AABB aabb;
         aabb.invalidate();

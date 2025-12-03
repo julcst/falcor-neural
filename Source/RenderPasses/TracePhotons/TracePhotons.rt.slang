@@ -76,7 +76,7 @@ void closestHit(inout RayPayload rayData: SV_RayPayload, BuiltInTriangleIntersec
     rayData.packedHitInfo = HitInfo(triangleHit).data;
 }
 
-void StorePhotonAtomic(PhotonHit photonHit)
+void storePhotonAtomic(PhotonHit photonHit)
 {
     uint idx;
     InterlockedAdd(gCounters[0].PhotonStores, 1, idx); // Atomic increment to get unique index
@@ -86,14 +86,12 @@ void StorePhotonAtomic(PhotonHit photonHit)
     }
 }
 
-void StorePhotonWaveIntrinsics(PhotonHit photonHit)
+void storePhotonWaveIntrinsics(PhotonHit photonHit)
 {
-    // 1. WAVE COUNT: How many threads are active in the wave?
-    let waveCount = WaveActiveCountBits(true);
-    // 2. WAVE OFFSET: Index relative to the other active threads
-    let waveOffset = WavePrefixCountBits(true);
+    let waveCount = WaveActiveCountBits(true); // How many threads are active in the wave?
+    let waveOffset = WavePrefixCountBits(true); // Index relative to the other active threads
 
-    // 3. GLOBAL ALLOCATION: Elect a leader to reserve space for everyone
+    // Elect a leader to reserve space for everyone
     // Only needs one atomic add per wave.
     uint globalBaseOffset = 0;
     if (WaveIsFirstLane())
@@ -101,7 +99,7 @@ void StorePhotonWaveIntrinsics(PhotonHit photonHit)
         InterlockedAdd(gCounters[0].PhotonStores, waveCount, globalBaseOffset);
     }
 
-    // 4. BROADCAST: The leader shares the globalBaseOffset with everyone.
+    // The leader shares the globalBaseOffset with everyone.
     globalBaseOffset = WaveReadLaneFirst(globalBaseOffset);
     let idx = globalBaseOffset + waveOffset;
         
@@ -136,11 +134,7 @@ void rayGen()
     RayPayload rayPayload = RayPayload();
     
     bool isCaustic = false;
-    bool reflectedDiffuse = false;
-    float3 thp = float3(1.0);
-    float3 photonStartFlux = ls.flux; // / (dispatchDims.x * dispatchDims.y);
-    //float3 photonStartFlux = float3(1.0);
-    float3 photonFlux = photonStartFlux;
+    float3 photonFlux = ls.flux;
 
     // Main Raytrace Loop
     for (uint i = 0; i < gMaxBounces; i++) {
@@ -172,23 +166,23 @@ void rayGen()
             if (keep)
             {
                 // Record photon store point; accumulation happens in a separate RT pass.
-                StorePhotonWaveIntrinsics(PhotonHit(
+                storePhotonWaveIntrinsics(PhotonHit(
                     sd.posW,
                     -ray.Direction,
-                    storeFlux
+                    storeFlux,
+                    isCaustic
                 ));
             }
         }
 
         // Sample Photon bounce for next iteration
-        BSDFSample bsdfSample;
-        bool validSample = mi.sample(sd, sg, bsdfSample, true /*ImportanceSampling*/);
+        BSDFSample bsdfSample = {};
+        let validSample = mi.sample(sd, sg, bsdfSample, true /*ImportanceSampling*/);
         if (!validSample)
             return;
-        bool transmission = bsdfSample.isLobe(LobeType::Transmission);
-        ray.Origin = sd.computeRayOrigin(!transmission); // false is for transmissions
+        ray.Origin = sd.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission)); // false is for transmissions
         ray.Direction = bsdfSample.wo;
-        thp *= bsdfSample.weight;
+        var weight = bsdfSample.weight;
 
         // Russian Roulette
         // const float rrVal = luminance(thp) * kRussianRouletteWeight;
@@ -203,7 +197,7 @@ void rayGen()
         // }
 
         // Update Photon
-        isCaustic = !reflectedDiffuse;
-        photonFlux = photonStartFlux * thp;
+        isCaustic = bsdfSample.isLobe(LobeType::Specular | LobeType::Delta);
+        photonFlux *= weight;
     }
 }

@@ -34,8 +34,10 @@ const char kOutputBuffer[] = "outputBuffer";
 // Properties
 const char kVisualizeHeatmap[] = "visualizeHeatmap";
 const char kReverseSearch[] = "reverseSearch";
-const char kQueryRadius[] = "radius";
-const char kRadiusAlpha[] = "alpha";
+const char kGlobalAlpha[] = "globalAlpha";
+const char kCausticAlpha[] = "causticAlpha";
+const char kGlobalRadius[] = "globalRadius";
+const char kCausticRadius[] = "causticRadius";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -50,17 +52,13 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
     for (const auto& [key, value] : props)
     {
-        if (key == kVisualizeHeatmap) {
-            mVisualizeHeatmap = value;
-        } else if (key == kReverseSearch) {
-            mReverseSearch = value;
-        } else if (key == kQueryRadius) {
-            mQueryRadius = props[kQueryRadius];
-        } else if (key == kRadiusAlpha) {
-            mAlpha = props[kRadiusAlpha];
-        } else {
-            logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
-        }
+        if (key == kVisualizeHeatmap) mVisualizeHeatmap = value;
+        else if (key == kReverseSearch) mReverseSearch = value;
+        else if (key == kGlobalAlpha) mGlobalAlpha = value;
+        else if (key == kCausticAlpha) mCausticAlpha = value;
+        else if (key == kGlobalRadius) mGlobalRadius = value;
+        else if (key == kCausticRadius) mCausticRadius = value;
+        else logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
     }
 }
 
@@ -69,8 +67,10 @@ Properties AccumulatePhotonsRTX::getProperties() const
     Properties props;
     props[kVisualizeHeatmap] = mVisualizeHeatmap;
     props[kReverseSearch] = mReverseSearch;
-    props[kQueryRadius] = mQueryRadius;
-    props[kRadiusAlpha] = mAlpha;
+    props[kGlobalAlpha] = mGlobalAlpha;
+    props[kCausticAlpha] = mCausticAlpha;
+    props[kGlobalRadius] = mGlobalRadius;
+    props[kCausticRadius] = mCausticRadius;
     return props;
 }
 
@@ -92,7 +92,7 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .rawBuffer(sizeof(DebugCounters))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kAccumulatorBuffer, "Buffer to accumulate outgoing flux and photon counts per query.")
-        .rawBuffer(mQueryCount * sizeof(float4))
+        .rawBuffer(mQueryCount * sizeof(DoubleAccumulator))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     reflector.addInternal(kQueryAABBBuffer, "Buffer containing ray query AABBs.")
         .rawBuffer(mQueryCount * sizeof(AABB))
@@ -182,7 +182,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gPhotonHits"] = pPhotonBuffer;
         var["gPhotonAABBs"] = pPhotonAABBBuffer;
         var["CB"]["gPhotonHitCount"] = counters.PhotonStores;
-        var["CB"]["gRadius"] = mQueryRadius;
+        var["CB"]["gRadius"] = std::max(mGlobalRadius, mCausticRadius);
 
         mpPreparePhotonsPass->execute(pRenderContext, counters.PhotonStores, 1, 1);
     }
@@ -198,7 +198,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
         var["CB"]["gQueryCount"] = mQueryCount;
         var["CB"]["gReset"] = shouldReset;
-        var["CB"]["gInitialRadius"] = mQueryRadius;
+        var["CB"]["gGlobalRadius"] = mGlobalRadius;
+        var["CB"]["gCausticRadius"] = mCausticRadius;
 
         logInfo("Preparing {} queries", mQueryCount);
         mpPreparationPass->execute(pRenderContext, mQueryCount, 1);
@@ -282,7 +283,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
             var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
             var["CB"]["gFrameDim"] = renderData.getDefaultTextureDims();
             var["CB"]["gVisualizeHeatmap"] = mVisualizeHeatmap;
-            var["CB"]["gAlpha"] = mAlpha;
+            var["CB"]["gGlobalAlpha"] = mGlobalAlpha;
+            var["CB"]["gCausticAlpha"] = mCausticAlpha;
 
             logInfo("Collecting flux (Texture), globalPhotons={}", mGlobalPhotonCounter);
             mpFinalizeTexturePass->execute(pRenderContext, uint3(renderData.getDefaultTextureDims(), 1));
@@ -296,7 +298,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
             var["gOutputBuffer"] = pOutputBuffer->asBuffer();
             var["CB"]["gGlobalPhotonCount"] = mGlobalPhotonCounter;
             var["CB"]["gQueryCount"] = mQueryCount;
-            var["CB"]["gAlpha"] = mAlpha;
+            var["CB"]["gGlobalAlpha"] = mGlobalAlpha;
+            var["CB"]["gCausticAlpha"] = mCausticAlpha;
 
             logInfo("Collecting flux (Buffer), globalPhotons={}", mGlobalPhotonCounter);
             mpFinalizeBufferPass->execute(pRenderContext, mQueryCount, 1, 1);
@@ -422,8 +425,8 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kPhotonSearch);
-            desc.setMaxPayloadSize(9 * sizeof(float));
-            desc.setMaxAttributeSize(2 * sizeof(float3));
+            desc.setMaxPayloadSize(sizeof(PhotonSearchPayload));
+            desc.setMaxAttributeSize(sizeof(PhotonIsectAttribs));
             desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
             // Create a dummy SBT with geometryCount=1 for our custom TLAS.
@@ -439,8 +442,8 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kQuerySearch);
-            desc.setMaxPayloadSize(sizeof(float3));
-            desc.setMaxAttributeSize(sizeof(float));
+            desc.setMaxPayloadSize(sizeof(QuerySearchPayload));
+            desc.setMaxAttributeSize(sizeof(QueryIsectAttribs));
             desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
             // Create a dummy SBT with geometryCount=1 for our custom TLAS.

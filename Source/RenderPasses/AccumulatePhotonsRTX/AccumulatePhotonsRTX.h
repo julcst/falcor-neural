@@ -59,8 +59,10 @@ private:
     // Config
     bool mVisualizeHeatmap = false;
     bool mReverseSearch = false;
-    float mQueryRadius = 0.005f;
-    float mAlpha = 0.7f;
+    float mGlobalRadius = 0.005f;
+    float mCausticRadius = 0.001f;
+    float mGlobalAlpha = 0.7f;
+    float mCausticAlpha = 0.7f;
 
     uint32_t mQueryCount = 0; // Automatically derived from input data
     uint32_t mPhotonHitCount = 0; // Automatically derived from input data
