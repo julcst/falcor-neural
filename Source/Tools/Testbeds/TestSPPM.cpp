@@ -10,7 +10,7 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
     auto g = RenderGraph::create(pDevice, "PT");
 
     g->createPass("accum", "AccumulatePass", Properties());
-    g->createPass("pt", "PathTracer", Properties());
+    g->createPass("pt", "PathTracer", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}}));
     g->createPass("vbuff", "VBufferRT", Properties());
 
     g->addEdge("vbuff.vbuffer", "pt.vbuffer");
@@ -172,7 +172,7 @@ int runMain(int argc, char** argv)
     // options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
-    app.loadScene("cornell_box_caustic.pyscene");
+    app.loadScene("cornell_box.pyscene");
 
     // Reference PT
     if (!std::filesystem::exists("out_ref.exr")) {
