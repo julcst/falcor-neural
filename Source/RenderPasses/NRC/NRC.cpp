@@ -30,8 +30,6 @@
 #include "../TraceQueries/Query.slang"
 #include "NRC.slang"
 
-const char kOutputsToTextureFile[] = "RenderPasses/NRC/OutputsToTexture.cs.slang";
-
 const nlohmann::json CONFIG {
     {"encoding", {
         {"otype", "Composite"},
@@ -169,15 +167,25 @@ __global__ void inference_kernel(
 
 namespace
 {
+const char kOutputsToTextureFile[] = "RenderPasses/NRC/OutputsToTexture.cs.slang";
+const char kFactorizeOutputFile[] = "RenderPasses/NRC/FactorizeOutput.cs.slang";
+
 // Inputs
 const std::string kInferenceInput = "inferenceInput";
 const std::string kInferenceQueries = "inferenceQueries";
 const std::string kTrainInput = "trainInput";
 const std::string kTrainTarget = "trainTarget";
+
 // Internal
 const std::string kInferenceOutputFloat = "inferenceOutputFloat";
-//Output
+
+// Output
 const std::string kOutput = "output";
+
+// Config
+const std::string kUseFactorization = "useFactorization";
+const std::string kOutputRaw = "outputRaw";
+const std::string kTrainingSteps = "trainingSteps";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -187,11 +195,21 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
     model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump());
+    for (const auto& [key, value] : props) {
+        if (key == kUseFactorization) mUseFactorization = value;
+        else if (key == kOutputRaw) mOutputRaw = value;
+        else if (key == kTrainingSteps) mTrainSteps = value;
+        else logWarning("{}: Unknown property '{}'", getClassName(), key);
+    }
 }
 
 Properties NRC::getProperties() const
 {
-    return {};
+    Properties props;
+    props[kUseFactorization] = mUseFactorization;
+    props[kOutputRaw] = mOutputRaw;
+    props[kTrainingSteps] = mTrainSteps;
+    return props;
 }
 
 RenderPassReflection NRC::reflect(const CompileData& compileData)
@@ -211,7 +229,7 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
 
     reflector.addInternal(kInferenceOutputFloat, "Inference output as float matrix")
-        .rawBuffer(mInferenceSize * NRC_OUTPUT_SIZE * sizeof(float))
+        .rawBuffer(mInferenceSize * sizeof(NRCOutput))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     
     reflector.addOutput(kOutput, "Inference output")
@@ -245,6 +263,14 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpOutputsToTexturePass = ComputePass::create(mpDevice, desc);
     }
 
+    if (!mpFactorizeOutputPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kFactorizeOutputFile);
+        desc.csEntry("main");
+        mpFactorizeOutputPass = ComputePass::create(mpDevice, desc);
+    }
+
     pRenderContext->submit(true); // Because we will use Cuda next we first need to explicitly wait for the current command queue to finish
 
     // for (auto i : {10u, 50u, 1000u}) {
@@ -262,6 +288,18 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
     tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
     tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
 
+    if (mUseFactorization) {
+        // Factorize outputs
+        auto var = mpFactorizeOutputPass->getRootVar();
+        var["gInput"] = renderData.getBuffer(kInferenceInput);
+        var["gQueries"] = renderData.getBuffer(kInferenceQueries);
+        var["gOutput"] = renderData.getBuffer(kInferenceOutputFloat);
+        
+        var["CB"]["gCount"] = mInferenceSize;
+        
+        mpFactorizeOutputPass->execute(pRenderContext, mInferenceSize, 1);
+    }
+
     {
         uint32_t batchSize = mTrainSize / mTrainSteps;
         for (uint32_t offset = 0; offset < mTrainSize; offset += batchSize) {
@@ -276,12 +314,14 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         model->inference(inferenceInput, inferenceOutput);
         
         // Copy to texture
+        mpOutputsToTexturePass->addDefine("USE_FACTORISATION", (!mOutputRaw && mUseFactorization) ? "1" : "0");
         auto var = mpOutputsToTexturePass->getRootVar();
-        var["gInferenceQueries"] = renderData[kInferenceQueries]->asBuffer();
-        var["gInferenceOutput"] = renderData[kInferenceOutputFloat]->asBuffer();
-        var["gOutput"] = renderData[kOutput]->asTexture();
+        var["gInferenceQueries"] = renderData.getBuffer(kInferenceQueries);
+        var["gInferenceOutput"] = renderData.getBuffer(kInferenceOutputFloat);
+        var["gInferenceInput"] = renderData.getBuffer(kInferenceInput);
+        var["gOutput"] = renderData.getTexture(kOutput);
         
-        Falcor::uint2 resolution = { renderData[kOutput]->asTexture()->getWidth(), renderData[kOutput]->asTexture()->getHeight() };
+        Falcor::uint2 resolution = { renderData.getTexture(kOutput)->getWidth(), renderData.getTexture(kOutput)->getHeight() };
         var["CB"]["gResolution"] = resolution;
         
         mpOutputsToTexturePass->execute(pRenderContext, resolution.x, resolution.y, 1);

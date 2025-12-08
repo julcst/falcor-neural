@@ -1,0 +1,24 @@
+import NRC;
+import RenderPasses.TraceQueries.Query;
+
+RWStructuredBuffer<NRCOutput> gOutput;
+StructuredBuffer<NRCInput> gInput;
+StructuredBuffer<Query> gQueries;
+
+cbuffer CB
+{
+    uint gCount;
+};
+
+[numthreads(256, 1, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    let idx = dispatchThreadId.x;
+    if (idx >= gCount) return;
+
+    let out = gOutput[idx];
+    let in = gInput[idx];
+    let query = gQueries[idx];
+
+    gOutput[idx].radiance = (out.radiance - query.emission) / in.weight();
+}

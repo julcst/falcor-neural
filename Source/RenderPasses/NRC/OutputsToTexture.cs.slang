@@ -3,6 +3,7 @@ import RenderPasses.TraceQueries.Query;
 
 StructuredBuffer<NRCOutput> gInferenceOutput;
 StructuredBuffer<Query> gInferenceQueries;
+StructuredBuffer<NRCInput> gInferenceInput;
 RWTexture2D<float4> gOutput;
 
 cbuffer CB
@@ -20,7 +21,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     let out = gInferenceOutput[idx];
     let query = gInferenceQueries[idx];
 
-    let radiance = query.isValid() ? out.radiance : float3(0.0f);
+#if USE_FACTORISATION
+    let in = gInferenceInput[idx];
+    let radiance = query.isValid() ? out.radiance * in.weight() + query.emission : float3(0.0f);
+#else
+    let radiance = query.isValid() ? out.radiance + query.emission : float3(0.0f);
+#endif
 
     gOutput[pixel] = float4(radiance * query.throughput, 1.0);
 }

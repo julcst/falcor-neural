@@ -107,7 +107,7 @@ ref<RenderGraph> graphNRC(const ref<Device>& pDevice) {
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
     g->createPass("nrc", "NRC", Properties());
-    g->createPass("PTQuery", "PathTracerQuery", Properties());
+    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}}));
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");

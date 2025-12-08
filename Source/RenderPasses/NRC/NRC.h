@@ -60,11 +60,15 @@ public:
 private:
     std::unique_ptr<ITCNNModel> model;
 
-    // Config
+    // Automatically derived
     uint32_t mInferenceSize = 0;
     uint32_t mTrainSize = 0;
-    uint32_t mTrainSteps = 4;
 
-    ref<ComputePass> mpQueriesToInputsPass;
+    // Config
+    uint32_t mTrainSteps = 4;
+    bool mUseFactorization = true;
+    bool mOutputRaw = false;
+
     ref<ComputePass> mpOutputsToTexturePass;
+    ref<ComputePass> mpFactorizeOutputPass;
 };

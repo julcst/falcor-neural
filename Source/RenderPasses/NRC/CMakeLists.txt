@@ -26,6 +26,7 @@ target_sources(NRC PRIVATE
     TCNNBridge.h
     NRC.slang
     OutputsToTexture.cs.slang
+    FactorizeOutput.cs.slang
 )
 
 target_copy_shaders(NRC RenderPasses/NRC)

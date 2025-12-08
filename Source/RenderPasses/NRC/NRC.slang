@@ -26,6 +26,10 @@ struct NRCInput {
         diffuse = {0};
         specular = {0};
     }
+
+    float3 weight() {
+        return max(diffuse + specular, 1e-5f);
+    }
 #endif
 };
 
