@@ -62,11 +62,11 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
 ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     auto g = RenderGraph::create(pDevice, "PhotonNRC");
 
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<22}}));
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.004f}}));
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<17}})); // OG used 1<<17
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}}));
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}})); // OG used 1<<17
     g->createPass("nrc", "NRC", Properties());
     g->createPass("visPh", "VisualizePhotons", Properties());
     g->createPass("debug", "DebugQueryBuffer", Properties());
@@ -147,11 +147,11 @@ void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1
     app.setRenderGraph(graph);
     logInfo("\nRender {} for {} frames\n===================================", graph->getName(), frameCount);
     app.frame(); // First frame does not count to capture because of compilation etc.
-    app.getDevice()->getProfiler()->startCapture();
+    app.getDevice()->getProfiler()->startCapture(frameCount - 1);
     for (uint32_t i = 0; i < frameCount - 1; ++i)
         app.frame();
     const auto capture = app.getDevice()->getProfiler()->endCapture();
-    logInfo("\nStats for {} over {} frames\n===================================", graph->getName(), frameCount);
+    logInfo("\nStats for {} over {} frames\n===================================", graph->getName(), frameCount - 1);
     for (const auto& lane : capture->getLanes()) {
         logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
     }
@@ -169,10 +169,20 @@ int runMain(int argc, char** argv)
     Testbed::Options options {};
     options.windowDesc.width = res;
     options.windowDesc.height = res;
-    // options.createWindow = true; // Toggle preview
+    options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
-    app.loadScene("cornell_box.pyscene");
+    app.loadScene("cornell_box_caustic.pyscene");
+
+    // Preview
+    if (options.createWindow) {
+        auto pt = graphPhotonNRC(app.getDevice());
+        app.setRenderGraph(pt);
+        app.frame();
+        app.getDevice()->getProfiler()->startCapture();
+        app.run();
+        return 0;
+    }
 
     // Reference PT
     if (!std::filesystem::exists("out_ref.exr")) {
@@ -181,13 +191,6 @@ int runMain(int argc, char** argv)
         for (uint32_t i = 0; i < 1<<13; ++i)
             app.frame();
         app.captureOutput("out_ref.exr");
-    }
-
-    // Preview
-    if (options.createWindow) {
-        auto pt = graphPT(app.getDevice());
-        app.setRenderGraph(pt);
-        app.run();
     }
 
     // SPPM

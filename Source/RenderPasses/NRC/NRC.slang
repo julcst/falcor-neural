@@ -41,4 +41,6 @@ struct NRCOutput {
 
 static const uint NRC_OUTPUT_SIZE = sizeof(NRCOutput) / sizeof(float);
 
+static const uint NRC_BATCH_SIZE_GRANULARITY = 256;
+
 END_NAMESPACE_FALCOR

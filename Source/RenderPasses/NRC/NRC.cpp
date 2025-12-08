@@ -193,7 +193,8 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, NRC>();
 }
 
-NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
+NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+{
     model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump());
     for (const auto& [key, value] : props) {
         if (key == kUseFactorization) mUseFactorization = value;
@@ -219,7 +220,7 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
         .rawBuffer(mInferenceSize * sizeof(NRCInput))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource | ResourceBindFlags::Shared);
     reflector.addInput(kInferenceQueries, "Inference queries")
-        .rawBuffer(mInferenceSize * sizeof(Query))
+        .rawBuffer(mInferenceQueryCount * sizeof(Query))
         .bindFlags(ResourceBindFlags::UnorderedAccess);
     reflector.addInput(kTrainInput, "Training inputs")
         .rawBuffer(mTrainSize * sizeof(NRCInput))
@@ -241,11 +242,13 @@ RenderPassReflection NRC::reflect(const CompileData& compileData)
 
 void NRC::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    const auto inferenceSize = compileData.connectedResources.getField(kInferenceInput)->getWidth() / sizeof(NRCInput);
-    FALCOR_ASSERT_EQ(inferenceSize % tcnn::BATCH_SIZE_GRANULARITY, 0);
-    const auto trainSize = compileData.connectedResources.getField(kTrainInput)->getWidth() / sizeof(NRCInput);
-    FALCOR_ASSERT_EQ(trainSize % tcnn::BATCH_SIZE_GRANULARITY, 0);
-    if (mInferenceSize != inferenceSize || mTrainSize != trainSize) {
+    const uint32_t queryCount = compileData.connectedResources.getField(kInferenceQueries)->getWidth() / sizeof(Query);
+    const uint32_t inferenceSize = compileData.connectedResources.getField(kInferenceInput)->getWidth() / sizeof(NRCInput);
+    FALCOR_ASSERT_EQ(inferenceSize % NRC_BATCH_SIZE_GRANULARITY, 0);
+    const uint32_t trainSize = compileData.connectedResources.getField(kTrainInput)->getWidth() / sizeof(NRCInput);
+    FALCOR_ASSERT_EQ(trainSize % NRC_BATCH_SIZE_GRANULARITY, 0);
+    if (mInferenceSize != inferenceSize || mTrainSize != trainSize || mInferenceQueryCount != queryCount) {
+        mInferenceQueryCount = queryCount;
         mInferenceSize = inferenceSize;
         mTrainSize = trainSize;
         FALCOR_CHECK(false, "Recompute buffer sizes"); // Force retry of reflect

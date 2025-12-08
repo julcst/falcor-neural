@@ -56,8 +56,9 @@ RenderPassReflection TraceQueries::reflect(const CompileData& compileData)
         .rawBuffer(queryCount * sizeof(Query))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
 
+    uint32_t nrcInputCount = div_round_up(queryCount, NRC_BATCH_SIZE_GRANULARITY) * NRC_BATCH_SIZE_GRANULARITY;
     reflector.addOutput(kNRCInput, "NRC Input samples")
-        .rawBuffer(queryCount * sizeof(NRCInput))
+        .rawBuffer(nrcInputCount * sizeof(NRCInput))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
         .flags(RenderPassReflection::Field::Flags::Optional);
 

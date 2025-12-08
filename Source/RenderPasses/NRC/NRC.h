@@ -41,6 +41,8 @@ class NRC : public RenderPass
 public:
     FALCOR_PLUGIN_CLASS(NRC, "NRC", "Insert pass description here.");
 
+    static constexpr const uint32_t BATCH_SIZE_GRANULARITY = tcnn::BATCH_SIZE_GRANULARITY;
+
     static ref<NRC> create(ref<Device> pDevice, const Properties& props)
     {
         return make_ref<NRC>(pDevice, props);
@@ -61,8 +63,9 @@ private:
     std::unique_ptr<ITCNNModel> model;
 
     // Automatically derived
-    uint32_t mInferenceSize = 0;
-    uint32_t mTrainSize = 0;
+    uint32_t mInferenceQueryCount = 0; ///< Can be smaller than inference size
+    uint32_t mInferenceSize = 0; ///< Must be multiple of NRC_BATCH_SIZE_GRANULARITY
+    uint32_t mTrainSize = 0; ///< Must be multiple of NRC_BATCH_SIZE_GRANULARITY
 
     // Config
     uint32_t mTrainSteps = 4;
