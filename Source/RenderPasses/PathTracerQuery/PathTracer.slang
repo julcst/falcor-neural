@@ -77,6 +77,7 @@ struct PathTracer
     StructuredBuffer<Query> queryBuffer;            ///< Input query buffer.
 
     // Outputs
+    RWStructuredBuffer<ColorType> sampleColor;      ///< Output per-sample color if kSamplesPerPixel != 1.
     RWStructuredBuffer<float3> outputRadiance;      ///< Output radiance buffer.
 
     /*******************************************************************
@@ -271,13 +272,13 @@ struct PathTracer
         path.id = pathID;
         path.thp = float3(1.f);
 
-        Query query = queryBuffer[pathID];
+        Query query = queryBuffer[path.getIndex()];
         path.origin = query.position;
         path.dir = -query.viewDir;
 
         // Create sample generator.
         const uint maxSpp = kSamplesPerPixel > 0 ? kSamplesPerPixel : kMaxSamplesPerPixel;
-        path.sg = SampleGenerator(uint2(pathID, 0), params.seed * maxSpp + path.getSampleIdx());
+        path.sg = SampleGenerator(uint2(path.getIndex(), 0), params.seed * maxSpp + path.getSampleIdx());
 
         path.setHit(query.getHitInfo());
         path.setVertexIndex(1);
@@ -1050,9 +1051,18 @@ struct PathTracer
         logPathLength(getTerminatedPathLength(path));
 
         // We use pathID directly as index
-        const uint outIdx = path.id;
+        const uint outIdx = path.getIndex() * kSamplesPerPixel + path.getSampleIdx();
 
-        //outputRadiance[outIdx] = float3(path.isHit() ? 1 : 0,getTerminatedPathLength(path),dot(path.thp,path.thp));
-        outputRadiance[outIdx] = path.L;
+        if (kSamplesPerPixel == 1)
+        {
+            // Write color directly to frame buffer.
+            //outputRadiance[outIdx] = float3(path.isHit() ? 1 : 0,getTerminatedPathLength(path),dot(path.thp,path.thp));
+            outputRadiance[outIdx] = path.L;
+        }
+        else
+        {
+            // Write color to per-sample buffer.
+            sampleColor[outIdx].set(path.L);
+        }
     }
 };

@@ -101,13 +101,13 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     return g;
 }
 
-ref<RenderGraph> graphNRC(const ref<Device>& pDevice) {
-    auto g = RenderGraph::create(pDevice, "NRC");
+ref<RenderGraph> graphNRC(const ref<Device>& pDevice, uint32_t spp = 1) {
+    auto g = RenderGraph::create(pDevice, spp == 1 ? "NRC" : fmt::format("MultisampleNRC (spp={})", spp));
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
     g->createPass("nrc", "NRC", Properties());
-    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}}));
+    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}}));
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -123,11 +123,11 @@ ref<RenderGraph> graphNRC(const ref<Device>& pDevice) {
     return g;
 }
 
-ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice) {
-    auto g = RenderGraph::create(pDevice, "PTQuery");
+ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
+    auto g = RenderGraph::create(pDevice, fmt::format("PTQuery (spp={})", spp));
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
-    g->createPass("PTQuery", "PathTracerQuery", Properties());
+    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}}));
     g->createPass("B2T", "BufferToTexture", Properties());
 
     g->addEdge("TraceQueries.queries", "PTQuery.queries");
@@ -169,14 +169,14 @@ int runMain(int argc, char** argv)
     Testbed::Options options {};
     options.windowDesc.width = res;
     options.windowDesc.height = res;
-    options.createWindow = true; // Toggle preview
+    // options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
     app.loadScene("cornell_box_caustic.pyscene");
 
     // Preview
     if (options.createWindow) {
-        auto pt = graphPhotonNRC(app.getDevice());
+        auto pt = graphPT(app.getDevice());
         app.setRenderGraph(pt);
         app.frame();
         app.getDevice()->getProfiler()->startCapture();
@@ -194,17 +194,21 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    render(app, graphSPPM(app.getDevice(), false), 512);
+    //render(app, graphSPPM(app.getDevice(), false), 512);
     //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC
-    render(app, graphPhotonNRC(app.getDevice()), 128);
+    // render(app, graphPhotonNRC(app.getDevice()), 128);
 
     // NRC
     render(app, graphNRC(app.getDevice()), 128);
 
+    // Multisample NRC
+    render(app, graphNRC(app.getDevice(), 32), 128);
+
     // PT Query
     // render(app, graphPTQuery(app.getDevice()));
+    // render(app, graphPTQuery(app.getDevice(), 32));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

@@ -186,6 +186,7 @@ struct PathState
     }
 
     uint2 getPixel() { return uint2(id, id >> 12) & 0xfff; }
+    uint getIndex() { return id & 0xffffff; } // Return first 24 bits excluding sampleIdx
     uint getSampleIdx() { return id >> 24; }
 
     // Unsafe - assumes that index is small enough.

@@ -106,6 +106,7 @@ private:
     bool beginFrame(RenderContext* pRenderContext, const RenderData& renderData);
     void endFrame(RenderContext* pRenderContext, const RenderData& renderData);
     void tracePass(RenderContext* pRenderContext, const RenderData& renderData, TracePass& tracePass);
+    void resolvePass(RenderContext* pRenderContext, const RenderData& renderData);
 
     /** Static configuration. Changing any of these options require shader recompilation.
     */
@@ -179,9 +180,13 @@ private:
     bool                            mOptionsChanged = false;    ///< True if the config has changed since last frame.
     bool                            mGBufferAdjustShadingNormals = false; ///< True if GBuffer/VBuffer has adjusted shading normals enabled.
 
+    ref<ComputePass>                mpResolvePass;              ///< Sample resolve pass.
+    ref<ComputePass>                mpReflectTypes;             ///< Helper for reflecting structured buffer types.
+
     std::unique_ptr<TracePass>      mpTracePass;                ///< Main trace pass.
 
     uint32_t                        mQueryCount = 0;            ///< Number of queries to trace.
     ref<Buffer>                     mpQueryBuffer;              ///< Input query buffer.
     ref<Buffer>                     mpOutputBuffer;             ///< Output radiance buffer.
+    ref<Buffer>                     mpSampleColor;              ///< Compact per-sample color buffer. This is used only if spp > 1.
 };

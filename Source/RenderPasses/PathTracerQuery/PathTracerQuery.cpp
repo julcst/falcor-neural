@@ -34,6 +34,8 @@
 namespace
 {
     const std::string kTracePassFilename = "RenderPasses/PathTracerQuery/TracePass.rt.slang";
+    const std::string kResolvePassFilename = "RenderPasses/PathTracerQuery/ResolvePass.cs.slang";
+    const std::string kReflectTypesFile = "RenderPasses/PathTracerQuery/ReflectTypes.cs.slang";
 
     // Render pass inputs and outputs.
     const std::string kInputQuery = "queries";
@@ -71,6 +73,7 @@ namespace
     const std::string kUseNRDDemodulation = "useNRDDemodulation";
 
     const std::string kUseSER = "useSER";
+    const std::string kColorFormat = "colorFormat";
 }
 
 
@@ -111,6 +114,10 @@ PathTracerQuery::PathTracerQuery(ref<Device> pDevice, const Properties& props)
 
     // Create sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, mStaticParams.sampleGenerator);
+
+    // Create resolve pass. This doesn't depend on the scene so can be created here.
+    auto defines = mStaticParams.getDefines(*this);
+    mpResolvePass = ComputePass::create(mpDevice, ProgramDesc().addShaderLibrary(kResolvePassFilename).csEntry("main"), defines, false);
 
     // Note: The other programs are lazily created in updatePrograms() because a scene needs to be present when creating them.
 
@@ -170,6 +177,8 @@ void PathTracerQuery::parseProperties(const Properties& props)
 
         // Scheduling parameters
         else if (key == kUseSER) mStaticParams.useSER = value;
+
+        else if (key == kColorFormat) mStaticParams.colorFormat = value;
 
         else logWarning("Unknown property '{}' in PathTracerQuery properties.", key);
     }
@@ -290,6 +299,7 @@ Properties PathTracerQuery::getProperties() const
 
     // Scheduling parameters
     props[kUseSER] = mStaticParams.useSER;
+    props[kColorFormat] = mStaticParams.colorFormat;
 
     return props;
 }
@@ -368,6 +378,9 @@ void PathTracerQuery::execute(RenderContext* pRenderContext, const RenderData& r
     // Trace pass.
     FALCOR_ASSERT(mpTracePass);
     tracePass(pRenderContext, renderData, *mpTracePass);
+
+    // Resolve pass.
+    resolvePass(pRenderContext, renderData);
 
     endFrame(pRenderContext, renderData);
 }
@@ -673,6 +686,29 @@ void PathTracerQuery::updatePrograms()
 
     mpTracePass->prepareProgram(mpDevice, defines);
 
+    // Create compute passes.
+    ProgramDesc baseDesc;
+    mpScene->getShaderModules(baseDesc.shaderModules);
+    baseDesc.addTypeConformances(globalTypeConformances);
+
+    if (!mpReflectTypes)
+    {
+        ProgramDesc desc = baseDesc;
+        desc.addShaderLibrary(kReflectTypesFile).csEntry("main");
+        mpReflectTypes = ComputePass::create(mpDevice, desc, defines, false);
+    }
+
+    auto preparePass = [&](ref<ComputePass> pass)
+    {
+        // Note that we must use set instead of add defines to replace any stale state.
+        pass->getProgram()->setDefines(defines);
+
+        // Recreate program vars. This may trigger recompilation if needed.
+        // Note that program versions are cached, so switching to a previously used specialization is faster.
+        pass->setVars(nullptr);
+    };
+    preparePass(mpResolvePass);
+    preparePass(mpReflectTypes);
 
     mVarsChanged = true;
     mRecompile = false;
@@ -680,7 +716,24 @@ void PathTracerQuery::updatePrograms()
 
 void PathTracerQuery::prepareResources(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // No intermediate resources needed for now.
+    // Compute allocation requirements for paths and output samples.
+    // Note that the sample buffers are padded to whole tiles, while the max path count depends on actual frame dimension.
+    // If we don't have a fixed sample count, assume the worst case.
+    uint32_t spp = mStaticParams.samplesPerPixel;
+    const uint32_t sampleCount = mQueryCount * spp;
+
+    auto var = mpReflectTypes->getRootVar();
+
+    // Allocate per-sample buffers.
+    // For the special case of fixed 1 spp, the output is written out directly and this buffer is not needed.
+    if (mStaticParams.samplesPerPixel > 1)
+    {
+        if (!mpSampleColor || mpSampleColor->getElementCount() < sampleCount || mVarsChanged)
+        {
+            mpSampleColor = mpDevice->createStructuredBuffer(var["sampleColor"], sampleCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess, MemoryType::DeviceLocal, nullptr, false);
+            mVarsChanged = true;
+        }
+    }
 }
 
 void PathTracerQuery::preparePathTracer(const RenderData& renderData)
@@ -853,6 +906,7 @@ void PathTracerQuery::bindShaderData(const ShaderVar& var, const RenderData& ren
     var["params"].setBlob(mParams);
     var["queryBuffer"] = mpQueryBuffer;
     var["outputRadiance"] = mpOutputBuffer;
+    var["sampleColor"] = mpSampleColor;
 
     if (useLightSampling && mpEmissiveSampler)
     {
@@ -964,6 +1018,32 @@ void PathTracerQuery::tracePass(RenderContext* pRenderContext, const RenderData&
     // }
 }
 
+void PathTracerQuery::resolvePass(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    if (mStaticParams.samplesPerPixel == 1) return;
+
+    FALCOR_PROFILE(pRenderContext, "resolvePass");
+
+    // This pass is executed when multiple samples per pixel are used.
+    // We launch one thread per pixel that computes the resolved color by iterating over the samples.
+    // The samples are arranged in tiles with pixels in Morton order, with samples stored consecutively for each pixel.
+    // With adaptive sampling, an extra sample offset lookup table computed by the path generation pass is used to
+    // locate the samples for each pixel.
+
+    // Bind resources.
+    auto var = mpResolvePass->getRootVar()["CB"]["gResolvePass"];
+    var["params"].setBlob(mParams);
+    var["outputColor"] = renderData.getBuffer(kOutputRadiance);
+    var["queryCount"] = mQueryCount;
+
+    if (mVarsChanged)
+    {
+        var["sampleColor"] = mpSampleColor;
+    }
+
+    // Launch one thread per pixel.
+    mpResolvePass->execute(pRenderContext, { mQueryCount, 1, 1 });
+}
 
 DefineList PathTracerQuery::StaticParams::getDefines(const PathTracerQuery& owner) const
 {
