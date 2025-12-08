@@ -218,6 +218,12 @@ Properties NRC::getProperties() const
     return props;
 }
 
+void NRC::renderUI(Gui::Widgets& widget) {
+    widget.checkbox("Use Factorization", mUseFactorization);
+    widget.checkbox("Raw Output", mOutputRaw);
+    widget.var("Training Steps", mTrainSteps, 1u, 8u);
+}
+
 RenderPassReflection NRC::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
@@ -335,5 +341,3 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpOutputsToTexturePass->execute(pRenderContext, resolution.x, resolution.y, 1);
     }
 }
-
-void NRC::renderUI(Gui::Widgets& widget) {}

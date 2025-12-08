@@ -79,6 +79,15 @@ Properties AccumulatePhotonsRTX::getProperties() const
     return props;
 }
 
+void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {
+    widget.checkbox("Visualize Heatmap", mVisualizeHeatmap);
+    if (widget.checkbox("Reverse Search", mReverseSearch)) requestRecompile();
+    widget.var("Global Radius", mGlobalRadius, 0.0001f, 1.0f, 0.00001f);
+    widget.var("Caustic Radius", mCausticRadius, 0.0001f, 1.0f, 0.00001f);
+    widget.var("Global Alpha", mGlobalAlpha, 0.1f, 1.0f, 0.01f);
+    widget.var("Caustic Alpha", mCausticAlpha, 0.1f, 1.0f, 0.01f);
+}
+
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
 {
     // Define the required resources here
@@ -414,8 +423,6 @@ void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderCont
     
     pRenderContext->uavBarrier(mpTlasStorage.get());
 }
-
-void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {}
 
 void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {

@@ -66,6 +66,14 @@ Properties QuerySubsampling::getProperties() const
     return props;
 }
 
+void QuerySubsampling::renderUI(Gui::Widgets& widget)
+{
+    if (widget.var("Output Count", mOutputCount, 1u, 1u << 20u))
+    {
+        requestRecompile();
+    }
+}
+
 RenderPassReflection QuerySubsampling::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
@@ -129,14 +137,6 @@ void QuerySubsampling::execute(RenderContext* pRenderContext, const RenderData& 
     mpSubsamplePass->execute(pRenderContext, mOutputCount, 1);
 
     mFrameCount++;
-}
-
-void QuerySubsampling::renderUI(Gui::Widgets& widget)
-{
-    if (widget.var("Output Count", mOutputCount, 1u, 1u << 20u))
-    {
-        requestRecompile();
-    }
 }
 
 void QuerySubsampling::preparePass()

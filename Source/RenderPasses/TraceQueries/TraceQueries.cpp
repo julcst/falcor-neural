@@ -44,6 +44,10 @@ void TraceQueries::setProperties(const Properties& props)
     }
 }
 
+void TraceQueries::renderUI(Gui::Widgets& widget) {
+    widget.checkbox(kResetStatisticsPerFrame, mResetStatisticsPerFrame);
+}
+
 // This should recompile on resolution change, adjusting buffer sizes
 RenderPassReflection TraceQueries::reflect(const CompileData& compileData)
 {
@@ -119,8 +123,6 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     mFrameCount++;
     if (mResetStatisticsPerFrame) mRevisionCounter++;
 }
-
-void TraceQueries::renderUI(Gui::Widgets& widget) {}
 
 void TraceQueries::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {

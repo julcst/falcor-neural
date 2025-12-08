@@ -46,6 +46,14 @@ Properties TracePhotons::getProperties() const
     return props;
 }
 
+void TracePhotons::renderUI(Gui::Widgets& widget) {
+    if (widget.var("Photon Count", mPhotonCount, 1u, 1u << 24u))
+    {
+        requestRecompile(); // Update buffer sizes
+    }
+    widget.var("Max Bounces", mMaxBounces, 1u, 20u);
+}
+
 RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
 {
     // Define the required resources here
@@ -116,13 +124,6 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
 #endif
 
     mFrameCount++;
-}
-
-void TracePhotons::renderUI(Gui::Widgets& widget) {
-    if (widget.var("Photon Count", mPhotonCount, 1u, 1u << 24u))
-    {
-        requestRecompile(); // Update buffer sizes
-    }
 }
 
 void TracePhotons::prepareLightingStructure(RenderContext* pRenderContext)
