@@ -27,6 +27,11 @@ TracePhotons::TracePhotons(ref<Device> pDevice, const Properties& props) : Rende
     // Create a sample generator.
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     FALCOR_ASSERT(mpSampleGenerator);
+    setProperties(props);
+}
+
+void TracePhotons::setProperties(const Properties& props)
+{
     for (const auto& [key, value] : props) {
         if (key == kPhotonCount) mPhotonCount = value;
         else if (key == kMaxBounces) mMaxBounces = value;

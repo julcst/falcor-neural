@@ -48,16 +48,14 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 QuerySubsampling::QuerySubsampling(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
-    for (const auto& [key, value] : props)
-    {
-        if (key == kOutputCount)
-        {
-            mOutputCount = value;
-        }
-        else
-        {
-            logWarning("Unrecognized property '{}' in QuerySubsampling render pass.", key);
-        }
+    setProperties(props);
+}
+
+void QuerySubsampling::setProperties(const Properties& props)
+{
+    for (const auto& [key, value] : props) {
+        if (key == kOutputCount) mOutputCount = value;
+        else logWarning("Unrecognized property '{}' in QuerySubsampling render pass.", key);
     }
 }
 

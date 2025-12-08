@@ -196,6 +196,11 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump());
+    setProperties(props);
+}
+
+void NRC::setProperties(const Properties& props)
+{
     for (const auto& [key, value] : props) {
         if (key == kUseFactorization) mUseFactorization = value;
         else if (key == kOutputRaw) mOutputRaw = value;

@@ -50,6 +50,11 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 }
 
 AccumulatePhotonsRTX::AccumulatePhotonsRTX(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
+    setProperties(props);
+}
+
+void AccumulatePhotonsRTX::setProperties(const Properties& props)
+{
     for (const auto& [key, value] : props)
     {
         if (key == kVisualizeHeatmap) mVisualizeHeatmap = value;
