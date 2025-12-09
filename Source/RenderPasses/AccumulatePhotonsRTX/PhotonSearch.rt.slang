@@ -7,6 +7,7 @@ import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
 import Utils.Color.ColorHelpers;
 import Structs;
+import Utils.Math.HashUtils;
 
 // Resources
 RaytracingAccelerationStructure gPhotonAS;
@@ -56,11 +57,11 @@ void photonAnyHit(inout PhotonSearchPayload pl : SV_RayPayload, in PhotonIsectAt
     let sd = gScene.materials.prepareShadingData(v, materialID, wo);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
-    let cosThetaO = abs(dot(wo, sd.faceN)); // TODO: faceN or guideN
+    let cosThetaO = abs(dot(wi, sd.faceN)); // TODO: faceN or guideN
     if (cosThetaO < 1e-6) IgnoreHit();
     
-    var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
-    let outgoing_flux = (ph.flux * mi.eval(sd, wo, sg)) / cosThetaO;
+    var sg = TinyUniformSampleGenerator(seed(pcg2d({PrimitiveIndex(), DispatchRaysIndex().x})));
+    let outgoing_flux = (ph.flux * mi.eval(sd, wi, sg)) / cosThetaO;
 
     if (ph.isCaustic) {
         pl.accum.caustic.flux += outgoing_flux;

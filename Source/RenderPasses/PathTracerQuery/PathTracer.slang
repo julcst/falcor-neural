@@ -827,8 +827,8 @@ struct PathTracer
 
         // Add emitted radiance.
         // The primary hit is always included, secondary hits only if emissive lights are enabled and the full light contribution hasn't been sampled elsewhere.
-        // NOTE: For Queries we do not collect primary hit emission here
-        bool computeEmissive = /* isPrimaryHit || */ kUseEmissiveLights && (!kUseNEE || kUseMIS || !path.isLightSampled() || !isLightSamplable);
+        // NOTE: For Queries we do not collect primary hit emission
+        bool computeEmissive = !isPrimaryHit && kUseEmissiveLights && (!kUseNEE || kUseMIS || !path.isLightSampled() || !isLightSamplable);
 
         // With RTXDI enabled, we sample the full direct illumination contribution on the primary hit.
         // Skip any additional contribution on the secondary hit unless it comes from a scatter event
