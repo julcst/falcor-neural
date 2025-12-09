@@ -7,6 +7,7 @@ import Scene.Shading;
 import Utils.Sampling.TinyUniformSampleGenerator;
 import Utils.Color.ColorHelpers;
 import Structs;
+import Utils.Math.HashUtils;
 
 // Resources
 RaytracingAccelerationStructure gQueryAS;
@@ -55,13 +56,14 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
     let th = HitInfo(q.hit).getTriangleHit();
     let materialID = gScene.getMaterialID(th.instanceID);
     let v = gScene.getVertexData(th);
-    let sd = gScene.materials.prepareShadingData(v, materialID, wi);
+    let sd = gScene.materials.prepareShadingData(v, materialID, wo);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
-    let cosThetaO = abs(dot(wo, sd.faceN));
+    let cosThetaO = abs(dot(wi, sd.faceN));
     if (cosThetaO < 1e-6) IgnoreHit();
     var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
-    let outgoing_flux = (p.flux * mi.eval(sd, wo, sg)) / cosThetaO;
+    //var sg = TinyUniformSampleGenerator(seed(pcg2d({PrimitiveIndex(), DispatchRaysIndex().x})));
+    let outgoing_flux = (p.flux * mi.eval(sd, wi, sg)) / cosThetaO;
     if (luminance(outgoing_flux) < 1e-5) IgnoreHit(); // Skip expensive atomic ops for negligible contributions
 
     let offset = qi * sizeof(DoubleAccumulator) + (p.isCaustic ? sizeof(float4) : 0);
