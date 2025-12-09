@@ -18,9 +18,14 @@ struct DebugCounters
 // Mutated multiple times per frame for each photon
 // Reset every frame
 struct Accumulator {
-    float3 flux = float3(0.0f);
-    uint collectedPhotons = 0; // Optimal 16 byte alignment
+    float3 flux;
+    uint collectedPhotons; // Optimal 16 byte alignment
 #ifndef HOST_CODE
+    __init() {
+        flux = float3(0.0f);
+        collectedPhotons = 0u;
+    }
+
     __init(uint4 raw) {
         flux = asfloat(raw.xyz);
         collectedPhotons = raw.w;
@@ -90,6 +95,20 @@ struct QueryState {
     float3 getRadiance(uint totalPhotonCount) {
         let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
         let flux = globalFlux / (globalRadius * globalRadius) + causticFlux / (causticRadius * causticRadius);
+        let weight = 1.0f / (photonCount * M_PI);
+        return flux * weight;
+    }
+
+    float3 getCausticRadiance(uint totalPhotonCount) {
+        let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
+        let flux = causticFlux / (causticRadius * causticRadius);
+        let weight = 1.0f / (photonCount * M_PI);
+        return flux * weight;
+    }
+
+    float3 getGlobalRadiance(uint totalPhotonCount) {
+        let photonCount = totalPhotonCount - totalPhotonCountAtBirth;
+        let flux = globalFlux / (globalRadius * globalRadius);
         let weight = 1.0f / (photonCount * M_PI);
         return flux * weight;
     }

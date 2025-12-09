@@ -66,10 +66,11 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}})); // OG used 1<<17
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}, {"replacementFactor", 0.1f}})); // OG used 1<<17
     g->createPass("nrc", "NRC", Properties());
     g->createPass("visPh", "VisualizePhotons", Properties());
     g->createPass("debug", "DebugQueryBuffer", Properties());
+    g->createPass("visQueries", "VisualizeQueries", Properties());
 
     g->addEdge("TracePhotons.photons", "visPh.photons");
     g->addEdge("TracePhotons.counters", "visPh.counters");
@@ -96,6 +97,10 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
     // g->markOutput("debug.nrcWo");
     // g->markOutput("debug.queryNormal");
     // g->markOutput("debug.nrcRoughness");
+
+    g->addEdge("qsamp.sample", "visQueries.queries");
+    g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
+    g->markOutput("visQueries.output");
 
     g->markOutput("nrc.output");
     return g;
@@ -169,14 +174,14 @@ int runMain(int argc, char** argv)
     Testbed::Options options {};
     options.windowDesc.width = res;
     options.windowDesc.height = res;
-    // options.createWindow = true; // Toggle preview
+    options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
     app.loadScene("cornell_box_caustic.pyscene");
 
     // Preview
     if (options.createWindow) {
-        auto pt = graphPT(app.getDevice());
+        auto pt = graphPhotonNRC(app.getDevice());
         app.setRenderGraph(pt);
         app.frame();
         app.getDevice()->getProfiler()->startCapture();
@@ -195,7 +200,7 @@ int runMain(int argc, char** argv)
 
     // SPPM
     render(app, graphSPPM(app.getDevice(), false), 512);
-    render(app, graphSPPM(app.getDevice(), true), 32);
+    //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC
     render(app, graphPhotonNRC(app.getDevice()), 128);

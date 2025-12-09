@@ -89,6 +89,17 @@ public:
         /// The goal is to minimize changes that require recompilation, as it can be costly.
         RecompileNeeded = SceneDefinesChanged | TypeConformancesChanged | ShaderCodeChanged,
 
+        CameraAll = CameraMoved | CameraPropertiesChanged | CameraSwitched,
+
+        LightAll = LightsMoved | LightIntensityChanged | LightPropertiesChanged | LightCountChanged,
+        GridVolumeAll = GridVolumesMoved | GridVolumePropertiesChanged | GridVolumeGridsChanged | GridVolumeBoundsChanged,
+        SceneGraphAll = GeometryMoved | SceneGraphChanged | GeometryChanged,
+        SDFAll = SDFGridConfigChanged | SDFGeometryChanged,
+        MaterialAll = MaterialsChanged | DisplacementChanged | EmissiveMaterialsChanged,
+        EnvMapAll = EnvMapChanged | EnvMapPropertiesChanged,
+
+        AllButCamera = LightAll | SceneGraphAll | MaterialAll | EnvMapAll | RenderSettingsChanged | GridVolumeAll | SDFAll,
+
         All = -1
     };
 

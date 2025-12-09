@@ -39,6 +39,7 @@ const char kInputNRC[] = "nrcInput";
 const char kOutputNRC[] = "nrcOutput";
 
 const char kOutputCount[] = "count";
+const char kReplacementFactor[] = "replacementFactor";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -55,6 +56,7 @@ void QuerySubsampling::setProperties(const Properties& props)
 {
     for (const auto& [key, value] : props) {
         if (key == kOutputCount) mOutputCount = value;
+        else if (key == kReplacementFactor) mReplacementFactor = value;
         else logWarning("Unrecognized property '{}' in QuerySubsampling render pass.", key);
     }
 }
@@ -63,15 +65,17 @@ Properties QuerySubsampling::getProperties() const
 {
     Properties props;
     props[kOutputCount] = mOutputCount;
+    props[kReplacementFactor] = mReplacementFactor;
     return props;
 }
 
 void QuerySubsampling::renderUI(Gui::Widgets& widget)
 {
-    if (widget.var("Output Count", mOutputCount, 1u, 1u << 20u))
+    if (widget.var("Output Count", mOutputCount, NRC_BATCH_SIZE_GRANULARITY, 1u << 20u, NRC_BATCH_SIZE_GRANULARITY))
     {
         requestRecompile();
     }
+    widget.var("Replacement Factor", mReplacementFactor, 0.0f, 1.0f);
 }
 
 RenderPassReflection QuerySubsampling::reflect(const CompileData& compileData)
@@ -122,19 +126,25 @@ void QuerySubsampling::execute(RenderContext* pRenderContext, const RenderData& 
     preparePass();
     mpSubsamplePass->addDefine("SUBSAMPLE_NRC", nrcInputs ? "1" : "0");
 
+    const uint32_t replaceCount = static_cast<uint32_t>(mOutputCount * mReplacementFactor);
+    const uint32_t replaceBegin = mLastReplaced;
+    mLastReplaced = (mLastReplaced + replaceCount) % mOutputCount;
+
     auto var = mpSubsamplePass->getRootVar();
     var["gInputQueries"] = pInputQueries;
     var["gOutputQueries"] = pOutputQueries;
     var["CB"]["gInputCount"] = inputCount;
     var["CB"]["gOutputCount"] = mOutputCount;
     var["CB"]["gFrameCount"] = mFrameCount;
+    var["CB"]["gReplaceBegin"] = replaceBegin;
+    var["CB"]["gReplaceCount"] = replaceCount;
     if (nrcInputs) {
         var["gInputNRC"] = pInputNRC->asBuffer();
         var["gOutputNRC"] = pOutputNRC->asBuffer();
     }
 
-    logInfo("Drawing {} from {} queries with nrc={}", mOutputCount, inputCount, nrcInputs);
-    mpSubsamplePass->execute(pRenderContext, mOutputCount, 1);
+    logInfo("Replacing {}/{}, sampled from {} queries {} NRC", replaceCount, mOutputCount, inputCount, nrcInputs ? "with" : "without");
+    mpSubsamplePass->execute(pRenderContext, replaceCount, 1);
 
     mFrameCount++;
 }

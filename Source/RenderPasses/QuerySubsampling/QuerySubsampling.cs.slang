@@ -13,6 +13,8 @@ cbuffer CB
     uint gInputCount;
     uint gOutputCount;
     uint gFrameCount;
+    uint gReplaceBegin;
+    uint gReplaceCount;
 };
 
 static const uint kMaxTrials = 3;
@@ -21,8 +23,8 @@ static const uint kMaxTrials = 3;
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     if (gInputCount == 0) return;
-    let idx = dispatchThreadId.x;
-    if (idx >= gOutputCount) return;
+    if (dispatchThreadId.x >= gReplaceCount) return;
+    let idx = (gReplaceBegin + dispatchThreadId.x) % gOutputCount;
 
     // Random index
     var rand = pcg2d(uint2(idx, gFrameCount));

@@ -82,8 +82,8 @@ Properties AccumulatePhotonsRTX::getProperties() const
 void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {
     widget.checkbox("Visualize Heatmap", mVisualizeHeatmap);
     if (widget.checkbox("Reverse Search", mReverseSearch)) requestRecompile();
-    widget.var("Global Radius", mGlobalRadius, 0.0001f, 1.0f, 0.00001f);
-    widget.var("Caustic Radius", mCausticRadius, 0.0001f, 1.0f, 0.00001f);
+    widget.var("Global Radius", mGlobalRadius, 0.0001f, 1.0f, 0.0001f);
+    widget.var("Caustic Radius", mCausticRadius, 0.0001f, 1.0f, 0.0001f);
     widget.var("Global Alpha", mGlobalAlpha, 0.1f, 1.0f, 0.01f);
     widget.var("Caustic Alpha", mCausticAlpha, 0.1f, 1.0f, 0.01f);
 }
@@ -120,7 +120,7 @@ RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileDat
         .rawBuffer(mQueryCount * sizeof(Sphere))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
         .flags(RenderPassReflection::Field::Flags::Persistent);
-    reflector.addInternal(kQueryStateBuffer, "Buffer to keep radius and flux.")
+    reflector.addOutput(kQueryStateBuffer, "Buffer to keep radius and flux.")
         .rawBuffer(mQueryCount * sizeof(QueryState))
         .bindFlags(ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource)
         .flags(RenderPassReflection::Field::Flags::Persistent);
@@ -165,7 +165,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         FALCOR_THROW("This render pass does not support scene changes that require shader recompilation.");
     }
 
-    auto shouldReset = mpScene->getUpdates() != IScene::UpdateFlags::None; // Reset accumulation on scene change
+    auto shouldReset = is_set(mpScene->getUpdates(), IScene::UpdateFlags::AllButCamera); // Reset accumulation on scene change
     shouldReset |= mGlobalPhotonCounter == 0u; // Or in first frame
     
     // Get inputs
@@ -286,6 +286,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         const auto pOutputBuffer = renderData[kOutputBuffer];
 
         mGlobalPhotonCounter += counters.PhotonsEmitted;
+        renderData.getDictionary()["GlobalPhotonCount"] = mGlobalPhotonCounter; // For other passes to read
 
         if (pOutputTexture)
         {
