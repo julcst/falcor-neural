@@ -69,7 +69,7 @@ bool shouldTerminate(BSDFProperties props)
 
 void storeQuery(uint index, PackedHitInfo hit, ShadingData sd, BSDFProperties props, float3 accumulatedRadiance, float3 thp)
 {
-    gPhotonQueries[index] = {hit, gRevisionCounter, sd, accumulatedRadiance, thp};
+    gPhotonQueries[index] = Query(hit, gRevisionCounter, sd, accumulatedRadiance, thp);
 
 #if OUTPUT_NRC_INPUT
     NRCInput nrc = {};
