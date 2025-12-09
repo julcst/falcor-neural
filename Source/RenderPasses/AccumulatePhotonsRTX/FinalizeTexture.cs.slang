@@ -31,7 +31,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     let acc = gAccumulator[idx];
     var q = gQueryStates[idx];
     q.applyRadiusReduction(acc, gGlobalAlpha, gCausticAlpha);
-    let radiance = (q.getRadiance(gGlobalPhotonCount) + query.emission) * query.throughput; // NOTE: radiance at pixel
+    let radiance = query.transportRadianceToCamera(q.getRadiance(gGlobalPhotonCount)); // NOTE: radiance at pixel
     gQueryStates[idx] = q;
 
     gOutputTexture[px] = gVisualizeHeatmap ?

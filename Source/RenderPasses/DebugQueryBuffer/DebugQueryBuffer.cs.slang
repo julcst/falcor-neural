@@ -40,19 +40,19 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 #endif
 
 #if is_valid_gQueryViewDir
-    gQueryViewDir[pixel] = float4(query.viewDir, 1.0);
+    gQueryViewDir[pixel] = float4(query.getViewDir(), 1.0);
 #endif
 
 #if is_valid_gQueryEmission
-    gQueryEmission[pixel] = float4(query.emission, 1.0);
+    gQueryEmission[pixel] = float4(query.getEmission(), 1.0);
 #endif
 
 #if is_valid_gQueryNormal
-    gQueryNormal[pixel] = float4(query.normal, 1.0);
+    gQueryNormal[pixel] = float4(query.getNormal(), 1.0);
 #endif
 
 #if is_valid_gQueryThroughput
-    gQueryThroughput[pixel] = float4(query.throughput, 1.0);
+    gQueryThroughput[pixel] = float4(query.getThroughput(), 1.0);
 #endif
     
     // Output NRCInput fields

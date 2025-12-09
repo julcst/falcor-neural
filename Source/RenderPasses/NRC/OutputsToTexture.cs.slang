@@ -23,10 +23,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
 #if USE_FACTORISATION
     let in = gInferenceInput[idx];
-    let radiance = query.isValid() ? out.radiance * in.weight() + query.emission : float3(0.0f);
+    let radiance = query.isValid() ? out.radiance * in.weight() : float3(0.0f);
 #else
-    let radiance = query.isValid() ? out.radiance + query.emission : float3(0.0f);
+    let radiance = query.isValid() ? out.radiance : float3(0.0f);
 #endif
 
-    gOutput[pixel] = float4(radiance * query.throughput, 1.0);
+    gOutput[pixel] = float4(query.transportRadianceToCamera(radiance), 1.0);
 }

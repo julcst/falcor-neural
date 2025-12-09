@@ -47,7 +47,7 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
     let q = gPhotonQueries[qi];
 
     // TODO: Prefetch material? Or use photon hit?
-    let wo = q.viewDir;
+    let wo = q.getViewDir();
     let wi = WorldRayDirection();
 
     // NOTE: We have to fetch material here because MaterialsInstance is up to 128B large

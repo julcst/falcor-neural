@@ -28,7 +28,7 @@ void main(uint3 tid : SV_DispatchThreadID)
     let acc = gAccumulator[idx];
     var q = gQueryStates[idx];
     q.applyRadiusReduction(acc, gGlobalAlpha, gCausticAlpha);
-    let radiance = q.getRadiance(gGlobalPhotonCount) + query.emission; // NOTE: radiance at query
+    let radiance = q.getRadiance(gGlobalPhotonCount); // NOTE: outgoing radiance at query without emission
     gQueryStates[idx] = q;
 
     gOutputBuffer[idx] = radiance;

@@ -85,7 +85,7 @@ void rayGen()
 
     RayDesc r;
     r.Origin = q.position;
-    r.Direction = q.viewDir; // Encode view direction in ray direction to save payload space
+    r.Direction = q.getViewDir(); // Encode view direction in ray direction to save payload space
     r.TMin = 0.0;
     r.TMax = 1e-6;
 

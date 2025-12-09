@@ -67,17 +67,9 @@ bool shouldTerminate(BSDFProperties props)
     return false;
 }
 
-void storeQuery(uint index, PackedHitInfo hit, ShadingData sd, BSDFProperties props, float3 thp)
+void storeQuery(uint index, PackedHitInfo hit, ShadingData sd, BSDFProperties props, float3 accumulatedRadiance, float3 thp)
 {
-    Query q = {};
-    q.hit = hit;
-    q.emission = props.emission;
-    q.position = sd.posW;
-    q.viewDir = sd.V;
-    q.normal = props.guideNormal;
-    q.throughput = thp;
-    q.revision = gRevisionCounter;
-    gPhotonQueries[index] = q;
+    gPhotonQueries[index] = {hit, gRevisionCounter, sd, accumulatedRadiance, thp};
 
 #if OUTPUT_NRC_INPUT
     NRCInput nrc = {};
@@ -103,6 +95,7 @@ void rayGen()
     Ray ray = gScene.camera.computeRayPinhole(pixel, gFrameDim);
     ShadingData sd = {};
     BSDFProperties props = {};
+    float3 accumulatedRadiance = float3(0.0f);
     float3 thpAtQuery = float3(1.0f);
     float3 currentThp = float3(1.0f);
     PackedHitInfo hitAtQuery = {};
@@ -125,14 +118,15 @@ void rayGen()
         sd = gScene.materials.prepareShadingData(v, materialID, -ray.dir);
         let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0), (uint)MaterialInstanceHints::AdjustShadingNormal);
         props = mi.getProperties(sd);
+        accumulatedRadiance += currentThp * props.emission;
 
         if (shouldTerminate(props)) {
             break; // Store current query
         } else {
             BSDFSample result = {};
             let valid = mi.sample(sd, sg, result, true /* importanceSample */);
-            if (!valid) { // TODO: This sometimes fails, handle this better
-                //props.emission = float3(0, 1, 0);
+            if (!valid) { // TODO: This sometimes fails, handle this better, eg. by retrying next frame
+                //accumulatedRadiance = float3(0, 1, 0);
                 break; // Store current query if sampling failed
             }
             currentThp *= result.weight;
@@ -143,5 +137,5 @@ void rayGen()
         }
     }
 
-    storeQuery(index, hitAtQuery, sd, props, thpAtQuery);
+    storeQuery(index, hitAtQuery, sd, props, accumulatedRadiance, thpAtQuery);
 }

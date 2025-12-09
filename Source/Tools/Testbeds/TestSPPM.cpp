@@ -194,11 +194,11 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    //render(app, graphSPPM(app.getDevice(), false), 512);
-    //render(app, graphSPPM(app.getDevice(), true), 32);
+    render(app, graphSPPM(app.getDevice(), false), 512);
+    render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC
-    // render(app, graphPhotonNRC(app.getDevice()), 128);
+    render(app, graphPhotonNRC(app.getDevice()), 128);
 
     // NRC
     render(app, graphNRC(app.getDevice()), 128);
@@ -207,8 +207,8 @@ int runMain(int argc, char** argv)
     render(app, graphNRC(app.getDevice(), 32), 128);
 
     // PT Query
-    // render(app, graphPTQuery(app.getDevice()));
-    // render(app, graphPTQuery(app.getDevice(), 32));
+    render(app, graphPTQuery(app.getDevice()));
+    render(app, graphPTQuery(app.getDevice(), 32));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

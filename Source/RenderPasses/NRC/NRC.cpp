@@ -306,7 +306,6 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         // Factorize outputs
         auto var = mpFactorizeOutputPass->getRootVar();
         var["gInput"] = renderData.getBuffer(kInferenceInput);
-        var["gQueries"] = renderData.getBuffer(kInferenceQueries);
         var["gOutput"] = renderData.getBuffer(kInferenceOutputFloat);
         
         var["CB"]["gCount"] = mInferenceSize;
