@@ -124,12 +124,11 @@ void rayGen()
     
     // Generate photon emission using unified light sampler
     PhotonLightSample ls;
-    if (!gLights.generateLightSample(sg, ls))
+    if (!gLights.generateLightSample(sg, ls)) {
+        InterlockedAdd(gCounters[0].PhotonsEmitted, -1); // Should rarely happen
         return;
+    }
 
-    // Count emitted photons
-    InterlockedAdd(gCounters[0].PhotonsEmitted, 1); // TODO: remove atomic
-    
     // Setup ray for tracing
     RayDesc ray = ls.getRay().toRayDesc();
     

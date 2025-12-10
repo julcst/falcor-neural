@@ -127,14 +127,13 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     if (mpEmissiveSampler)
         mpEmissiveSampler->bindShaderData(var["gLights"]["emissiveSampler"]);
 
-    const auto& pPhotonHits = renderData.getResource(kPhotonBuffer)->asBuffer();
-    FALCOR_ASSERT(pPhotonHits);
-    pRenderContext->clearUAV(pPhotonHits->getUAV().get(), uint4(0));
+    const auto& pPhotonHits = renderData.getBuffer(kPhotonBuffer);
+    FALCOR_ASSERT(pPhotonHits); // Do not need to clear because it will be overwritten
     var["gPhotonHits"] = pPhotonHits;
 
-    const auto& pCounters = renderData.getResource(kCounterBuffer)->asBuffer();
+    const auto& pCounters = renderData.getBuffer(kCounterBuffer);
     FALCOR_ASSERT(pCounters);
-    pRenderContext->clearUAV(pCounters->getUAV().get(), uint4(0));
+    pCounters->setElement(0u, PhotonCounters{mPhotonCount, 0}); // Reset counters
     var["gCounters"] = pCounters;
     
     // Trace photons
