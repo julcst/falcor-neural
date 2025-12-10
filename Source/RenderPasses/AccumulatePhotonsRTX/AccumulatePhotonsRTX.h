@@ -62,8 +62,8 @@ private:
     bool mReverseSearch = false;
     float mGlobalRadius = 0.005f;
     float mCausticRadius = 0.001f;
-    float mGlobalAlpha = 0.7f;
-    float mCausticAlpha = 0.7f;
+    float mGlobalAlpha = 2.0f / 3.0f; // Optimal (Kaplanyan Dachsbacher 2012), smaller values lead to divergence
+    float mCausticAlpha = 2.0f / 3.0f; // Optimal (Kaplanyan Dachsbacher 2012), smaller values lead to divergence
     float mMaxNormalDeviation = 30.0f; // in degrees
 
     uint32_t mQueryCount = 0; // Automatically derived from input data

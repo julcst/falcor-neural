@@ -112,6 +112,12 @@ void storePhotonWaveIntrinsics(PhotonHit photonHit)
     }
 }
 
+#if USE_WAVE_INTRINSICS
+#define storePhoton storePhotonWaveIntrinsics
+#else
+#define storePhoton storePhotonAtomic
+#endif
+
 [shader("raygeneration")]
 void rayGen()
 {
@@ -169,7 +175,7 @@ void rayGen()
             if (keep)
             {
                 // Record photon store point; accumulation happens in a separate RT pass.
-                storePhotonAtomic(PhotonHit(
+                storePhoton(PhotonHit(
                     sd.posW,
                     sd.V,
                     sd.faceN,

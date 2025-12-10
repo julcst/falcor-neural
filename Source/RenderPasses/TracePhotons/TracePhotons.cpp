@@ -24,6 +24,7 @@ const std::string kMaxBounces = "maxBounces";
 const std::string kGlobalRejectionProb = "globalRejectionProb";
 const std::string kRussianRouletteWeight = "russianRouletteWeight";
 const std::string kUseRussianRoulette = "useRussianRoulette";
+const std::string kUseWaveIntrinsics = "useWaveIntrinsics";
 } // namespace
 
 TracePhotons::TracePhotons(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
@@ -48,6 +49,7 @@ void TracePhotons::setProperties(const Properties& props)
             FALCOR_ASSERT_GT(mRussianRouletteWeight, 0.0f);
         }
         else if (key == kUseRussianRoulette) mUseRussianRoulette = value;
+        else if (key == kUseWaveIntrinsics) mUseWaveIntrinsics = value;
         else logWarning("{} - Unknown property '{}'", getClassName(), key);
     }
 }
@@ -60,6 +62,7 @@ Properties TracePhotons::getProperties() const
     props[kGlobalRejectionProb] = mGlobalRejectionProb;
     props[kRussianRouletteWeight] = mRussianRouletteWeight;
     props[kUseRussianRoulette] = mUseRussianRoulette;
+    props[kUseWaveIntrinsics] = mUseWaveIntrinsics;
     return props;
 }
 
@@ -72,6 +75,7 @@ void TracePhotons::renderUI(Gui::Widgets& widget) {
     widget.var("Global Rejection Probability", mGlobalRejectionProb, 0.0f, 0.9f);
     widget.var("Russian Roulette Weight", mRussianRouletteWeight, 0.5f, 10.0f);
     widget.checkbox("Use Russian Roulette", mUseRussianRoulette);
+    widget.checkbox("Use Wave Intrinsics", mUseWaveIntrinsics);
 }
 
 RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
@@ -107,6 +111,7 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE", mUseRussianRoulette ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_WAVE_INTRINSICS", mUseWaveIntrinsics ? "1" : "0");
 
     // Prepare program vars. This may trigger shader compilation.
     // The program should have all necessary defines set at this point.
