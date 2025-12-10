@@ -72,7 +72,7 @@ VSOut vsMain(VSIn input, uint instanceID : SV_InstanceID)
     
     // Disk is originally in XZ plane with normal (0, 1, 0)
     float3 diskNormal = float3(0, 1, 0);
-    float3 targetNormal = normalize(q.normal);
+    float3 targetNormal = q.getNormal();
     
     // Rotate disk to align with query normal
     // If normals are parallel, no rotation needed (or 180 flip)
