@@ -149,18 +149,26 @@ void captureOutputs(Testbed& app, const ref<RenderGraph>& graph, const std::stri
     }
 }
 
-void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1) {
+void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1, uint32_t warmupFrames = 10) {
     app.setRenderGraph(graph);
+
     logInfo("\nRender {} for {} frames\n===================================", graph->getName(), frameCount);
-    app.frame(); // First frame does not count to capture because of compilation etc.
-    app.getDevice()->getProfiler()->startCapture(frameCount - 1);
-    for (uint32_t i = 0; i < frameCount - 1; ++i)
+    for (uint32_t i = 0; i < warmupFrames; ++i)
+        app.frame();
+
+    uint32_t profiledFrames = frameCount - warmupFrames;
+    app.getDevice()->getProfiler()->startCapture(profiledFrames);
+    for (uint32_t i = 0; i < profiledFrames; ++i)
         app.frame();
     const auto capture = app.getDevice()->getProfiler()->endCapture();
-    logInfo("\nStats for {} over {} frames\n===================================", graph->getName(), frameCount - 1);
-    for (const auto& lane : capture->getLanes()) {
-        logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
+
+    if (profiledFrames > 0) {
+        logInfo("\nStats for {} over {} frames\n===================================", graph->getName(), profiledFrames);
+        for (const auto& lane : capture->getLanes()) {
+            logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
+        }
     }
+
     captureOutputs(app, graph);
 }
 
