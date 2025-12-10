@@ -21,12 +21,12 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
     return g;
 }
 
-ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false) {
-    auto g = RenderGraph::create(pDevice, reverseSearch ? "SPPM_ReverseSearch" : "SPPM");
+ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f) {
+    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb));
 
     g->createPass("Ref", "ImageLoader", Properties(json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}}));
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 5}, {"globalRejectionProb", rejProb}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
@@ -59,10 +59,10 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     return g;
 }
 
-ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice) {
-    auto g = RenderGraph::create(pDevice, "PhotonNRC");
+ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f) {
+    auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={})", rej));
 
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<17}})); // OG used 1<<17
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<17}, {"maxBounces", 5}, {"globalRejectionProb", rej}})); // OG used 1<<17
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
@@ -200,10 +200,12 @@ int runMain(int argc, char** argv)
 
     // SPPM
     render(app, graphSPPM(app.getDevice(), false), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.5f), 512);
     //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC
     render(app, graphPhotonNRC(app.getDevice()), 128);
+    render(app, graphPhotonNRC(app.getDevice(), 0.5f), 128);
 
     // NRC
     render(app, graphNRC(app.getDevice()), 128);

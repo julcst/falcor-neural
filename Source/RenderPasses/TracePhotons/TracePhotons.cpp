@@ -18,9 +18,10 @@ const uint32_t kMaxRecursionDepth = 1u;
 const std::string kPhotonBuffer = "photons";
 const std::string kCounterBuffer = "counters";
 
-// Properties
+// Propertiesvalue
 const std::string kPhotonCount = "photonCount";
 const std::string kMaxBounces = "maxBounces";
+const std::string kGlobalRejectionProb = "globalRejectionProb";
 } // namespace
 
 TracePhotons::TracePhotons(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
@@ -35,6 +36,11 @@ void TracePhotons::setProperties(const Properties& props)
     for (const auto& [key, value] : props) {
         if (key == kPhotonCount) mPhotonCount = value;
         else if (key == kMaxBounces) mMaxBounces = value;
+        else if (key == kGlobalRejectionProb) {
+            mGlobalRejectionProb = value;
+            FALCOR_ASSERT_GE(mGlobalRejectionProb, 0.0f);
+            FALCOR_ASSERT_LT(mGlobalRejectionProb, 1.0f);
+        } else logWarning("{} - Unknown property '{}'", getClassName(), key);
     }
 }
 
@@ -43,6 +49,7 @@ Properties TracePhotons::getProperties() const
     Properties props;
     props[kPhotonCount] = mPhotonCount;
     props[kMaxBounces] = mMaxBounces;
+    props[kGlobalRejectionProb] = mGlobalRejectionProb;
     return props;
 }
 
@@ -52,6 +59,7 @@ void TracePhotons::renderUI(Gui::Widgets& widget) {
         requestRecompile(); // Update buffer sizes
     }
     widget.var("Max Bounces", mMaxBounces, 1u, 20u);
+    widget.var("Global Rejection Probability", mGlobalRejectionProb, 0.0f, 0.9f);
 }
 
 RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
@@ -98,8 +106,10 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     auto var = mTracer.pVars->getRootVar();
     var["CB"]["gFrameCount"] = mFrameCount;
     var["CB"]["gMaxBounces"] = mMaxBounces;
-    var["CB"]["gGlobalRejectionProb"] = mGlobalRejectionProb;
+    var["CB"]["gGlobalSurvivalProb"] = (1.0f - mGlobalRejectionProb);
+    var["CB"]["gInvSurvivalProb"] = 1.0f / (1.0f - mGlobalRejectionProb);
     var["CB"]["gPhotonHitCapacity"] = photonCapacity;
+
 
     if (mpEmissiveSampler)
         mpEmissiveSampler->bindShaderData(var["gLights"]["emissiveSampler"]);

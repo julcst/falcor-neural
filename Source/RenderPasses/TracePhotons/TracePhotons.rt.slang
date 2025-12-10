@@ -9,13 +9,16 @@ import Rendering.Lights.LightHelpers;
 import LightSampler;
 import Common;
 import Structs;
+import Utils.Color.ColorHelpers;
 
 cbuffer CB
 {
     uint gFrameCount;
     uint gMaxBounces;
     uint gPhotonHitCapacity;
-    float gGlobalRejectionProb;
+    float gGlobalSurvivalProb;
+    float gInvSurvivalProb;
+    float gRussianRouletteWeight; // Zero to disable
 }
 
 // Unified light sampler
@@ -25,8 +28,7 @@ LightSampler gLights;
 RWStructuredBuffer<PhotonHit> gPhotonHits; // TODO: Maybe use AppendStructuredBuffer? But not HW accelerated probably
 RWStructuredBuffer<PhotonCounters> gCounters;
 
-static const bool kAlphaTest = true;
-static const float kRussianRouletteWeight = 1.0f; // TODO: expose
+static const bool kAlphaTest = false;
 
 struct RayPayload
 {
@@ -138,7 +140,7 @@ void rayGen()
 
     // Main Raytrace Loop
     for (uint i = 0; i < gMaxBounces; i++) {
-        TraceRay(gScene.rtAccel, 0 /*Flags*/, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
+        TraceRay(gScene.rtAccel, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
 
         HitInfo hit = HitInfo(rayPayload.packedHitInfo);
         // Stop if photon leaves the scene
@@ -153,15 +155,17 @@ void rayGen()
         let bsdfProperties = mi.getProperties(sd);
 
         // Store Photon if a diffuse surface was hit
-        //if (reflectedDiffuse)
+        let isDiffuse = bsdfProperties.roughness > 1e-3 || luminance(bsdfProperties.diffuseReflectionAlbedo) > 1e-3 || luminance(bsdfProperties.diffuseTransmissionAlbedo) > 1e-3;
+
+        if (isDiffuse)
         {
             // Optionally reject some photons to reduce contention, scale flux accordingly
             bool keep = true;
             float3 storeFlux = photonFlux;
             if (!isCaustic) // Treat as global
             {
-                //keep = sampleNext1D(sg) <= gGlobalRejectionProb;
-                //storeFlux *= invRejection;
+                keep = sampleNext1D(sg) <= gGlobalSurvivalProb;
+                storeFlux *= gInvSurvivalProb;
             }
             if (keep)
             {
