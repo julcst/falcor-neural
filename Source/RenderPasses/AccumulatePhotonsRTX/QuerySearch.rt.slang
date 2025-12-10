@@ -20,7 +20,7 @@ RWByteAddressBuffer gQueryAccumulation; // float3 + uint per pixel
 
 cbuffer CB
 {
-    uint gQueryCount;
+    float gMaxNormalDeviation; // in cosine
 }
 
 [shader("intersection")]
@@ -46,6 +46,8 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
 
     let qi = PrimitiveIndex();
     let q = gPhotonQueries[qi];
+
+    if (abs(dot(q.getNormal(), p.normal)) < gMaxNormalDeviation) IgnoreHit();
 
     // TODO: Prefetch material? Or use photon hit?
     let wo = q.getViewDir();
@@ -86,13 +88,11 @@ void rayGen()
 
     RayDesc r;
     r.Origin = ph.posW;
-    r.Direction = ph.wi; // Encode incoming direction in ray direction to save payload space
+    r.Direction = ph.getWi(); // Encode incoming direction in ray direction to save payload space
     r.TMin = 0.0;
     r.TMax = 1e-6; // Make ray infinitesimally short
 
-    QuerySearchPayload pl;
-    pl.flux = ph.flux;
-    pl.isCaustic = ph.isCaustic;
+    var pl = QuerySearchPayload(ph.getFlux(), ph.isCaustic, ph.getNormal());
 
     // Use no special ray flags to allow any-hit invocation for non-opaque geometry.
     TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);

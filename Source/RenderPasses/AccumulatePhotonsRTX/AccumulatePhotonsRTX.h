@@ -64,6 +64,7 @@ private:
     float mCausticRadius = 0.001f;
     float mGlobalAlpha = 0.7f;
     float mCausticAlpha = 0.7f;
+    float mMaxNormalDeviation = 30.0f; // in degrees
 
     uint32_t mQueryCount = 0; // Automatically derived from input data
     uint32_t mPhotonHitCount = 0; // Automatically derived from input data

@@ -38,6 +38,7 @@ const char kGlobalAlpha[] = "globalAlpha";
 const char kCausticAlpha[] = "causticAlpha";
 const char kGlobalRadius[] = "globalRadius";
 const char kCausticRadius[] = "causticRadius";
+const char kMaxNormalDeviation[] = "maxNormalDeviation";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -63,6 +64,7 @@ void AccumulatePhotonsRTX::setProperties(const Properties& props)
         else if (key == kCausticAlpha) mCausticAlpha = value;
         else if (key == kGlobalRadius) mGlobalRadius = value;
         else if (key == kCausticRadius) mCausticRadius = value;
+        else if (key == kMaxNormalDeviation) mMaxNormalDeviation = value;
         else logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
     }
 }
@@ -76,6 +78,7 @@ Properties AccumulatePhotonsRTX::getProperties() const
     props[kCausticAlpha] = mCausticAlpha;
     props[kGlobalRadius] = mGlobalRadius;
     props[kCausticRadius] = mCausticRadius;
+    props[kMaxNormalDeviation] = mMaxNormalDeviation;
     return props;
 }
 
@@ -86,6 +89,7 @@ void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {
     widget.var("Caustic Radius", mCausticRadius, 0.0001f, 1.0f, 0.0001f);
     widget.var("Global Alpha", mGlobalAlpha, 0.1f, 1.0f, 0.01f);
     widget.var("Caustic Alpha", mCausticAlpha, 0.1f, 1.0f, 0.01f);
+    widget.var("Max Normal Deviation (degrees)", mMaxNormalDeviation, 0.0f, 90.0f, 1.0f);
 }
 
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
@@ -266,6 +270,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gCounters"] = pPhotonCounters;
         var["gDebugCounters"] = pDebugCounters;
         var["gQueryAccumulation"] = pAccumulatorBuffer;
+        var["CB"]["gMaxNormalDeviation"] = cosf(mMaxNormalDeviation * (M_PI_2 / 90.0f)); // Convert degrees to radians
+
         // Dispatch one ray per photon hit.
         logInfo("Tracing {} photons", counters.PhotonStores);
         pRenderContext->clearUAV(pAccumulatorBuffer->getUAV().get(), uint4(0));

@@ -169,6 +169,7 @@ void rayGen()
                 storePhotonAtomic(PhotonHit(
                     sd.posW,
                     sd.V,
+                    sd.faceN,
                     storeFlux,
                     isCaustic
                 ));

@@ -162,6 +162,7 @@ struct PhotonIsectAttribs {
 struct QuerySearchPayload {
     float3 flux;
     bool isCaustic;
+    float3 normal;
 };
 
 struct QueryIsectAttribs {

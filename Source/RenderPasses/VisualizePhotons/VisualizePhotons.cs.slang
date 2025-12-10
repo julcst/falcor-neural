@@ -38,7 +38,7 @@ void main(uint3 tid : SV_DispatchThreadID)
         {
             int x = p.x + dx;
             if (x < 0 || x >= int(gFrameDim.x)) continue;
-            gOutput[int2(x,y)] = float4(ph.flux, 1.0);
+            gOutput[int2(x,y)] = float4(ph.getFlux(), 1.0);
         }
     }
 }

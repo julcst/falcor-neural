@@ -9,9 +9,11 @@ import Scene.ShadingData;
 import Utils.Math.PackedFormats;
 #endif
 
+#define COMPRESS_QUERIES // Uncomment to enable compression of queries
+
 BEGIN_NAMESPACE_FALCOR
 
-struct Query
+struct QueryUncompressed
 {
     uint4 hit;
 
@@ -140,5 +142,11 @@ struct QueryCompressed
     }
 #endif
 };
+
+#ifdef COMPRESS_QUERIES
+typedef QueryCompressed Query;
+#else
+typedef QueryUncompressed Query;
+#endif
 
 END_NAMESPACE_FALCOR
