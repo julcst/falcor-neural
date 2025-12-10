@@ -22,6 +22,8 @@ const std::string kCounterBuffer = "counters";
 const std::string kPhotonCount = "photonCount";
 const std::string kMaxBounces = "maxBounces";
 const std::string kGlobalRejectionProb = "globalRejectionProb";
+const std::string kRussianRouletteWeight = "russianRouletteWeight";
+const std::string kUseRussianRoulette = "useRussianRoulette";
 } // namespace
 
 TracePhotons::TracePhotons(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
@@ -40,7 +42,13 @@ void TracePhotons::setProperties(const Properties& props)
             mGlobalRejectionProb = value;
             FALCOR_ASSERT_GE(mGlobalRejectionProb, 0.0f);
             FALCOR_ASSERT_LT(mGlobalRejectionProb, 1.0f);
-        } else logWarning("{} - Unknown property '{}'", getClassName(), key);
+        }
+        else if (key == kRussianRouletteWeight) {
+            mRussianRouletteWeight = value;
+            FALCOR_ASSERT_GT(mRussianRouletteWeight, 0.0f);
+        }
+        else if (key == kUseRussianRoulette) mUseRussianRoulette = value;
+        else logWarning("{} - Unknown property '{}'", getClassName(), key);
     }
 }
 
@@ -50,6 +58,8 @@ Properties TracePhotons::getProperties() const
     props[kPhotonCount] = mPhotonCount;
     props[kMaxBounces] = mMaxBounces;
     props[kGlobalRejectionProb] = mGlobalRejectionProb;
+    props[kRussianRouletteWeight] = mRussianRouletteWeight;
+    props[kUseRussianRoulette] = mUseRussianRoulette;
     return props;
 }
 
@@ -60,6 +70,8 @@ void TracePhotons::renderUI(Gui::Widgets& widget) {
     }
     widget.var("Max Bounces", mMaxBounces, 1u, 20u);
     widget.var("Global Rejection Probability", mGlobalRejectionProb, 0.0f, 0.9f);
+    widget.var("Russian Roulette Weight", mRussianRouletteWeight, 0.5f, 10.0f);
+    widget.checkbox("Use Russian Roulette", mUseRussianRoulette);
 }
 
 RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
@@ -94,6 +106,7 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
     mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
+    mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE", mUseRussianRoulette ? "1" : "0");
 
     // Prepare program vars. This may trigger shader compilation.
     // The program should have all necessary defines set at this point.
@@ -109,7 +122,7 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     var["CB"]["gGlobalSurvivalProb"] = (1.0f - mGlobalRejectionProb);
     var["CB"]["gInvSurvivalProb"] = 1.0f / (1.0f - mGlobalRejectionProb);
     var["CB"]["gPhotonHitCapacity"] = photonCapacity;
-
+    var["CB"]["gRussianRouletteWeight"] = mRussianRouletteWeight;
 
     if (mpEmissiveSampler)
         mpEmissiveSampler->bindShaderData(var["gLights"]["emissiveSampler"]);

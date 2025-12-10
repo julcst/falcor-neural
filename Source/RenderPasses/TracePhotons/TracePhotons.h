@@ -34,14 +34,16 @@ private:
     void prepareLightingStructure(RenderContext* pRenderContext);
 
     // Internal state
-    ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded.
-    ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator.
-    std::unique_ptr<EmissivePowerSampler> mpEmissiveSampler;    ///< Emissive light sampler or nullptr if not used.
+    ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded
+    ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator
+    std::unique_ptr<EmissivePowerSampler> mpEmissiveSampler;    ///< Emissive light sampler or nullptr if not used
 
     // Configuration
-    uint mPhotonCount = 2u<<20u;            ///< Number of photons to trace per frame.
-    uint mMaxBounces = 5;                   ///< Max number of bounces per photon.
-    float mGlobalRejectionProb = 0.5f;      ///< Rejection probability for non-caustic photons, in [0, 1)
+    uint mPhotonCount = 2u<<20u;            ///< Number of photons to trace per frame
+    uint mMaxBounces = 5;                   ///< Max number of bounces per photon
+    float mGlobalRejectionProb = 0.0f;      ///< Rejection probability for non-caustic photons, in [0, 1), 0 to disable (faster but minor quality loss)
+    float mRussianRouletteWeight = 1.0f;    ///< Weight for Russian Roulette termination
+    bool mUseRussianRoulette = true;        ///< Whether to use Russian Roulette termination (faster at almost no quality cost)
 
     // Runtime data
     /// Frame count since scene was loaded.

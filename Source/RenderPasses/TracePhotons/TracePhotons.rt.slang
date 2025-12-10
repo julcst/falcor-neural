@@ -18,7 +18,7 @@ cbuffer CB
     uint gPhotonHitCapacity;
     float gGlobalSurvivalProb;
     float gInvSurvivalProb;
-    float gRussianRouletteWeight; // Zero to disable
+    float gRussianRouletteWeight; // in (0, inf), higher means more likely to survive
 }
 
 // Unified light sampler
@@ -120,7 +120,7 @@ void rayGen()
 
     //const float invRejection = 1.f / gGlobalRejectionProb;
 
-    SampleGenerator sg = SampleGenerator(pixel, gFrameCount * 5); // TODO: Why * 5 here?
+    SampleGenerator sg = SampleGenerator(pixel, gFrameCount);
     
     // Generate photon emission using unified light sampler
     PhotonLightSample ls;
@@ -193,16 +193,15 @@ void rayGen()
         var weight = bsdfSample.weight;
 
         // Russian Roulette
-        // const float rrVal = luminance(thp) * kRussianRouletteWeight;
-        // const float prob = max(0.f, 1.f - rrVal);
-        // if (sampleNext1D(sg) < prob)
-        // {
-        //     return; // Photon is absorbed
-        // }
-        // else
-        // {
-        //     thp /= (1.f - prob);
-        // }
+    #if USE_RUSSIAN_ROULETTE
+        const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
+        const float survivalProb = min(rrVal, 1.f);
+        if (sampleNext1D(sg) > survivalProb) {
+            return; // Photon is absorbed
+        } else {
+            photonFlux /= survivalProb;
+        }
+    #endif
 
         // Update Photon
         isCaustic = bsdfSample.isLobe(LobeType::Specular | LobeType::Delta);

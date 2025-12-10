@@ -7,6 +7,7 @@
 import Utils.Math.PackedFormats;
 #endif
 
+// NOTE: Compression is generally faster
 #define COMPRESS_PHOTON_HITS // Uncomment to enable compression of photon hits
 
 BEGIN_NAMESPACE_FALCOR

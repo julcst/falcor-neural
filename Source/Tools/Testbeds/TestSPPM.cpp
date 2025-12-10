@@ -21,12 +21,13 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
     return g;
 }
 
-ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f) {
-    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb));
+// NOTE: QuerySearch is faster, RR improves performance with minimal quality loss, rejProb speeds up even more with some quality loss
+ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true) {
+    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={}, rr={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr));
 
     g->createPass("Ref", "ImageLoader", Properties(json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 5}, {"globalRejectionProb", rejProb}}));
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 5}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
@@ -199,8 +200,8 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    render(app, graphSPPM(app.getDevice(), false), 512);
-    render(app, graphSPPM(app.getDevice(), false, 0.5f), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.5f, false), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.5f, true), 512);
     //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC

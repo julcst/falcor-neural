@@ -9,6 +9,7 @@ import Scene.ShadingData;
 import Utils.Math.PackedFormats;
 #endif
 
+// NOTE: Compression is generally faster
 #define COMPRESS_QUERIES // Uncomment to enable compression of queries
 
 BEGIN_NAMESPACE_FALCOR
