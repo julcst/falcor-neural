@@ -48,5 +48,9 @@ typedef TinyUniformSampleGenerator SampleGenerator;
 #elif defined(SAMPLE_GENERATOR_TYPE) && SAMPLE_GENERATOR_TYPE == SAMPLE_GENERATOR_UNIFORM
 import Utils.Sampling.UniformSampleGenerator;
 typedef UniformSampleGenerator SampleGenerator;
+#else
+import Utils.Sampling.TinyUniformSampleGenerator;
+typedef TinyUniformSampleGenerator SampleGenerator; // To make LSP happy
+#error "Unknown or undefined SAMPLE_GENERATOR_TYPE"
 #endif
 
