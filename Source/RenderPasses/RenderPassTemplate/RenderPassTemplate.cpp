@@ -32,11 +32,24 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, RenderPassTemplate>();
 }
 
-RenderPassTemplate::RenderPassTemplate(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {}
+RenderPassTemplate::RenderPassTemplate(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {
+    setProperties(props);
+}
+
+void RenderPassTemplate::setProperties(const Properties& props)
+{
+    for (const auto& [key, value] : props.toJson().items())
+    {
+        logWarning("{} - Unrecognized property '{}'", getClassName(), key);
+    }
+}
+
+void RenderPassTemplate::renderUI(Gui::Widgets& widget) {}
 
 Properties RenderPassTemplate::getProperties() const
 {
-    return {};
+    Properties props;
+    return props;
 }
 
 RenderPassReflection RenderPassTemplate::reflect(const CompileData& compileData)
@@ -53,5 +66,3 @@ void RenderPassTemplate::execute(RenderContext* pRenderContext, const RenderData
     // renderData holds the requested resources
     // auto& pTexture = renderData.getTexture("src");
 }
-
-void RenderPassTemplate::renderUI(Gui::Widgets& widget) {}

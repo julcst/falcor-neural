@@ -43,6 +43,7 @@ public:
 
     RenderPassTemplate(ref<Device> pDevice, const Properties& props);
 
+    virtual void setProperties(const Properties& props) override;
     virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
