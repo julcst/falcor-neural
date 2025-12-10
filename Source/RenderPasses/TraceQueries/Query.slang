@@ -82,9 +82,9 @@ struct QueryUncompressed
 // TODO: Use
 struct QueryCompressed
 {
-    uint4 hit;
+    uint4 hit; // TODO: Pack
 
-    float3 position;
+    float3 position; // TODO: Pack position as unorm
     uint revision; // To identify changes fast?
 
     uint viewDir;

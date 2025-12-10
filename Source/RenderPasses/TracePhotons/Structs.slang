@@ -23,7 +23,7 @@ struct PhotonHitUncompressed
     bool isCaustic;
     float3 flux;
     uint pad0;
-    float3 wi; // TODO: Pack
+    float3 wi;
     uint pad1;
     float3 normal;
     uint pad2;
@@ -60,7 +60,7 @@ struct PhotonHitUncompressed
 
 struct PhotonHitCompressed
 {
-    float3 posW;
+    float3 posW; // TODO: Pack position as unorm
     bool isCaustic;
 
     uint flux;
