@@ -6,7 +6,7 @@ import Utils.Math.MathHelpers;
 import Utils.Geometry.GeometryHelpers;
 import Utils.Sampling.SampleGenerator;
 import Rendering.Lights.LightHelpers;
-import LightSampler;
+import Rendering.Lights.PhotonSampler;
 import Common;
 import Structs;
 import Utils.Color.ColorHelpers;
@@ -21,8 +21,7 @@ cbuffer CB
     float gRussianRouletteWeight; // in (0, inf), higher means more likely to survive
 }
 
-// Unified light sampler
-LightSampler gLights;
+ParameterBlock<PhotonSampler> gLights;
 
 // Photon output buffers
 RWStructuredBuffer<PhotonHit> gPhotonHits; // TODO: Maybe use AppendStructuredBuffer? But not HW accelerated probably

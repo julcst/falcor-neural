@@ -2,8 +2,7 @@
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
 #include "Utils/Sampling/SampleGenerator.h"
-#include "Rendering/Lights/EmissiveLightSampler.h"
-#include "Rendering/Lights/EmissivePowerSampler.h"
+#include "Rendering/Lights/PhotonSampler.h"
 
 using namespace Falcor;
 
@@ -31,12 +30,11 @@ public:
 
 private:
     void prepareVars();
-    void prepareLightingStructure(RenderContext* pRenderContext);
 
     // Internal state
     ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded
     ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator
-    std::unique_ptr<EmissivePowerSampler> mpEmissiveSampler;    ///< Emissive light sampler or nullptr if not used
+    ref<PhotonSampler>              mpPhotonSampler;            ///< Photon sampler
 
     // Configuration
     uint mPhotonCount = 2u<<20u;            ///< Number of photons to trace per frame

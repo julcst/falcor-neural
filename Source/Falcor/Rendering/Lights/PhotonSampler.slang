@@ -64,7 +64,7 @@ struct PhotonLightSample
     Ray getRay() { return Ray(posW, dir, 0.0, FLT_MAX); }
 };
 
-struct LightSampler {
+struct PhotonSampler {
     // Samplers
     EnvMapSampler envMapSampler;                    ///< Environment map sampler. Only valid when kUseEnvLight == true.
     EmissivePowerSampler emissiveSampler;           ///< Emissive light sampler. Only valid when kUseEmissiveLights == true.
@@ -81,7 +81,7 @@ struct LightSampler {
 
     /** Types of samplable lights.
     */
-    enum class LightSampler
+    enum class LightSamplerType
     {
         EnvMap,
         Emissive,
@@ -134,8 +134,7 @@ struct LightSampler {
     */
     bool generateEmissiveSample(inout SampleGenerator sg, out PhotonLightSample pls) {
         pls = {};
-        if (gScene.lightCollection.isEmpty())
-            return false;
+        if (gScene.lightCollection.isEmpty()) return false;
 
         // Randomly pick a triangle out of the global list with uniform probability
         const uint triangleCount = gScene.lightCollection.triangleCount;
@@ -152,8 +151,7 @@ struct LightSampler {
 
         float triangleSelectionPdf = gScene.lightCollection.fluxData[triangleIndex].flux * emissiveSampler._emissivePower.invWeightsSum;
 
-        if (triangleSelectionPdf <= 1e-6f)
-            return false;
+        if (triangleSelectionPdf <= 1e-6f) return false;
 
         // Sample emissive triangle
         const EmissiveTriangle tri = gScene.lightCollection.getTriangle(triangleIndex);
@@ -299,12 +297,12 @@ struct LightSampler {
         if (!selectLightType(lightType, selectionPdf, sg)) return false;
 
         bool valid = false;
-        if (kUseEnvLight && lightType == (uint)LightSampler::EnvMap) valid = generateEnvMapSample(sg, ls);
-        if (kUseEmissiveLights && lightType == (uint)LightSampler::Emissive)
+        if (kUseEnvLight && lightType == (uint)LightSamplerType::EnvMap) valid = generateEnvMapSample(sg, ls);
+        if (kUseEmissiveLights && lightType == (uint)LightSamplerType::Emissive)
         {
             valid = generateEmissiveSample(sg, ls);
         }
-        if (kUseAnalyticLights && lightType == (uint)LightSampler::Analytic)
+        if (kUseAnalyticLights && lightType == (uint)LightSamplerType::Analytic)
         {
             valid = generateAnalyticLightSample(sg, ls);
         }

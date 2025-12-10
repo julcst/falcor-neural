@@ -75,7 +75,7 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f) {
 
     g->addEdge("TracePhotons.photons", "visPh.photons");
     g->addEdge("TracePhotons.counters", "visPh.counters");
-    //g->markOutput("visPh.dst");
+    g->markOutput("visPh.dst");
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");

@@ -2,7 +2,6 @@ add_plugin(TracePhotons)
 
 target_sources(TracePhotons PRIVATE
     Common.slang
-    LightSampler.slang
     Structs.slang
     TracePhotons.cpp
     TracePhotons.h

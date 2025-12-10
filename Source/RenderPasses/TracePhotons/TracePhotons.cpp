@@ -97,19 +97,19 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
 
     if (!mpScene) return;
 
+    FALCOR_ASSERT(mpPhotonSampler);
+
     if (is_set(mpScene->getUpdates(), IScene::UpdateFlags::RecompileNeeded) ||
         is_set(mpScene->getUpdates(), IScene::UpdateFlags::GeometryChanged))
     {
         FALCOR_THROW("This render pass does not support scene changes that require shader recompilation.");
     }
 
-    prepareLightingStructure(pRenderContext);
+    mpPhotonSampler->update(pRenderContext);
 
     // Specialize program.
     // These defines should not modify the program vars. Do not trigger program vars re-creation.
-    mTracer.pProgram->addDefine("USE_ENV_LIGHT", mpScene->useEnvLight() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_ANALYTIC_LIGHTS", mpScene->useAnalyticLights() ? "1" : "0");
-    mTracer.pProgram->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
+    mTracer.pProgram->addDefines(mpPhotonSampler->getDefines());
     mTracer.pProgram->addDefine("USE_RUSSIAN_ROULETTE", mUseRussianRoulette ? "1" : "0");
     mTracer.pProgram->addDefine("USE_WAVE_INTRINSICS", mUseWaveIntrinsics ? "1" : "0");
 
@@ -128,9 +128,7 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     var["CB"]["gInvSurvivalProb"] = 1.0f / (1.0f - mGlobalRejectionProb);
     var["CB"]["gPhotonHitCapacity"] = photonCapacity;
     var["CB"]["gRussianRouletteWeight"] = mRussianRouletteWeight;
-
-    if (mpEmissiveSampler)
-        mpEmissiveSampler->bindShaderData(var["gLights"]["emissiveSampler"]);
+    mpPhotonSampler->bindShaderData(var["gLights"]);
 
     const auto& pPhotonHits = renderData.getBuffer(kPhotonBuffer);
     FALCOR_ASSERT(pPhotonHits); // Do not need to clear because it will be overwritten
@@ -153,39 +151,6 @@ void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& rend
     mFrameCount++;
 }
 
-void TracePhotons::prepareLightingStructure(RenderContext* pRenderContext)
-{
-    if (!mpScene) { return; }
-
-    // Ensure emissive light collection is up to date on CPU side for correct flags/info.
-    if (auto pLights = mpScene->getILightCollection(pRenderContext))
-    {
-        pLights->prepareSyncCPUData(pRenderContext);
-    }
-
-    const bool emissiveUsed = mpScene->useEmissiveLights();
-
-    // Create/update emissive light sampler if emissive lights are present.
-    if (emissiveUsed)
-    {
-        if (!mpEmissiveSampler)
-        {
-            auto pLights = mpScene->getILightCollection(pRenderContext);
-
-            if (pLights)
-            {
-                mpEmissiveSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, pLights);
-            }
-        } else {
-            mpEmissiveSampler->update(pRenderContext, mpScene->getILightCollection(pRenderContext));
-        }
-    }
-    else
-    {
-        mpEmissiveSampler.reset();
-    }
-}
-
 void TracePhotons::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     // Clear data for previous scene.
@@ -194,15 +159,15 @@ void TracePhotons::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
     mTracer.pBindingTable.reset();
     mTracer.pVars.reset();
     mFrameCount = 0;
-    mpEmissiveSampler.reset();
+    mpPhotonSampler.reset();
 
     // Set new scene.
     mpScene = pScene;
 
-    prepareLightingStructure(pRenderContext);
-
     if (mpScene)
     {
+        mpPhotonSampler = PhotonSampler::create(pRenderContext, mpScene);
+
         // Create ray tracing program.
         ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
@@ -222,10 +187,7 @@ void TracePhotons::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
         }
 
         mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
-        if (mpEmissiveSampler)
-        {
-            mTracer.pProgram->addDefines(mpEmissiveSampler->getDefines());
-        }
+        mTracer.pProgram->addDefines(mpPhotonSampler->getDefines());
     }
 }
 
@@ -236,10 +198,7 @@ void TracePhotons::prepareVars()
 
     // Configure program.
     mTracer.pProgram->addDefines(mpSampleGenerator->getDefines());
-    if (mpEmissiveSampler)
-    {
-        mTracer.pProgram->addDefines(mpEmissiveSampler->getDefines());
-    }
+    mTracer.pProgram->addDefines(mpPhotonSampler->getDefines());
     mTracer.pProgram->setTypeConformances(mpScene->getTypeConformances());
 
     // Create program variables for the current program.
