@@ -235,8 +235,7 @@ void rayGen()
 
     let sdQuery = loadShadingData(query.getHitInfo(), query.position, -query.getViewDir());
     let miQuery = gScene.materials.getMaterialInstance(sdQuery, ExplicitLodTextureSampler(0), MaterialInstanceHints::AdjustShadingNormal);
-
-    // TODO: Direct connection to light
+    
     collectRadianceFromLightSource(sg, sdQuery, miQuery, ls.posW, ls.normal, ls.flux, outgoingRadianceAtQuery);
 
     // Main Raytrace Loop
