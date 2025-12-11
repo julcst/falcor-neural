@@ -129,6 +129,28 @@ ref<RenderGraph> graphNRC(const ref<Device>& pDevice, uint32_t spp = 1) {
     return g;
 }
 
+ref<RenderGraph> graphBiNRC(const ref<Device>& pDevice) {
+    auto g = RenderGraph::create(pDevice, "BiNRC");
+
+    g->createPass("TraceQueries", "TraceQueries", Properties());
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
+    g->createPass("nrc", "NRC", Properties());
+    g->createPass("estim", "PhotonNEE", Properties());
+
+    g->addEdge("TraceQueries.queries", "qsamp.queries");
+    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
+
+    g->addEdge("qsamp.sample", "estim.queries");
+
+    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+    g->addEdge("estim.output", "nrc.trainTarget");
+    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+
+    g->markOutput("nrc.output");
+    return g;
+}
+
 ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
     auto g = RenderGraph::create(pDevice, fmt::format("PTQuery (spp={})", spp));
 
@@ -217,10 +239,13 @@ int runMain(int argc, char** argv)
     render(app, graphPhotonNRC(app.getDevice(), 0.7f), 256);
 
     // NRC
-    render(app, graphNRC(app.getDevice()), 128);
+    // render(app, graphNRC(app.getDevice()), 128);
+
+    // PhotonNEE
+    render(app, graphBiNRC(app.getDevice()), 128);
 
     // Multisample NRC
-    render(app, graphNRC(app.getDevice(), 32), 128);
+    // render(app, graphNRC(app.getDevice(), 32), 128);
 
     // PT Query
     // render(app, graphPTQuery(app.getDevice()));

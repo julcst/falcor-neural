@@ -43,7 +43,7 @@ struct RayPayload
     }
 }
 
-//A dd empty hit info for miss
+//Add empty hit info for miss
 [shader("miss")]
 void miss(inout RayPayload rayData: SV_RayPayload)
 {

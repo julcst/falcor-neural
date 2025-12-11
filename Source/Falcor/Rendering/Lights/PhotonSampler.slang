@@ -60,6 +60,7 @@ struct PhotonLightSample
     // float   pdf;
     float3  posW;
     float3  dir;
+    float3  normal;
 
     Ray getRay() { return Ray(posW, dir, 0.0, FLT_MAX); }
 };
@@ -108,6 +109,7 @@ struct PhotonSampler {
         // ls.pdf = lightSample.pdf;
         ls.posW = -1e30 * lightSample.dir; // Place the origin far away
         ls.dir = lightSample.dir;
+        ls.normal = float3(0.f); // TODO
 
         return any(ls.flux > 0.f);
     }
@@ -172,6 +174,7 @@ struct PhotonSampler {
             return false;
 
         pls.dir = fromLocalToWorld(tri.normal, woLocal);
+        pls.normal = tri.normal;
         pls.flux *= M_PI; // Lambert Emitter
 
         return true;
@@ -223,6 +226,7 @@ struct PhotonSampler {
         pls.posW = lightData.posW;
         pls.flux = lightData.intensity * invLightPdf;
         pls.dir = fromLocalToWorld(lightData.dirW, woLocal);
+        pls.normal = lightData.dirW;
         return true;
     }
 
