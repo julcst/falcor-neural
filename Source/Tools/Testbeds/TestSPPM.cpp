@@ -208,7 +208,7 @@ int runMain(int argc, char** argv)
     // options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
-    app.loadScene("cornell_box_caustic.pyscene");
+    app.loadScene("cornell_box.pyscene");
 
     // Preview
     if (options.createWindow) {
@@ -231,7 +231,7 @@ int runMain(int argc, char** argv)
 
     // SPPM
     // render(app, graphSPPM(app.getDevice(), false, 0.5f, false), 512);
-    // render(app, graphSPPM(app.getDevice(), false, 0.5f, true), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.5f, true), 512);
     //render(app, graphSPPM(app.getDevice(), true), 32);
 
     // PhotonNRC
@@ -239,7 +239,7 @@ int runMain(int argc, char** argv)
     render(app, graphPhotonNRC(app.getDevice(), 0.7f), 256);
 
     // NRC
-    // render(app, graphNRC(app.getDevice()), 128);
+    render(app, graphNRC(app.getDevice()), 128);
 
     // PhotonNEE
     render(app, graphBiNRC(app.getDevice()), 128);
