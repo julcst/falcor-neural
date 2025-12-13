@@ -234,7 +234,7 @@ void rayGen()
     float3 photonFlux = ls.flux;
 
     let sdQuery = loadShadingData(query.getHitInfo(), query.position, -query.getViewDir());
-    let miQuery = gScene.materials.getMaterialInstance(sdQuery, ExplicitLodTextureSampler(0), MaterialInstanceHints::AdjustShadingNormal);
+    let miQuery = gScene.materials.getMaterialInstance(sdQuery, ExplicitLodTextureSampler(0));
     
     collectRadianceFromLightSource(sg, sdQuery, miQuery, ls.posW, ls.normal, ls.flux, outgoingRadianceAtQuery);
 
@@ -248,7 +248,7 @@ void rayGen()
 
         // Get shading infos and material properties
         let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
-        let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0), MaterialInstanceHints::AdjustShadingNormal);
+        let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
 
         collectRadianceFromPhoton(sg, sdQuery, miQuery, sdPhoton, miPhoton, photonFlux, outgoingRadianceAtQuery);
 

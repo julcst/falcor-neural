@@ -152,10 +152,8 @@ void rayGen()
             return;
 
         // Get shading infos and material properties
-        let lod = ExplicitLodTextureSampler(0);
-        uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
         ShadingData sd = loadShadingData(hit, ray.Origin, ray.Direction);
-        let mi = gScene.materials.getMaterialInstance(sd, lod, hints);
+        let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0)); // Do not adjust shading normal because it is not reciprocal
         let bsdfProperties = mi.getProperties(sd);
 
         // Store Photon if a diffuse surface was hit

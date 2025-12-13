@@ -45,11 +45,3 @@ public ShadingData loadShadingData(const HitInfo hit, const float3 rayOrigin, co
     ShadingData sd = gScene.materials.prepareShadingData(v, materialID, -rayDir);
     return sd;
 }
-
-public IMaterialInstance getMaterialInstance(const HitInfo hit, const Ray ray)
-{
-    let lod = ExplicitLodTextureSampler(0);
-    uint hints = (uint)MaterialInstanceHints::AdjustShadingNormal;
-    ShadingData sd = loadShadingData(hit, ray.origin, ray.dir);
-    return gScene.materials.getMaterialInstance(sd, lod, hints);
-}

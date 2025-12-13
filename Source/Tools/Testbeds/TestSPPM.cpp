@@ -208,7 +208,7 @@ int runMain(int argc, char** argv)
     // options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
-    app.loadScene("cornell_box.pyscene");
+    app.loadScene("cornell_box_caustic.pyscene");
 
     // Preview
     if (options.createWindow) {
