@@ -69,8 +69,15 @@ struct StochasticPhotonSearchPayload {
     }
 };
 
+// Sharing anyhit shaders is slower than separate anyhit shaders
 [shader("anyhit")]
-void photonAnyHit(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
+void photonAnyHitGlobal(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
+{
+    pl.photonIndices.addSample(PrimitiveIndex(), pl.sg);
+}
+
+[shader("anyhit")]
+void photonAnyHitCaustic(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
 {
     pl.photonIndices.addSample(PrimitiveIndex(), pl.sg);
 }

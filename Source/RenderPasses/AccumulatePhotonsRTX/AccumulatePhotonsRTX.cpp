@@ -480,8 +480,8 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
 
             // Hit group for procedural queries: anyhit + intersection.
-            sbt->setHitGroup(0, 0, desc.addHitGroup("", "photonAnyHit", "photonIntersectionGlobal", mpScene->getTypeConformances()));
-            sbt->setHitGroup(1, 0, desc.addHitGroup("", "photonAnyHit", "photonIntersectionCaustic", mpScene->getTypeConformances()));
+            sbt->setHitGroup(0, 0, desc.addHitGroup("", "photonAnyHitGlobal", "photonIntersectionGlobal", mpScene->getTypeConformances()));
+            sbt->setHitGroup(1, 0, desc.addHitGroup("", "photonAnyHitCaustic", "photonIntersectionCaustic", mpScene->getTypeConformances()));
 
             mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
         } else {
