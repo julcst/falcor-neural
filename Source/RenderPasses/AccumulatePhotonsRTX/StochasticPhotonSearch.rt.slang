@@ -59,6 +59,29 @@ void photonIntersectionCaustic() {
     photonIntersection<true>();
 }
 
+struct StochasticPhotonIsectAttribsShared {
+    bool isCaustic;
+};
+
+[shader("intersection")]
+void photonIntersectionShared() {
+    // InterlockedAdd(gDebugCounters[0].IntersectorCalls, 1);
+    let pi = PrimitiveIndex(); // Photon Index
+    let ph = gPhotonHits[pi];
+
+    // Early skip?
+    let diff = ph.posW - WorldRayOrigin();
+    let dist2 = dot(diff, diff);
+    //if (dist2 > gMaxRadius2) return; // Early skip makes no difference
+
+    let qi = DispatchRaysIndex().x;
+    let q = gQuerySpheres[qi];
+    if (sqr(ph.isCaustic ? q.causticR : q.globalR) < dist2) return; // Test is faster in intersection
+
+    let attribs = StochasticPhotonIsectAttribsShared(ph.isCaustic);
+    ReportHit(1e-6, 0, attribs);
+}
+
 struct StochasticPhotonSearchPayload {
     TinyUniformSampleGenerator sg; // Passing is faster than re-creating
     Reservoir<uint, 4> photonIndices;
@@ -82,6 +105,21 @@ void photonAnyHitCaustic(inout StochasticPhotonSearchPayload pl : SV_RayPayload,
     pl.photonIndices.addSample(PrimitiveIndex(), pl.sg);
 }
 
+Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, Reservoir<uint, 4> reservoir)
+{
+    var flux = float3(0.0f);
+    for (uint i = reservoir.begin(); i < reservoir.end(); i++) {
+        let photonIndex = reservoir.get(i);
+        let ph = gPhotonHits[photonIndex];
+        let wi = ph.getWi();
+        let cosThetaI = abs(dot(wi, sd.faceN));
+        if (cosThetaI < 1e-6) continue;
+        flux += (ph.getFlux() * mi.eval(sd, wi, sg)) / cosThetaI;
+    }
+
+    return Accumulator(flux * reservoir.getWeight(), reservoir.getTotalCount());
+}
+
 Accumulator accumulatePhotons<let Caustic: bool, M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, RayDesc r)
 {
     var p = StochasticPhotonSearchPayload(sg);
@@ -90,17 +128,50 @@ Accumulator accumulatePhotons<let Caustic: bool, M:IMaterialInstance>(inout Tiny
              /*hitGroup*/ Caustic ? 1 : 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, p);
     sg = p.sg;
 
-    var flux = float3(0.0f);
-    for (uint i = p.photonIndices.begin(); i < p.photonIndices.end(); i++) {
-        let photonIndex = p.photonIndices.get(i);
-        let ph = gPhotonHits[photonIndex];
-        let wi = ph.getWi();
-        let cosThetaI = abs(dot(wi, sd.faceN));
-        if (cosThetaI < 1e-6) continue;
-        flux += (ph.getFlux() * mi.eval(sd, wi, sg)) / cosThetaI;
-    }
+    return accumulatePhotons(sg, sd, mi, p.photonIndices);
+}
 
-    return Accumulator(flux * p.photonIndices.getWeight(), p.photonIndices.getTotalCount());
+DoubleAccumulator accumulatePhotonsSplit<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, RayDesc r)
+{
+    return {
+        accumulatePhotons<false>(sg, sd, mi, r),
+        accumulatePhotons<true>(sg, sd, mi, r)
+    };
+}
+
+struct StochasticPhotonSearchPayloadShared {
+    TinyUniformSampleGenerator sg; // Passing is faster than re-creating
+    Reservoir<uint, 4> causticIndices;
+    Reservoir<uint, 4> globalIndices;
+
+    __init(TinyUniformSampleGenerator sg) {
+        this.sg = sg;
+        causticIndices = {};
+        globalIndices = {};
+    }
+};
+
+[shader("anyhit")]
+void photonAnyHitShared(inout StochasticPhotonSearchPayloadShared pl : SV_RayPayload, in StochasticPhotonIsectAttribsShared ph : SV_IntersectionAttributes)
+{
+    if (ph.isCaustic) {
+        pl.causticIndices.addSample(PrimitiveIndex(), pl.sg);
+    } else {
+        pl.globalIndices.addSample(PrimitiveIndex(), pl.sg);
+    }
+}
+
+DoubleAccumulator accumulatePhotonsShared<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, RayDesc r)
+{
+    var p = StochasticPhotonSearchPayloadShared(sg);
+    // TODO: Use different instance inclusion masks for caustic/global photons instead of hitGroups
+    TraceRay(gPhotonAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF,
+             /*hitGroup*/ 2, /*rayTypeCount*/ 0, /*miss*/ 0, r, p);
+    sg = p.sg;
+
+    let caustic = accumulatePhotons(sg, sd, mi, p.causticIndices);
+    let global = accumulatePhotons(sg, sd, mi, p.globalIndices);
+    return {global, caustic};
 }
 
 [shader("raygeneration")]
@@ -124,9 +195,6 @@ void rayGen()
     r.Direction = q.getViewDir(); // Encode view direction in ray direction to save payload space
     r.TMin = 0.0;
     r.TMax = 1e-6;
-
-    var global = accumulatePhotons<false>(sg, sd, mi, r);
-    var caustic = accumulatePhotons<true>(sg, sd, mi, r);
     
-    gQueryAccumulation[idx] = {global, caustic};
+    gQueryAccumulation[idx] = accumulatePhotonsShared(sg, sd, mi, r);
 }
