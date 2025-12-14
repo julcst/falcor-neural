@@ -47,7 +47,9 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
     let qi = PrimitiveIndex();
     let q = gPhotonQueries[qi];
 
+#if NORMAL_REJECTION
     if (abs(dot(q.getNormal(), p.normal)) < gMaxNormalDeviation) IgnoreHit();
+#endif
 
     // TODO: Prefetch material? Or use photon hit?
     let wo = q.getViewDir();

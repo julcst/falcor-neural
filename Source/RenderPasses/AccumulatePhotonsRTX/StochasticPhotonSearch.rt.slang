@@ -23,6 +23,7 @@ cbuffer CB
     uint gQueryCount;
     float gMaxRadius2;
     uint gFrameIndex;
+    float gMaxNormalDeviation; // in cosine
 }
 
 struct StochasticPhotonIsectAttribsShared {
@@ -55,7 +56,11 @@ Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenera
         let photonIndex = reservoir.get(i);
         let ph = gPhotonHits[photonIndex];
         let wi = ph.getWi();
-        let cosThetaI = abs(dot(wi, sd.faceN));
+        let n = sd.faceN; // TODO: Use shading normal?
+    #if NORMAL_REJECTION
+        if (abs(dot(n, ph.getNormal())) < gMaxNormalDeviation) continue; // In anyhit?
+    #endif
+        let cosThetaI = abs(dot(wi, n));
         if (cosThetaI < 1e-6) continue;
         flux += (ph.getFlux() * mi.eval(sd, wi, sg)) / cosThetaI;
     }

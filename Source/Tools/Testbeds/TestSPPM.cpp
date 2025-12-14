@@ -27,7 +27,7 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
 
     g->createPass("Ref", "ImageLoader", Properties(json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 5}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
@@ -63,11 +63,11 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
 ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f) {
     auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={})", rej));
 
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<18}, {"maxBounces", 6}, {"globalRejectionProb", rej}})); // OG used 1<<17
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<14}, {"replacementFactor", 0.02f}})); // OG used 1<<17
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 0.02f}})); // OG used 1<<17
     g->createPass("nrc", "NRC", Properties());
     g->createPass("visPh", "VisualizePhotons", Properties());
     g->createPass("debug", "DebugQueryBuffer", Properties());
@@ -197,6 +197,8 @@ void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1
 int runMain(int argc, char** argv)
 {
     // Start Python interprete
+    //Logger::setOutputs(Logger::OutputFlags::File | Logger::OutputFlags::Console);
+    Logger::setOutputs(Logger::OutputFlags::File);
     Scripting::start();
     // Register/load Falcor plugins so importers (e.g. .pyscene) are available.
     PluginManager::instance().loadAllPlugins();
@@ -253,6 +255,7 @@ int runMain(int argc, char** argv)
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());
+    std::cout << "Log file: " << Logger::getLogFilePath() << std::endl;
     return 0;
 }
 
