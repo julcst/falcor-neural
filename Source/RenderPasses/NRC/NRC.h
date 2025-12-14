@@ -72,6 +72,7 @@ private:
     uint32_t mTrainSteps = 4;
     bool mUseFactorization = true;
     bool mOutputRaw = false;
+    bool mJitFusion = true;
 
     ref<ComputePass> mpOutputsToTexturePass;
     ref<ComputePass> mpFactorizeOutputPass;

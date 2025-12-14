@@ -186,6 +186,7 @@ const std::string kOutput = "output";
 const std::string kUseFactorization = "useFactorization";
 const std::string kOutputRaw = "outputRaw";
 const std::string kTrainingSteps = "trainingSteps";
+const std::string kJITFusion = "jitFusion";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -195,8 +196,8 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
-    model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump());
     setProperties(props);
+    model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump(), mJitFusion);
 }
 
 void NRC::setProperties(const Properties& props)
@@ -205,6 +206,7 @@ void NRC::setProperties(const Properties& props)
         if (key == kUseFactorization) mUseFactorization = value;
         else if (key == kOutputRaw) mOutputRaw = value;
         else if (key == kTrainingSteps) mTrainSteps = value;
+        else if (key == kJITFusion) mJitFusion = value;
         else logWarning("{}: Unknown property '{}'", getClassName(), key);
     }
 }
@@ -215,6 +217,7 @@ Properties NRC::getProperties() const
     props[kUseFactorization] = mUseFactorization;
     props[kOutputRaw] = mOutputRaw;
     props[kTrainingSteps] = mTrainSteps;
+    props[kJITFusion] = mJitFusion;
     return props;
 }
 
@@ -222,6 +225,9 @@ void NRC::renderUI(Gui::Widgets& widget) {
     widget.checkbox("Use Factorization", mUseFactorization);
     widget.checkbox("Raw Output", mOutputRaw);
     widget.var("Training Steps", mTrainSteps, 1u, 8u);
+    if (widget.checkbox("JIT Fusion", mJitFusion)) {
+        model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump(), mJitFusion);
+    }
 }
 
 RenderPassReflection NRC::reflect(const CompileData& compileData)

@@ -10,9 +10,9 @@
 struct TCNNModel : ITCNNModel {
     tcnn::TrainableModel model;
 
-    TCNNModel(uint32_t inputSize, uint32_t outputSize, const tcnn::json& CONFIG) {
+    TCNNModel(uint32_t inputSize, uint32_t outputSize, const tcnn::json& CONFIG, bool jitFusion) {
         model = tcnn::create_from_config(inputSize, outputSize, CONFIG);
-        model.network->set_jit_fusion(tcnn::supports_jit_fusion());
+        model.network->set_jit_fusion(jitFusion && tcnn::supports_jit_fusion());
     }
 
     void inference(const tcnn::GPUMatrixDynamic<float>& input,
@@ -27,6 +27,6 @@ struct TCNNModel : ITCNNModel {
     }
 };
 
-std::unique_ptr<ITCNNModel> create_model(uint32_t input_dims, uint32_t output_dims, const std::string& config) {
-    return std::make_unique<TCNNModel>(input_dims, output_dims, tcnn::json::parse(config));
+std::unique_ptr<ITCNNModel> create_model(uint32_t input_dims, uint32_t output_dims, const std::string& config, bool jitFusion) {
+    return std::make_unique<TCNNModel>(input_dims, output_dims, tcnn::json::parse(config), jitFusion);
 }
