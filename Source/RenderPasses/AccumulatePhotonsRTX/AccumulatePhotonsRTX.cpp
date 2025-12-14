@@ -8,11 +8,11 @@ namespace
 {
 const char kQuerySearch[] = "RenderPasses/AccumulatePhotonsRTX/QuerySearch.rt.slang";
 const char kPhotonSearch[] = "RenderPasses/AccumulatePhotonsRTX/PhotonSearch.rt.slang";
+const char kStochPhotonSearch[] = "RenderPasses/AccumulatePhotonsRTX/StochasticPhotonSearch.rt.slang";
 const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
 const char kPreparePhotonsComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/PreparePhotons.cs.slang";
 const char kFinalizeTextureComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/FinalizeTexture.cs.slang";
 const char kFinalizeBufferComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/FinalizeBuffer.cs.slang";
-
 
 // Inputs
 const char kQueryBuffer[] = "queries";
@@ -34,6 +34,7 @@ const char kOutputBuffer[] = "outputBuffer";
 // Properties
 const char kVisualizeHeatmap[] = "visualizeHeatmap";
 const char kReverseSearch[] = "reverseSearch";
+const char kUseStochasticEvaluation[] = "stochEval";
 const char kGlobalAlpha[] = "globalAlpha";
 const char kCausticAlpha[] = "causticAlpha";
 const char kGlobalRadius[] = "globalRadius";
@@ -60,6 +61,7 @@ void AccumulatePhotonsRTX::setProperties(const Properties& props)
     {
         if (key == kVisualizeHeatmap) mVisualizeHeatmap = value;
         else if (key == kReverseSearch) mReverseSearch = value;
+        else if (key == kUseStochasticEvaluation) mUseStochasticEvaluation = value;
         else if (key == kGlobalAlpha) mGlobalAlpha = value;
         else if (key == kCausticAlpha) mCausticAlpha = value;
         else if (key == kGlobalRadius) mGlobalRadius = value;
@@ -74,6 +76,7 @@ Properties AccumulatePhotonsRTX::getProperties() const
     Properties props;
     props[kVisualizeHeatmap] = mVisualizeHeatmap;
     props[kReverseSearch] = mReverseSearch;
+    props[kUseStochasticEvaluation] = mUseStochasticEvaluation;
     props[kGlobalAlpha] = mGlobalAlpha;
     props[kCausticAlpha] = mCausticAlpha;
     props[kGlobalRadius] = mGlobalRadius;
@@ -84,7 +87,9 @@ Properties AccumulatePhotonsRTX::getProperties() const
 
 void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {
     widget.checkbox("Visualize Heatmap", mVisualizeHeatmap);
-    if (widget.checkbox("Reverse Search", mReverseSearch)) requestRecompile();
+    if (widget.checkbox("Reverse Search", mReverseSearch)
+     || widget.checkbox("Use Stochastic Evaluation", mUseStochasticEvaluation))
+        requestRecompile();
     widget.var("Global Radius", mGlobalRadius, 0.0001f, 1.0f, 0.0001f);
     widget.var("Caustic Radius", mCausticRadius, 0.0001f, 1.0f, 0.0001f);
     widget.var("Global Alpha", mGlobalAlpha, 0.1f, 1.0f, 0.01f);
@@ -252,6 +257,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gDebugCounters"] = pDebugCounters;
         var["gQueryAccumulation"] = pAccumulatorBuffer;
         var["CB"]["gQueryCount"] = mQueryCount;
+        var["CB"]["gMaxRadius2"] = std::powf(std::max(mGlobalRadius, mCausticRadius), 2.0f);
+        var["CB"]["gFrameIndex"] = mFrameCounter;
 
         pRenderContext->clearUAV(pDebugCounters->getUAV().get(), uint4(0));
         
@@ -326,11 +333,12 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
             mpFinalizeBufferPass->execute(pRenderContext, mQueryCount, 1, 1);
         }
     }
+    mFrameCounter++;
 }
 
 void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderContext, const ref<Buffer>& pAABBBuffer, const uint32_t aabbCount)
 {
-    FALCOR_PROFILE(pRenderContext, "BuildQueryAS");
+    FALCOR_PROFILE(pRenderContext, "BuildAS");
     FALCOR_ASSERT(pAABBBuffer);
     static_assert(sizeof(AABB) == sizeof(RtAABB));
 
@@ -351,7 +359,7 @@ void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderCont
     // TODO: Optimize size
     RtAccelerationStructureBuildInputs blasInputs = {
         .kind = RtAccelerationStructureKind::BottomLevel,
-        .flags = RtAccelerationStructureBuildFlags::PreferFastBuild | RtAccelerationStructureBuildFlags::MinimizeMemory,
+        .flags = RtAccelerationStructureBuildFlags::PreferFastBuild,
         .descCount = 1,
         .geometryDescs = &geometryDesc,
     };
@@ -437,10 +445,11 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
     mTracer.pBindingTable.reset();
     mTracer.pVars.reset();
     mpScene = pScene;
+    mFrameCounter = 0;
 
     if (mpScene)
     {
-        if (mReverseSearch) {
+        if (mReverseSearch && !mUseStochasticEvaluation) {
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kPhotonSearch);
@@ -455,6 +464,24 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
 
             // Hit group for procedural queries: anyhit + intersection.
             sbt->setHitGroup(0, 0u, desc.addHitGroup("", "photonAnyHit", "photonIntersection", mpScene->getTypeConformances())); // single entry for our custom TLAS
+
+            mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+        } else if (mReverseSearch && mUseStochasticEvaluation) {
+            ProgramDesc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kStochPhotonSearch);
+            desc.setMaxPayloadSize(sizeof(uint4) + 5 * sizeof(uint));
+            desc.setMaxAttributeSize(0);
+            desc.setMaxTraceRecursionDepth(2);
+
+            // geometryCount=1 for our custom TLAS.
+            mTracer.pBindingTable = RtBindingTable::create(0, 2, 1);
+            auto& sbt = mTracer.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+
+            // Hit group for procedural queries: anyhit + intersection.
+            sbt->setHitGroup(0, 0, desc.addHitGroup("", "photonAnyHitGlobal", "photonIntersectionGlobal", mpScene->getTypeConformances()));
+            sbt->setHitGroup(1, 0, desc.addHitGroup("", "photonAnyHitCaustic", "photonIntersectionCaustic", mpScene->getTypeConformances()));
 
             mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
         } else {

@@ -30,6 +30,11 @@ struct Accumulator {
         flux = asfloat(raw.xyz);
         collectedPhotons = raw.w;
     }
+
+    __init(float3 flux, uint collectedPhotons) {
+        this.flux = flux;
+        this.collectedPhotons = collectedPhotons;
+    }
 #endif
 };
 
@@ -115,6 +120,13 @@ struct QueryState {
 #endif
 };
 
+#ifndef HOST_CODE
+float sqr(half x) {
+    let fx = float(x);
+    return fx * fx;
+}
+#endif
+
 // Holds only the geometric information about the query for
 // high bandwith intersection tests
 struct Sphere {
@@ -133,16 +145,13 @@ struct Sphere {
     bool mayContain(float3 p) {
         let diff = p - center;
         let dist2 = dot(diff, diff);
-        let r = float(max(globalR, causticR)); // Back to float for squaring
-        return dist2 < (r * r);
+        return dist2 < sqr(max(globalR, causticR));
     }
 
     bool contains(float3 p, bool isCaustic) {
         let diff = p - center;
         let dist2 = dot(diff, diff);
-        let globalR = float(this.globalR); // Back to float for squaring
-        let causticR = float(this.causticR);
-        return dist2 < (isCaustic ? causticR * causticR : globalR * globalR);
+        return dist2 < (isCaustic ? sqr(causticR) : sqr(globalR));
     }
 #endif
 };

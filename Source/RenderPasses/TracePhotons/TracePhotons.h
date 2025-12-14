@@ -38,7 +38,7 @@ private:
 
     // Configuration
     uint mPhotonCount = 2u<<20u;            ///< Number of photons to trace per frame
-    uint mMaxBounces = 5;                   ///< Max number of bounces per photon
+    uint mMaxBounces = 8;                   ///< Max number of bounces per photon
     float mGlobalRejectionProb = 0.0f;      ///< Rejection probability for non-caustic photons, in [0, 1), 0 to disable (faster but minor quality loss)
     float mRussianRouletteWeight = 1.0f;    ///< Weight for Russian Roulette termination
     bool mUseRussianRoulette = true;        ///< Whether to use Russian Roulette termination (faster at almost no quality cost)

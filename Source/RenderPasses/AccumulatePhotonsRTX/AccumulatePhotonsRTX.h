@@ -60,15 +60,18 @@ private:
     // Config
     bool mVisualizeHeatmap = false;
     bool mReverseSearch = false;
+    bool mUseStochasticEvaluation = true;
     float mGlobalRadius = 0.005f;
     float mCausticRadius = 0.001f;
     float mGlobalAlpha = 2.0f / 3.0f; // Optimal (Kaplanyan Dachsbacher 2012), smaller values lead to divergence
     float mCausticAlpha = 2.0f / 3.0f; // Optimal (Kaplanyan Dachsbacher 2012), smaller values lead to divergence
-    float mMaxNormalDeviation = 30.0f; // in degrees
+    float mMaxNormalDeviation = 60.0f; // in degrees
 
+    // Internal
     uint32_t mQueryCount = 0; // Automatically derived from input data
     uint32_t mPhotonHitCount = 0; // Automatically derived from input data
     uint32_t mGlobalPhotonCounter = 0;
+    uint32_t mFrameCounter = 0;
 
     ref<Scene> mpScene;
 
