@@ -61,11 +61,12 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
     let sd = gScene.materials.prepareShadingData(v, materialID, wo);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
 
-    let cosThetaO = abs(dot(wi, sd.faceN));
-    if (cosThetaO < 1e-6) IgnoreHit();
+    let N = mi.getProperties(sd).guideNormal;
+    var cosThetaI = abs(dot(wi, N)); // TODO: guideN or faceN?
+    if (cosThetaI < 1e-6) IgnoreHit(); // Small angle is not cause for overbrighting
     var sg = TinyUniformSampleGenerator(42u); // TODO: seed per query and photon
     //var sg = TinyUniformSampleGenerator(seed(pcg2d({PrimitiveIndex(), DispatchRaysIndex().x})));
-    let outgoing_flux = (p.flux * mi.eval(sd, wi, sg)) / cosThetaO;
+    let outgoing_flux = (p.flux * mi.eval(sd, wi, sg)) / cosThetaI;
     if (luminance(outgoing_flux) < 1e-5) IgnoreHit(); // Skip expensive atomic ops for negligible contributions
 
     let offset = qi * sizeof(DoubleAccumulator) + (p.isCaustic ? sizeof(float4) : 0);
