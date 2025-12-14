@@ -205,6 +205,14 @@ void rayGen()
         }
     #endif
 
+        // Compensate for mismatch between flux and radiance transport for transmission
+        // Radiance transport scales by (eta^-2) but flux transport should not
+        if (bsdfSample.isLobe(LobeType::Transmission)) {
+            let IoR = gScene.materials.evalIoR(sd.materialID);
+            let eta = sd.frontFacing ? (sd.IoR / IoR) : (IoR / sd.IoR);
+            weight *= eta * eta;
+        }
+
         // Update Photon
         isCaustic = bsdfSample.isLobe(LobeType::Specular | LobeType::Delta);
         photonFlux *= weight;
