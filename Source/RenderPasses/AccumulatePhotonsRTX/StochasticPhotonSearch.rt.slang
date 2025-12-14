@@ -60,7 +60,7 @@ void photonIntersectionCaustic() {
 }
 
 struct StochasticPhotonSearchPayload {
-    TinyUniformSampleGenerator sg;
+    TinyUniformSampleGenerator sg; // Passing is faster than re-creating
     Reservoir<uint, 4> photonIndices;
 
     __init(TinyUniformSampleGenerator sg) {
@@ -69,24 +69,10 @@ struct StochasticPhotonSearchPayload {
     }
 };
 
-static const uint PAYLOAD_SIZE = sizeof(StochasticPhotonSearchPayload);
-
 [shader("anyhit")]
-void photonAnyHit<let Caustic: bool>(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
+void photonAnyHit(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
 {
     pl.photonIndices.addSample(PrimitiveIndex(), pl.sg);
-}
-
-[shader("anyhit")]
-void photonAnyHitGlobal(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
-{
-    photonAnyHit<false>(pl, ph);
-}
-
-[shader("anyhit")]
-void photonAnyHitCaustic(inout StochasticPhotonSearchPayload pl : SV_RayPayload, in StochasticPhotonIsectAttribs ph : SV_IntersectionAttributes)
-{
-    photonAnyHit<true>(pl, ph);
 }
 
 Accumulator accumulatePhotons<let Caustic: bool, M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, RayDesc r)

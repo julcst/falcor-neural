@@ -411,7 +411,7 @@ void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderCont
 
     RtAccelerationStructureBuildInputs tlasInputs = {
         .kind = RtAccelerationStructureKind::TopLevel,
-        .flags = RtAccelerationStructureBuildFlags::PreferFastTrace,
+        .flags = RtAccelerationStructureBuildFlags::PreferFastBuild,
         .descCount = 1,
         .instanceDescs = allocation.getGpuAddress(),
     };
@@ -470,9 +470,9 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kStochPhotonSearch);
-            desc.setMaxPayloadSize(sizeof(uint4) + 5 * sizeof(uint));
+            desc.setMaxPayloadSize(6 * sizeof(uint));
             desc.setMaxAttributeSize(0);
-            desc.setMaxTraceRecursionDepth(2);
+            desc.setMaxTraceRecursionDepth(1);
 
             // geometryCount=1 for our custom TLAS.
             mTracer.pBindingTable = RtBindingTable::create(0, 2, 1);
@@ -480,8 +480,8 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
 
             // Hit group for procedural queries: anyhit + intersection.
-            sbt->setHitGroup(0, 0, desc.addHitGroup("", "photonAnyHitGlobal", "photonIntersectionGlobal", mpScene->getTypeConformances()));
-            sbt->setHitGroup(1, 0, desc.addHitGroup("", "photonAnyHitCaustic", "photonIntersectionCaustic", mpScene->getTypeConformances()));
+            sbt->setHitGroup(0, 0, desc.addHitGroup("", "photonAnyHit", "photonIntersectionGlobal", mpScene->getTypeConformances()));
+            sbt->setHitGroup(1, 0, desc.addHitGroup("", "photonAnyHit", "photonIntersectionCaustic", mpScene->getTypeConformances()));
 
             mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
         } else {
