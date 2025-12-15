@@ -214,7 +214,7 @@ int runMain(int argc, char** argv)
 
     // Preview
     if (options.createWindow) {
-        auto pt = graphPhotonNRC(app.getDevice());
+        auto pt = graphBiNRC(app.getDevice());
         app.setRenderGraph(pt);
         app.frame();
         app.getDevice()->getProfiler()->startCapture();
@@ -249,9 +249,9 @@ int runMain(int argc, char** argv)
     // Multisample NRC
     render(app, graphNRC(app.getDevice(), 32), 128);
 
-    // PT Query
-    render(app, graphPTQuery(app.getDevice()));
-    render(app, graphPTQuery(app.getDevice(), 32));
+    // // PT Query
+    // render(app, graphPTQuery(app.getDevice()));
+    // render(app, graphPTQuery(app.getDevice(), 32));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

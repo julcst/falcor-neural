@@ -142,6 +142,7 @@ void collectRadianceFromPhoton(inout SampleGenerator sg, ShadingData sdQuery, IM
 
     float3 toPhoton = photonPos - queryPos;
     float dist2 = dot(toPhoton, toPhoton);
+    if (dist2 < 1e-4f) return; // Avoid NaN
     float dist = sqrt(dist2);
     float3 wi = toPhoton / dist;
 
@@ -160,14 +161,16 @@ void collectRadianceFromLightSource(inout SampleGenerator sg, ShadingData sdQuer
 
     float3 toLight = lightPos - queryPos;
     float dist2 = dot(toLight, toLight);
+    if (dist2 < 1e-4f) return; // Avoid NaN
     float dist = sqrt(dist2);
     float3 wi = toLight / dist;
+    let lambert = abs(dot(lightNormal, wi)) * M_1_PI;
+    if (lambert < 1e-4f) return;
 
     // Check if the photon can contribute to the query (i.e., not blocked)
     // TODO: Handle environment lights correctly
     if (traceShadowRay(lightPos, lightNormal, queryPos, queryNormal))
     {
-        let lambert = max(dot(lightNormal, -wi), 0.f) * M_1_PI;
         outgoingRadianceAtQuery += lightEmission * lambert * miQuery.eval(sdQuery, wi, sg) / dist2;
     }
 }
@@ -235,7 +238,7 @@ void rayGen()
 
     let sdQuery = loadShadingData(query.getHitInfo(), query.position, -query.getViewDir());
     let miQuery = gScene.materials.getMaterialInstance(sdQuery, ExplicitLodTextureSampler(0));
-    
+
     collectRadianceFromLightSource(sg, sdQuery, miQuery, ls.posW, ls.normal, ls.flux, outgoingRadianceAtQuery);
 
     // Main Raytrace Loop
