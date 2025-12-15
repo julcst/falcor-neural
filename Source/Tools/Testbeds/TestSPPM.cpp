@@ -61,7 +61,7 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f, bo
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 0.02f}})); // OG used 1<<17
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", false}}));
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
     g->createPass("visPh", "VisualizePhotons", Properties());
     g->createPass("debug", "DebugQueryBuffer", Properties());
     g->createPass("visQueries", "VisualizeQueries", Properties());
@@ -99,7 +99,7 @@ ref<RenderGraph> graphNRC(const ref<Device>& pDevice, uint32_t spp = 1) {
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", false}}));
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
     g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
@@ -121,7 +121,7 @@ ref<RenderGraph> graphBiNRC(const ref<Device>& pDevice) {
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", false}}));
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
     g->createPass("estim", "PhotonNEE", Properties());
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
@@ -194,7 +194,7 @@ int runMain(int argc, char** argv)
     Testbed::Options options {};
     options.windowDesc.width = res;
     options.windowDesc.height = res;
-    // options.createWindow = true; // Toggle preview
+    options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
     app.loadScene("cornell_box_caustic.pyscene");
@@ -219,10 +219,10 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, true), 512);
-    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, false), 512);
-    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, true), 512); // fastest
-    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, false), 512);
+    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, true), 32);
+    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, false), 32);
+    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, true), 32); // fastest
+    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, false), 32);
 
     // PhotonNRC
     render(app, graphPhotonNRC(app.getDevice()), 256);

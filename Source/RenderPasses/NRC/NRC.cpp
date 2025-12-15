@@ -98,73 +98,6 @@ const nlohmann::json CONFIG {
     }}
 };
 
-constexpr std::string_view inferenceKernel = R"(
-__device__ __forceinline__ constexpr float3 operator*(const float3& a, const float3& b) {
-    return {a.x * b.x, a.y * b.y, a.z * b.z};
-}
-
-__device__ __forceinline__ constexpr float3 operator+(const float3& a, const float3& b) {
-    return {a.x + b.x, a.y + b.y, a.z + b.z};
-}
-
-__device__ __forceinline__ constexpr float4 operator*(const float a, const float4& b) {
-    return {a * b.x, a * b.y, a * b.z, a * b.w};
-}
-
-__device__ __forceinline__ constexpr float4 operator+=(float4& a, const float4& b) {
-    a.x += b.x;
-    a.y += b.y;
-    a.z += b.z;
-    a.w += b.w;
-    return a;
-}
-
-__device__ __forceinline__ constexpr float4 make_float4(const float3& a, float w) {
-    return {a.x, a.y, a.z, w};
-}
-
-__global__ void inference_kernel(
-    int2 dim,
-    float* inferenceInput, 
-    float3* inferenceThroughput,
-    bool raw,
-    float4* image,
-    const network_precision_t* __restrict__ params
-) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    bool valid = (x < dim.x) && (y < dim.y);
-
-    const int i = y * dim.x + x;
-    const int idxIn = i * NRC_INPUT_SIZE;
-
-    // Pack input into hvec
-    tcnn::vec<NRC_INPUT_SIZE> nerf_in;
-    #pragma unroll
-    for (int j = 0; j < NRC_INPUT_SIZE; j++)
-        nerf_in[j] = valid ? inferenceInput[idxIn + j] : 0.0f;
-
-    // Call tiny-cuda-nn model. All 32 threads of the warp must be active here.
-    tcnn::vec<NRC_OUTPUT_SIZE> nerf_out = model_fun(nerf_in, params);
-
-    if (!valid) return; // All threads must be active until now
-
-    auto inference = make_float3(nerf_out[0], nerf_out[1], nerf_out[2]);
-
-    const auto throughput = inferenceThroughput[i];
-
-    if (throughput.x <= 0.0f && throughput.y <= 0.0f && throughput.z <= 0.0f) return;
-
-    if (raw) {
-        image[i] = make_float4(inference, 1.0f);
-    } else {
-        const auto diffuse = make_float3(nerf_in[8], nerf_in[9], nerf_in[10]);
-        const auto specular = make_float3(nerf_in[11], nerf_in[12], nerf_in[13]);
-        image[i] = make_float4(inference * (diffuse + specular) * throughput, 1.0f);
-    }
-}
-)";
-
 namespace
 {
 const char kOutputsToTextureFile[] = "RenderPasses/NRC/OutputsToTexture.cs.slang";
@@ -291,7 +224,22 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpFactorizeOutputPass = ComputePass::create(mpDevice, desc);
     }
 
-    pRenderContext->submit(true); // Because we will use Cuda next we first need to explicitly wait for the current command queue to finish
+    if (mUseFactorization) {
+        FALCOR_PROFILE(pRenderContext, "FactorizeTrainingData");
+        auto var = mpFactorizeOutputPass->getRootVar();
+        var["gInput"] = renderData.getBuffer(kTrainInput);
+        var["gOutput"] = renderData.getBuffer(kTrainTarget);
+        
+        var["CB"]["gCount"] = mTrainSize;
+        
+        mpFactorizeOutputPass->execute(pRenderContext, mTrainSize, 1);
+    }
+
+    // Unnecessary?
+    // {
+    //     FALCOR_PROFILE(pRenderContext, "Submit");
+    //     pRenderContext->submit(true); // Because we will use Cuda next we first need to explicitly wait for the current command queue to finish
+    // }
 
     // for (auto i : {10u, 50u, 1000u}) {
     //     const auto s = renderData[kTrainInput]->asBuffer()->getElement<NRCInput>(i);
@@ -303,23 +251,10 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
     //     logInfo("InferenceInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
     // }
 
-    tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
-    tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mTrainSize};
-    tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
-    tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
-
-    if (mUseFactorization) {
-        // Factorize outputs
-        auto var = mpFactorizeOutputPass->getRootVar();
-        var["gInput"] = renderData.getBuffer(kInferenceInput);
-        var["gOutput"] = renderData.getBuffer(kInferenceOutputFloat);
-        
-        var["CB"]["gCount"] = mInferenceSize;
-        
-        mpFactorizeOutputPass->execute(pRenderContext, mInferenceSize, 1);
-    }
-
     {
+        FALCOR_PROFILE(pRenderContext, "Training");
+        tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
+        tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mTrainSize};
         uint32_t batchSize = mTrainSize / mTrainSteps;
         for (uint32_t offset = 0; offset < mTrainSize; offset += batchSize) {
             // TODO: Limit training to the samples generated in this step to improve performance
@@ -330,8 +265,14 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 
     {
+        FALCOR_PROFILE(pRenderContext, "Inference");
+        tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
+        tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
         model->inference(inferenceInput, inferenceOutput);
-        
+    }
+
+    {
+        FALCOR_PROFILE(pRenderContext, "OutputsToTexture");
         // Copy to texture
         mpOutputsToTexturePass->addDefine("USE_FACTORISATION", (!mOutputRaw && mUseFactorization) ? "1" : "0");
         auto var = mpOutputsToTexturePass->getRootVar();
