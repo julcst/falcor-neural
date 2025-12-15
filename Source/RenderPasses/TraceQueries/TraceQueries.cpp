@@ -116,8 +116,6 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     var["gPhotonQueries"] = pQueryBuffer;
     if (pNRCInput) var["gNRCInput"] = pNRCInput->asBuffer();
 
-    logInfo("sizeof(Query)={}", var["gPhotonQueries"].operator Falcor::ref<Falcor::Buffer>()->getStructSize());
-
     mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(frameDim.x, frameDim.y, 1));
 
     mFrameCount++;

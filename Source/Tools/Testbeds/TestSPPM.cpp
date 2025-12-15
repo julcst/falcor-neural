@@ -25,13 +25,10 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
 ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true) {
     auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={}, rr={}, stoch={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr, stoch));
 
-    g->createPass("Ref", "ImageLoader", Properties(json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}, {"stochEval", stoch}}));
-    g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
-    g->createPass("Error", "ErrorMeasurePass", Properties(json  {{"SelectedOutputId", "Difference"}}));
 
     for (const auto& output : g->getAvailableOutputs())
     {
@@ -51,12 +48,8 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
     g->addEdge("TraceQueries.queries", "AccumPh.queries");
 
-    g->addEdge("AccumPh.outputTexture", "Error.Source");
-    g->addEdge("Ref.dst", "Error.Reference");
-
     g->markOutput("AccumPh.outputTexture");
     //g->markOutput("VisualizePhotons");
-    //g->markOutput("Error");
     return g;
 }
 
@@ -75,7 +68,7 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f, bo
 
     g->addEdge("TracePhotons.photons", "visPh.photons");
     g->addEdge("TracePhotons.counters", "visPh.counters");
-    g->markOutput("visPh.dst");
+    // g->markOutput("visPh.dst");
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -208,7 +201,7 @@ int runMain(int argc, char** argv)
 
     // Preview
     if (options.createWindow) {
-        auto pt = graphBiNRC(app.getDevice());
+        auto pt = graphPhotonNRC(app.getDevice());
         app.setRenderGraph(pt);
         app.frame();
         app.getDevice()->getProfiler()->startCapture();
@@ -228,7 +221,7 @@ int runMain(int argc, char** argv)
     // SPPM
     render(app, graphSPPM(app.getDevice(), true, 0.7f, true, true), 512);
     render(app, graphSPPM(app.getDevice(), true, 0.7f, true, false), 512);
-    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, true), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, true), 512); // fastest
     render(app, graphSPPM(app.getDevice(), false, 0.7f, true, false), 512);
 
     // PhotonNRC
