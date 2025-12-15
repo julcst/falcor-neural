@@ -12,6 +12,7 @@ public:
     virtual ~ITCNNModel() = default;
     virtual void inference(const tcnn::GPUMatrixDynamic<float>& input, tcnn::GPUMatrixDynamic<float>& output) = 0;
     virtual float training_step(const tcnn::GPUMatrixDynamic<float>& input, const tcnn::GPUMatrix<float>& target) = 0;
+    virtual cudaStream_t getStream() = 0;
 };
 
 extern std::unique_ptr<ITCNNModel> create_model(uint32_t input_dims, uint32_t output_dims, const std::string& config, bool jitFusion);

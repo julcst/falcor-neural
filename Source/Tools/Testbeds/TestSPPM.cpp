@@ -194,7 +194,7 @@ int runMain(int argc, char** argv)
     Testbed::Options options {};
     options.windowDesc.width = res;
     options.windowDesc.height = res;
-    options.createWindow = true; // Toggle preview
+    //options.createWindow = true; // Toggle preview
     Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
     app.loadScene("cornell_box_caustic.pyscene");
@@ -206,6 +206,10 @@ int runMain(int argc, char** argv)
         app.frame();
         app.getDevice()->getProfiler()->startCapture();
         app.run();
+        const auto capture = app.getDevice()->getProfiler()->endCapture();
+        for (const auto& lane : capture->getLanes()) {
+            logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
+        }
         return 0;
     }
 

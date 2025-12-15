@@ -131,6 +131,9 @@ NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     setProperties(props);
     model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump(), mJitFusion);
+
+    mpFence = pDevice->createFence(true);
+    mpSemaphore = make_ref<cuda_utils::ExternalSemaphore>(mpFence);
 }
 
 void NRC::setProperties(const Properties& props)
@@ -235,26 +238,10 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpFactorizeOutputPass->execute(pRenderContext, mTrainSize, 1);
     }
 
-    // Unnecessary?
-    // {
-    //     FALCOR_PROFILE(pRenderContext, "Submit");
-    //     pRenderContext->submit(true); // Because we will use Cuda next we first need to explicitly wait for the current command queue to finish
-    // }
-
-    // for (auto i : {10u, 50u, 1000u}) {
-    //     const auto s = renderData[kTrainInput]->asBuffer()->getElement<NRCInput>(i);
-    //     logInfo("TrainInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
-    // }
-
-    // for (auto i : {10u, 50u, 1000u}) {
-    //     const auto s = renderData[kInferenceInput]->asBuffer()->getElement<NRCInput>(i);
-    //     logInfo("InferenceInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
-    // }
-
     {
         FALCOR_PROFILE(pRenderContext, "Training");
-        tcnn::GPUMatrixDynamic trainInput {(float*) renderData[kTrainInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
-        tcnn::GPUMatrixDynamic trainTarget {(float*) renderData[kTrainTarget]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mTrainSize};
+        tcnn::GPUMatrixDynamic trainInput {(float*) renderData.getBuffer(kTrainInput)->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
+        tcnn::GPUMatrixDynamic trainTarget {(float*) renderData.getBuffer(kTrainTarget)->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mTrainSize};
         uint32_t batchSize = mTrainSize / mTrainSteps;
         for (uint32_t offset = 0; offset < mTrainSize; offset += batchSize) {
             // TODO: Limit training to the samples generated in this step to improve performance
@@ -286,4 +273,18 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         
         mpOutputsToTexturePass->execute(pRenderContext, resolution.x, resolution.y, 1);
     }
+
+    // NOTE: Currently Cuda GPU time spills to other passes making profiling difficult
+
+    // mpSemaphore->waitForCuda(pRenderContext, model->getStream());
+    // pRenderContext->submit(true);
+    // pRenderContext->uavBarrier(renderData.getBuffer(kInferenceOutputFloat).get());
+
+    // Prevent some timing spill
+    // pRenderContext->uavBarrier(renderData.getBuffer(kTrainInput).get());
+    // pRenderContext->uavBarrier(renderData.getBuffer(kTrainTarget).get());
+    // pRenderContext->uavBarrier(renderData.getBuffer(kInferenceInput).get());
+    // pRenderContext->uavBarrier(renderData.getBuffer(kInferenceOutputFloat).get());
+    // pRenderContext->submit(false);
+    // mpSemaphore->waitForCuda(pRenderContext, model->getStream());
 }

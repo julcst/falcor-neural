@@ -29,6 +29,7 @@
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
 #include "TCNNBridge.h"
+#include "Utils/CudaUtils.h"
 
 #include <memory>
 
@@ -76,4 +77,7 @@ private:
 
     ref<ComputePass> mpOutputsToTexturePass;
     ref<ComputePass> mpFactorizeOutputPass;
+
+    ref<Fence> mpFence;
+    ref<cuda_utils::ExternalSemaphore> mpSemaphore;
 };
