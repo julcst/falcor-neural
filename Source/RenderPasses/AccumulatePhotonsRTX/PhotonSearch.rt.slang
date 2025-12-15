@@ -20,6 +20,7 @@ RWStructuredBuffer<DoubleAccumulator> gQueryAccumulation; // float3 + uint per p
 cbuffer CB
 {
     uint gQueryCount;
+    float gMaxNormalDeviation; // in cosine
 }
 
 [shader("intersection")]
@@ -90,7 +91,7 @@ void rayGen()
     r.TMin = 0.0;
     r.TMax = 1e-6;
 
-    var pl = PhotonSearchPayload(q.hit, {});
+    var pl = PhotonSearchPayload(q.hit);
     
     TraceRay(gPhotonAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);
     

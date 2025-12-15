@@ -22,13 +22,13 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
 }
 
 // NOTE: QuerySearch is faster, RR improves performance with minimal quality loss, rejProb speeds up even more with some quality loss
-ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true) {
-    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={}, rr={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr));
+ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true) {
+    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={}, rr={}, stoch={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr, stoch));
 
     g->createPass("Ref", "ImageLoader", Properties(json {{"filename", "out_ref.exr"}}));
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}}));
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}, {"stochEval", stoch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
     g->createPass("Error", "ErrorMeasurePass", Properties(json  {{"SelectedOutputId", "Difference"}}));
@@ -55,20 +55,20 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     g->addEdge("Ref.dst", "Error.Reference");
 
     g->markOutput("AccumPh.outputTexture");
-    g->markOutput("VisualizePhotons.dst");
-    //g->markOutput("Error.Output");
+    //g->markOutput("VisualizePhotons");
+    //g->markOutput("Error");
     return g;
 }
 
-ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f) {
-    auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={})", rej));
+ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true) {
+    auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={}, stoch={})", rej, stoch));
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}}));
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
     g->createPass("Accum", "AccumulatePass", Properties());
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 0.02f}})); // OG used 1<<17
-    g->createPass("nrc", "NRC", Properties());
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", false}}));
     g->createPass("visPh", "VisualizePhotons", Properties());
     g->createPass("debug", "DebugQueryBuffer", Properties());
     g->createPass("visQueries", "VisualizeQueries", Properties());
@@ -91,17 +91,11 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f) {
 
     g->addEdge("TraceQueries.queries", "debug.queries");
     g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
-    // g->markOutput("debug.queryPosition");
-    // g->markOutput("debug.queryThroughput");
-    // g->markOutput("debug.queryEmission");
-    // g->markOutput("debug.nrcDiffuse");
-    // g->markOutput("debug.nrcWo");
-    // g->markOutput("debug.queryNormal");
-    // g->markOutput("debug.nrcRoughness");
+    // g->markOutput("debug");
 
     g->addEdge("qsamp.sample", "visQueries.queries");
     g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
-    g->markOutput("visQueries.output");
+    // g->markOutput("visQueries");
 
     g->markOutput("nrc.output");
     return g;
@@ -134,7 +128,7 @@ ref<RenderGraph> graphBiNRC(const ref<Device>& pDevice) {
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties());
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", false}}));
     g->createPass("estim", "PhotonNEE", Properties());
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
@@ -232,9 +226,10 @@ int runMain(int argc, char** argv)
     }
 
     // SPPM
-    render(app, graphSPPM(app.getDevice(), true, 0.7f, true), 512);
-    // render(app, graphSPPM(app.getDevice(), false, 0.5f, false), 512);
-    render(app, graphSPPM(app.getDevice(), false, 0.7f, true), 512);
+    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, true), 512);
+    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, false), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, true), 512);
+    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, false), 512);
 
     // PhotonNRC
     render(app, graphPhotonNRC(app.getDevice()), 256);

@@ -160,6 +160,13 @@ struct Sphere {
 struct PhotonSearchPayload {
     uint4 hit;
     DoubleAccumulator accum;
+
+#ifndef HOST_CODE
+    __init(uint4 hit) {
+        this.hit = hit;
+        this.accum = {};
+    }
+#endif
 };
 
 struct PhotonIsectAttribs {

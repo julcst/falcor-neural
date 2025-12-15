@@ -9,6 +9,7 @@ target_sources(AccumulatePhotonsRTX PRIVATE
     PreparePhotons.cs.slang
     Reservoir.slang
     StochasticPhotonSearch.rt.slang
+    StochasticQuerySearch.rt.slang
     Structs.slang
     FinalizeTexture.cs.slang
     FinalizeBuffer.cs.slang

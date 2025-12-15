@@ -7,6 +7,7 @@
 namespace
 {
 const char kQuerySearch[] = "RenderPasses/AccumulatePhotonsRTX/QuerySearch.rt.slang";
+const char kStochQuerySearch[] = "RenderPasses/AccumulatePhotonsRTX/StochasticQuerySearch.rt.slang";
 const char kPhotonSearch[] = "RenderPasses/AccumulatePhotonsRTX/PhotonSearch.rt.slang";
 const char kStochPhotonSearch[] = "RenderPasses/AccumulatePhotonsRTX/StochasticPhotonSearch.rt.slang";
 const char kPreparationComputeShaderFile[] = "RenderPasses/AccumulatePhotonsRTX/Preparation.cs.slang";
@@ -262,9 +263,12 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gDebugCounters"] = pDebugCounters;
         var["gQueryAccumulation"] = pAccumulatorBuffer;
         var["CB"]["gQueryCount"] = mQueryCount;
-        var["CB"]["gMaxRadius2"] = std::powf(std::max(mGlobalRadius, mCausticRadius), 2.0f);
-        var["CB"]["gFrameIndex"] = mFrameCounter;
         var["CB"]["gMaxNormalDeviation"] = cosf(mMaxNormalDeviation * (M_PI_2 / 90.0f)); // Convert degrees to radians
+        if (mUseStochasticEvaluation) {
+            var["CB"]["gMaxRadius2"] = std::powf(std::max(mGlobalRadius, mCausticRadius), 2.0f);
+            var["CB"]["gFrameIndex"] = mFrameCounter;
+        }
+        
 
         pRenderContext->clearUAV(pDebugCounters->getUAV().get(), uint4(0));
         
@@ -285,6 +289,9 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         var["gDebugCounters"] = pDebugCounters;
         var["gQueryAccumulation"] = pAccumulatorBuffer;
         var["CB"]["gMaxNormalDeviation"] = cosf(mMaxNormalDeviation * (M_PI_2 / 90.0f)); // Convert degrees to radians
+        if (mUseStochasticEvaluation) {
+            var["CB"]["gFrameIndex"] = mFrameCounter;
+        }
 
         // Dispatch one ray per photon hit.
         logInfo("Tracing {} photons", counters.PhotonStores);
@@ -490,11 +497,28 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             sbt->setHitGroup(0, 0, desc.addHitGroup("", "photonAnyHitShared", "photonIntersectionShared", mpScene->getTypeConformances()));
 
             mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
-        } else {
+        } else if (!mReverseSearch && !mUseStochasticEvaluation) {
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kQuerySearch);
             desc.setMaxPayloadSize(sizeof(QuerySearchPayload));
+            desc.setMaxAttributeSize(sizeof(QueryIsectAttribs));
+            desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
+
+            // Create a dummy SBT with geometryCount=1 for our custom TLAS.
+            mTracer.pBindingTable = RtBindingTable::create(0, 1, 1);
+            auto& sbt = mTracer.pBindingTable;
+            sbt->setRayGen(desc.addRayGen("rayGen", mpScene->getTypeConformances()));
+
+            // Hit group for procedural queries: anyhit + intersection.
+            sbt->setHitGroup(0, 0u, desc.addHitGroup("", "queryAnyHit", "queryIntersection", mpScene->getTypeConformances())); // single entry for our custom TLAS
+
+            mTracer.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+        } else if (!mReverseSearch && mUseStochasticEvaluation) {
+            ProgramDesc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kStochQuerySearch);
+            desc.setMaxPayloadSize(6 * sizeof(uint));
             desc.setMaxAttributeSize(sizeof(QueryIsectAttribs));
             desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
