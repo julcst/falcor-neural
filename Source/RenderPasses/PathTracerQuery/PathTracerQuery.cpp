@@ -74,6 +74,7 @@ namespace
 
     const std::string kUseSER = "useSER";
     const std::string kColorFormat = "colorFormat";
+    const std::string kParallelMultiSampling = "parallelMultiSampling";
 }
 
 
@@ -179,6 +180,8 @@ void PathTracerQuery::parseProperties(const Properties& props)
         else if (key == kUseSER) mStaticParams.useSER = value;
 
         else if (key == kColorFormat) mStaticParams.colorFormat = value;
+
+        else if (key == kParallelMultiSampling) mStaticParams.parallelMultiSampling = value;
 
         else logWarning("Unknown property '{}' in PathTracerQuery properties.", key);
     }
@@ -300,6 +303,7 @@ Properties PathTracerQuery::getProperties() const
     // Scheduling parameters
     props[kUseSER] = mStaticParams.useSER;
     props[kColorFormat] = mStaticParams.colorFormat;
+    props[kParallelMultiSampling] = mStaticParams.parallelMultiSampling;
 
     return props;
 }
@@ -527,6 +531,8 @@ bool PathTracerQuery::renderRenderingUI(Gui::Widgets& widget)
     {
         dirty |= widget.checkbox("Use SER", mStaticParams.useSER);
         widget.tooltip("Use Shader Execution Reordering (SER) to improve GPU utilization.");
+        dirty |= widget.checkbox("Parallel multi-sampling", mStaticParams.parallelMultiSampling);
+        widget.tooltip("Trace samples in parallel instead of sequentially per pixel. This can improve GPU utilization.");
     }
 
     if (auto group = widget.group("Output options"))
@@ -1010,7 +1016,11 @@ void PathTracerQuery::tracePass(RenderContext* pRenderContext, const RenderData&
 
     // Dispatch.
     // logInfo("Tracing {}", mQueryCount);
-    mpScene->raytrace(pRenderContext, tracePass.pProgram.get(), tracePass.pVars, uint3(mQueryCount, 1, 1));
+    if (mStaticParams.parallelMultiSampling) {
+        mpScene->raytrace(pRenderContext, tracePass.pProgram.get(), tracePass.pVars, uint3(mQueryCount * mStaticParams.samplesPerPixel, 1, 1));
+    } else {
+        mpScene->raytrace(pRenderContext, tracePass.pProgram.get(), tracePass.pVars, uint3(mQueryCount, 1, 1));
+    }
 
     // for (uint32_t i = 0; i < 10; i++) {
     //     const auto r = mpOutputBuffer->getElement<float3>(i);
@@ -1070,6 +1080,7 @@ DefineList PathTracerQuery::StaticParams::getDefines(const PathTracerQuery& owne
     defines.add("COLOR_FORMAT", std::to_string((uint32_t)colorFormat));
     defines.add("MIS_HEURISTIC", std::to_string((uint32_t)misHeuristic));
     defines.add("MIS_POWER_EXPONENT", std::to_string(misPowerExponent));
+    defines.add("PARALLEL_MULTI_SAMPLING", parallelMultiSampling ? "1" : "0");
 
     // Sampling utilities configuration.
     FALCOR_ASSERT(owner.mpSampleGenerator);

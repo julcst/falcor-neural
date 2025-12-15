@@ -140,6 +140,7 @@ private:
 
         // Scheduling parameters
         bool        useSER = true;                              ///< Enable SER (Shader Execution Reordering).
+        bool        parallelMultiSampling = false;              ///< Parallel multisampling vs linear multisampling in a loop
 
         // Output parameters
         ColorFormat colorFormat = ColorFormat::LogLuvHDR;       ///< Color format used for internal per-sample color and denoiser buffers.

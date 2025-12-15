@@ -113,7 +113,7 @@ ref<RenderGraph> graphNRC(const ref<Device>& pDevice, uint32_t spp = 1) {
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
     g->createPass("nrc", "NRC", Properties());
-    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}}));
+    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -155,7 +155,7 @@ ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
     auto g = RenderGraph::create(pDevice, fmt::format("PTQuery (spp={})", spp));
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
-    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}}));
+    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
     g->createPass("B2T", "BufferToTexture", Properties());
 
     g->addEdge("TraceQueries.queries", "PTQuery.queries");
@@ -247,11 +247,11 @@ int runMain(int argc, char** argv)
     render(app, graphBiNRC(app.getDevice()), 128);
 
     // Multisample NRC
-    // render(app, graphNRC(app.getDevice(), 32), 128);
+    render(app, graphNRC(app.getDevice(), 32), 128);
 
     // PT Query
-    // render(app, graphPTQuery(app.getDevice()));
-    // render(app, graphPTQuery(app.getDevice(), 32));
+    render(app, graphPTQuery(app.getDevice()));
+    render(app, graphPTQuery(app.getDevice(), 32));
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

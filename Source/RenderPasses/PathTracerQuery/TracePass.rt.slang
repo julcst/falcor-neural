@@ -347,7 +347,7 @@ struct ReorderingScheduler
     }
 
     /** Runs the path tracer for a single query.
-        \param[in] pathID Query index.
+        \param[in] i Query index.
     */
     void run(uint i)
     {
@@ -361,6 +361,16 @@ struct ReorderingScheduler
             uint pathID = i | (samplesRemaining << 24);
             tracePath(pathID);
         }
+    }
+
+    /** Runs the path tracer for a single query and sample
+        \param[in] i Query index.
+        \param[in] sample Sample index.
+    */
+    void run(uint i, uint sample)
+    {
+        uint pathID = i | (sample << 24);
+        tracePath(pathID);
     }
 }
 
@@ -462,6 +472,16 @@ struct Scheduler
             uint pathID = i | (samplesRemaining << 24);
             tracePath(pathID);
         }
+    }
+
+    /** Runs the path tracer for a single query and sample
+        \param[in] i Query index.
+        \param[in] sample Sample index.
+    */
+    void run(uint i, uint sample)
+    {
+        uint pathID = i | (sample << 24);
+        tracePath(pathID);
     }
 }
 
@@ -603,9 +623,18 @@ void scatterSdfGridClosestHit(inout PathPayload payload, SDFGridHitData sdfGridH
 [shader("raygeneration")]
 void rayGen()
 {
+#if PARALLEL_MULTI_SAMPLING
+    uint x = DispatchRaysIndex().x;
+    if (x >= DispatchRaysDimensions().x) return;
+    uint i = x / kSamplesPerPixel;
+    uint sample = x % kSamplesPerPixel;
+
+    gScheduler.run(i, sample);
+#else
     uint x = DispatchRaysIndex().x;
     uint queryCount = DispatchRaysDimensions().x;
     if (x >= queryCount) return;
 
     gScheduler.run(x);
+#endif
 }
