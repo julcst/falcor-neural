@@ -77,7 +77,4 @@ private:
 
     ref<ComputePass> mpOutputsToTexturePass;
     ref<ComputePass> mpFactorizeOutputPass;
-
-    ref<Fence> mpFence;
-    ref<cuda_utils::ExternalSemaphore> mpSemaphore;
 };

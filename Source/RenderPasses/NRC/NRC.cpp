@@ -131,9 +131,6 @@ NRC::NRC(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     setProperties(props);
     model = create_model(NRC_INPUT_SIZE, NRC_OUTPUT_SIZE, CONFIG.dump(), mJitFusion);
-
-    mpFence = pDevice->createFence(true);
-    mpSemaphore = make_ref<cuda_utils::ExternalSemaphore>(mpFence);
 }
 
 void NRC::setProperties(const Properties& props)
@@ -249,6 +246,7 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
             logInfo("Training loss: {}", loss);
             //lossHistory.push_back(loss);
         }
+        pRenderContext->waitForCuda(model->getStream()); // NOTE: Does not work on Vulkan
     }
 
     {
@@ -256,6 +254,7 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
         tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
         model->inference(inferenceInput, inferenceOutput);
+        pRenderContext->waitForCuda(model->getStream()); // NOTE: Does not work on Vulkan
     }
 
     {
@@ -275,16 +274,4 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
     }
 
     // NOTE: Currently Cuda GPU time spills to other passes making profiling difficult
-
-    // mpSemaphore->waitForCuda(pRenderContext, model->getStream());
-    // pRenderContext->submit(true);
-    // pRenderContext->uavBarrier(renderData.getBuffer(kInferenceOutputFloat).get());
-
-    // Prevent some timing spill
-    // pRenderContext->uavBarrier(renderData.getBuffer(kTrainInput).get());
-    // pRenderContext->uavBarrier(renderData.getBuffer(kTrainTarget).get());
-    // pRenderContext->uavBarrier(renderData.getBuffer(kInferenceInput).get());
-    // pRenderContext->uavBarrier(renderData.getBuffer(kInferenceOutputFloat).get());
-    // pRenderContext->submit(false);
-    // mpSemaphore->waitForCuda(pRenderContext, model->getStream());
 }
