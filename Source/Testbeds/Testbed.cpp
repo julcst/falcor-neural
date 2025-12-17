@@ -152,26 +152,45 @@ ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
     return g;
 }
 
-void captureOutputs(Testbed& app, const ref<RenderGraph>& graph, const std::string& prefix = "out_") {
+std::vector<std::string> getMarkedOutputs(const ref<RenderGraph>& g) {
+    std::vector<std::string> outputs;
+    for (auto i = 0; i < g->getOutputCount(); ++i) {
+        outputs.push_back(g->getOutputName(i));
+    }
+    return outputs;
+}
+
+std::string getMarkedOutput(const ref<RenderGraph>& g) {
+    return g->getOutputName(0);
+}
+
+void addTonemapping(ref<RenderGraph>& g, const std::string& out) {
+    g->createPass("tonemap", "ToneMapper", Properties());
+
+    g->addEdge(out, "tonemap.src");
+    g->markOutput("tonemap.dst");
+}
+
+void captureOutputs(const ref<Testbed>& app, const ref<RenderGraph>& graph, const std::string& prefix = "out_") {
     for (uint32_t i = 0; i < graph->getOutputCount(); ++i) {
-        app.captureOutput(prefix + graph->getName() + "." + graph->getOutputName(i) + ".exr", i);
+        app->captureOutput(prefix + graph->getName() + "." + graph->getOutputName(i) + ".exr", i);
     }
 }
 
-void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1, uint32_t warmupFrames = 10) {
-    app.setRenderGraph(graph);
+void render(const ref<Testbed>& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1, uint32_t warmupFrames = 10) {
+    app->setRenderGraph(graph);
 
     logInfo("\nRender {} for {} frames\n===================================", graph->getName(), frameCount);
-    for (uint32_t i = 0; i < warmupFrames; ++i)
-        app.frame();
+    for (uint32_t i = 0; i < warmupFrames && i < frameCount; ++i)
+        app->frame();
 
     uint32_t profiledFrames = frameCount - warmupFrames;
 
     if (profiledFrames > 0) {
-        app.getDevice()->getProfiler()->startCapture(profiledFrames);
+        app->getDevice()->getProfiler()->startCapture(profiledFrames);
         for (uint32_t i = 0; i < profiledFrames; ++i)
-            app.frame();
-        const auto capture = app.getDevice()->getProfiler()->endCapture();
+            app->frame();
+        const auto capture = app->getDevice()->getProfiler()->endCapture();
         
         logInfo("\nStats for {} over {} frames\n===================================", graph->getName(), profiledFrames);
         for (const auto& lane : capture->getLanes()) {
@@ -182,68 +201,75 @@ void render(Testbed& app, const ref<RenderGraph>& graph, uint32_t frameCount = 1
     captureOutputs(app, graph);
 }
 
+ref<Testbed> createApp(const std::string& scene, uint32_t res = 512, bool interactive = false) {
+    Testbed::Options options {};
+    options.windowDesc.width = res;
+    options.windowDesc.height = res;
+    options.createWindow = interactive;
+    options.colorFormat = ResourceFormat::RGBA32Float;
+
+    auto app = Testbed::create(options);
+    app->loadScene(scene);
+    return app;
+}
+
+std::filesystem::path ensureReference(const ref<Testbed>& app) {
+    const auto scene = app->getScene()->getPath().filename().string();
+    const auto res = app->getFrameBufferSize().x;
+    std::filesystem::path path = fmt::format("ref.{}.{}.exr", scene, res);
+    if (!std::filesystem::exists(path)) {
+        auto pt = graphPT(app->getDevice());
+        app->setRenderGraph(pt);
+        for (uint32_t i = 0; i < 1<<13; ++i)
+            app->frame();
+        logInfo("Output format: {}", to_string(pt->getOutput(0)->asTexture()->getFormat()));
+        pt->getOutput(0)->asTexture()->captureToFile(0, 0, path, Bitmap::FileFormat::ExrFile, Bitmap::ExportFlags::Uncompressed); // NOTE: Compression messes up loading later
+        //app->captureOutput(path);
+    }
+    return path;
+}
+
+ref<RenderGraph> graphFLIP(const ref<Device>& pDevice, const std::string& ref) {
+    auto g = RenderGraph::create(pDevice, "FLIP");
+
+    g->createPass("ref", "ImageLoader", Properties(json {{"filename", ref}}));
+    g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}}));
+    g->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}}));
+
+    g->addEdge("ref.dst", "flip.referenceImage");
+    g->addEdge("ref.dst", "error.Reference");
+    g->markOutput("flip.errorMapDisplay");
+    g->markOutput("error.Output");
+    return g;
+}
+
+void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, uint32_t spp) {
+    auto ref = ensureReference(app);
+    app->setRenderGraph(graph);
+    render(app, graph, spp);
+
+    auto output = graph->getOutput(0);
+    auto gFLIP = graphFLIP(app->getDevice(), ref);
+    gFLIP->setInput("flip.testImage", output);
+    gFLIP->setInput("error.Source", output);
+    app->setRenderGraph(gFLIP);
+    app->frame();
+    captureOutputs(app, gFLIP);
+}
+
 int runMain(int argc, char** argv)
 {
-    // Start Python interprete
+    // Start Python interpreter
     Logger::setOutputs(Logger::OutputFlags::File | Logger::OutputFlags::Console);
     Scripting::start();
     // Register/load Falcor plugins so importers (e.g. .pyscene) are available.
     PluginManager::instance().loadAllPlugins();
-
-    const uint32_t res = 512;
-    Testbed::Options options {};
-    options.windowDesc.width = res;
-    options.windowDesc.height = res;
-    //options.createWindow = true; // Toggle preview
-    Testbed app { options };
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
-    app.loadScene("cornell_box_caustic.pyscene");
 
-    // Preview
-    if (options.createWindow) {
-        auto pt = graphPhotonNRC(app.getDevice());
-        app.setRenderGraph(pt);
-        app.frame();
-        app.getDevice()->getProfiler()->startCapture();
-        app.run();
-        const auto capture = app.getDevice()->getProfiler()->endCapture();
-        for (const auto& lane : capture->getLanes()) {
-            logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
-        }
-        return 0;
-    }
-
-    // Reference PT
-    if (!std::filesystem::exists("out_ref.exr")) {
-        auto pt = graphPT(app.getDevice());
-        app.setRenderGraph(pt);
-        for (uint32_t i = 0; i < 1<<13; ++i)
-            app.frame();
-        app.captureOutput("out_ref.exr");
-    }
-
-    // SPPM
-    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, true), 32);
-    render(app, graphSPPM(app.getDevice(), true, 0.7f, true, false), 32);
-    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, true), 32); // fastest
-    render(app, graphSPPM(app.getDevice(), false, 0.7f, true, false), 32);
-
-    // PhotonNRC
-    render(app, graphPhotonNRC(app.getDevice()), 256);
-    render(app, graphPhotonNRC(app.getDevice(), 0.7f), 256);
-
-    // NRC
-    render(app, graphNRC(app.getDevice()), 128);
-
-    // PhotonNEE
-    render(app, graphBiNRC(app.getDevice()), 128);
-
-    // Multisample NRC
-    render(app, graphNRC(app.getDevice(), 32), 128);
-
-    // // PT Query
-    // render(app, graphPTQuery(app.getDevice()));
-    // render(app, graphPTQuery(app.getDevice(), 32));
+    auto app = createApp("cornell_box_caustic.pyscene", 512);
+    // app->setRenderGraph(graphFLIP(app->getDevice(), ensureReference(app)));
+    // app->run();
+    benchmarkQuality(app, graphSPPM(app->getDevice()), 512);
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

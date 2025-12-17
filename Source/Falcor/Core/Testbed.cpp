@@ -386,6 +386,14 @@ void Testbed::resizeTargetFBO(uint32_t width, uint32_t height)
         mpScene->setCameraAspectRatio(width / (float)height);
 }
 
+uint2 Testbed::getFrameBufferSize() const
+{
+    if (mpTargetFBO)
+        return uint2(mpTargetFBO->getWidth(), mpTargetFBO->getHeight());
+    else
+        return uint2(0);
+}
+
 void Testbed::renderUI()
 {
     RenderContext* pRenderContext = mpDevice->getRenderContext();

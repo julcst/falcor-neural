@@ -411,6 +411,7 @@ Bitmap::UniqueConstPtr Bitmap::createFromFile(const std::filesystem::path& path,
         genWarning("Unknown bits-per-pixel", path);
         return nullptr;
     }
+    logInfo("Image '{}' has {} bits per pixel, format {}", path.string(), bpp, to_string(format));
 
     // Convert the image to RGBX image
     if (bpp == 24)

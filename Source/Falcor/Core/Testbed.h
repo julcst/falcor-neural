@@ -159,6 +159,8 @@ public:
     /// Get dictionaries associated with assets loaded in creating the scene
     std::vector<pybind11::dict> getImportDicts() const;
 
+    uint2 getFrameBufferSize() const;
+
 private:
     // Implementation of Window::ICallbacks
 

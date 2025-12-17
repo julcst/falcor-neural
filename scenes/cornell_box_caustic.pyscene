@@ -30,7 +30,7 @@
 
 light = StandardMaterial("Light")
 light.emissiveColor = float3(17, 12, 4)
-light.emissiveFactor = 5
+light.emissiveFactor = 50
 
 floor = StandardMaterial("Floor")
 floor.baseColor = float4(0.725, 0.71, 0.68, 1.0)
@@ -171,7 +171,7 @@ sceneBuilder.addMeshInstance(
     sceneBuilder.addNode(
         "Light",
         Transform(
-            scaling=0.13,
+            scaling=0.02,
             translation=float3(0, 0.549, 0),
             rotationEulerDeg=float3(180, 0, 0),
         ),
