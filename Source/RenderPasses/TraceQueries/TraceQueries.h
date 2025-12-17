@@ -30,11 +30,17 @@ private:
     void prepareVars();
 
     // Config
-    bool mResetStatisticsPerFrame = false;  ///< Toggle between SPPM and PPM style accumulation.
+    bool mResetStatisticsPerFrame = false;  ///< Toggle between SPPM and PPM style accumulation
+    bool mTerminateBTH = false;             ///< Enable/disable BTH termination heuristic
+    bool mTerminateSAH = false;             ///< Enable/disable SAH termination heuristic
+    bool mTerminateDiffuse = true;          ///< Enable/disable diffuse surface termination heuristic
+    uint32_t mMaxBounces = 8;               ///< Maximum number of bounces
+    float mTerminationFactor = 1e3f;        ///< Termination factor for BTH heuristic, higher values mean more aggressive termination
+    float mVarianceTradeoff = 0.01f;        ///< Variance tradeoff for SAH heuristic
 
     // Internal state
-    ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded.
-    ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator.
+    ref<Scene>                      mpScene;                    ///< The current scene, or nullptr if no scene loaded
+    ref<SampleGenerator>            mpSampleGenerator;          ///< GPU pseudo-random sample generator
 
     // Ray tracing program state (program, SBT, vars)
     struct
@@ -48,6 +54,6 @@ private:
     // they are accessed via `renderData.getResource()` at execute time.
 
     // Runtime state
-    uint32_t mFrameCount = 0;                 ///< Frame counter since last scene change.
+    uint32_t mFrameCount = 0;                 ///< Frame counter since last scene change
     uint32_t mRevisionCounter = 0;            ///< Incremented when query statistics should change
 };

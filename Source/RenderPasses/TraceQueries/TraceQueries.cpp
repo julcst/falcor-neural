@@ -9,6 +9,12 @@ const char kQueries[] = "queries";
 const char kNRCInput[] = "nrcInput";
 
 const char kResetStatisticsPerFrame[] = "resetStatisticsPerFrame";
+const std::string kMaxBounces = "maxBounces";
+const std::string kTerminateBTH = "terminateBTH";
+const std::string kTerminateSAH = "terminateSAH";
+const std::string kTerminateDiffuse = "terminateDiffuse";
+const std::string kTerminationFactor = "terminationFactor";
+const std::string kVarianceTradeoff = "varianceTradeoff";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -32,6 +38,12 @@ Properties TraceQueries::getProperties() const
 {
     Properties props;
     props[kResetStatisticsPerFrame] = mResetStatisticsPerFrame;
+    props[kMaxBounces] = mMaxBounces;
+    props[kTerminateBTH] = mTerminateBTH;
+    props[kTerminateSAH] = mTerminateSAH;
+    props[kTerminateDiffuse] = mTerminateDiffuse;
+    props[kTerminationFactor] = mTerminationFactor;
+    props[kVarianceTradeoff] = mVarianceTradeoff;
     return props;
 }
 
@@ -40,12 +52,24 @@ void TraceQueries::setProperties(const Properties& props)
     for (const auto& [key, value] : props)
     {
         if (key == kResetStatisticsPerFrame) mResetStatisticsPerFrame = value;
+        else if (key == kMaxBounces) mMaxBounces = value;
+        else if (key == kTerminateBTH) mTerminateBTH = value;
+        else if (key == kTerminateSAH) mTerminateSAH = value;
+        else if (key == kTerminateDiffuse) mTerminateDiffuse = value;
+        else if (key == kTerminationFactor) mTerminationFactor = value;
+        else if (key == kVarianceTradeoff) mVarianceTradeoff = value;
         else logWarning("Unrecognized property '{}' in {} render pass.", key, getName());
     }
 }
 
 void TraceQueries::renderUI(Gui::Widgets& widget) {
     widget.checkbox(kResetStatisticsPerFrame, mResetStatisticsPerFrame);
+    widget.var("Max Bounces", mMaxBounces, 1u, 32u);
+    widget.checkbox("Terminate BTH", mTerminateBTH);
+    widget.var("Termination Factor", mTerminationFactor, 0.0f, 1e5f);
+    widget.checkbox("Terminate SAH", mTerminateSAH);
+    widget.var("Variance Tradeoff", mVarianceTradeoff, 0.0f, 1.0f);
+    widget.checkbox("Terminate Diffuse", mTerminateDiffuse);
 }
 
 // This should recompile on resolution change, adjusting buffer sizes
@@ -89,6 +113,10 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
 
     auto pNRCInput = renderData[kNRCInput];
     mTracer.pProgram->addDefine("OUTPUT_NRC_INPUT", pNRCInput ? "1" : "0");
+    mTracer.pProgram->addDefine("MAX_BOUNCES", std::to_string(mMaxBounces));
+    mTracer.pProgram->addDefine("TERMINATE_BTH", mTerminateBTH ? "1" : "0");
+    mTracer.pProgram->addDefine("TERMINATE_SAH", mTerminateSAH ? "1" : "0");
+    mTracer.pProgram->addDefine("TERMINATE_DIFFUSE", mTerminateDiffuse ? "1" : "0");
 
     if (!mTracer.pVars)
         prepareVars();
@@ -107,6 +135,8 @@ void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& rend
     var["CB"]["gRevisionCounter"] = mRevisionCounter;
     var["CB"]["gSceneMin"] = mpScene->getSceneBounds().minPoint;
     var["CB"]["gSceneScale"] = 1.0f / mpScene->getSceneBounds().extent(); // Safe on division on GPU
+    var["CB"]["gTerminationFactor"] = mTerminationFactor;
+    var["CB"]["gVarianceTradeoff"] = mVarianceTradeoff;
 
     // Get the buffers allocated by the RenderGraph reflection.
     auto pQueryBuffer = renderData[kQueries]->asBuffer();
