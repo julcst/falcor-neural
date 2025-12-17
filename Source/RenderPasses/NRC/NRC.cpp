@@ -258,6 +258,7 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
             logInfo("Training loss: {}", loss);
             //lossHistory.push_back(loss);
         }
+        pRenderContext->waitForCuda(model->getStream()); // NOTE: CPU wait on Vulkan
     }
 
     {
@@ -265,9 +266,8 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
         tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
         model->inference(inferenceInput, inferenceOutput);
+        pRenderContext->waitForCuda(model->getStream()); // NOTE: CPU wait on Vulkan
     }
-
-    pRenderContext->waitForCuda(model->getStream()); // NOTE: CPU wait on Vulkan
 
     {
         FALCOR_PROFILE(pRenderContext, "OutputsToTexture");
