@@ -40,6 +40,10 @@ struct RayPayload
     __init()
     {
         this.packedHitInfo = {};
+        this.photonFlux = float3(0.f);
+        this.wi = float3(0.f);
+        this._pad0 = 0.f;
+        this._pad1 = 0.f;
     }
 }
 
