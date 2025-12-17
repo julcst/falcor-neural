@@ -28,7 +28,7 @@ struct NRCInput {
     }
 
     float3 weight() {
-        return max(diffuse + specular, 1e-5f);
+        return (diffuse + specular) + 1e-2f;
     }
 #endif
 };

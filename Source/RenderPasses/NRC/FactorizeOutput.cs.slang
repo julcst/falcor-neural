@@ -16,6 +16,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     let out = gOutput[idx];
     let in = gInput[idx];
-
+    
     gOutput[idx].radiance = out.radiance / in.weight();
 }

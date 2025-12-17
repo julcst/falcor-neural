@@ -121,7 +121,7 @@ ref<RenderGraph> graphBiNRC(const ref<Device>& pDevice) {
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", false}})); // Factorization does not work with BiNRC
     g->createPass("estim", "PhotonNEE", Properties());
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");

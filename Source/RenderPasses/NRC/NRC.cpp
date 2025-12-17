@@ -235,6 +235,18 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         mpFactorizeOutputPass->execute(pRenderContext, mTrainSize, 1);
     }
 
+    // for (auto i : {10u, 50u, 1000u}) {
+    //     const auto s = renderData[kTrainInput]->asBuffer()->getElement<NRCInput>(i);
+    //     logInfo("TrainInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
+    // }
+
+    // for (auto i : {10u, 50u, 1000u}) {
+    //     const auto s = renderData[kInferenceInput]->asBuffer()->getElement<NRCInput>(i);
+    //     logInfo("InferenceInput {}: pos={},{},{} diff={},{},{}", i, s.position.x, s.position.y, s.position.z, s.diffuse.x, s.diffuse.y, s.diffuse.z);
+    // }
+
+    pRenderContext->waitForFalcor(model->getStream());
+
     {
         FALCOR_PROFILE(pRenderContext, "Training");
         tcnn::GPUMatrixDynamic trainInput {(float*) renderData.getBuffer(kTrainInput)->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mTrainSize};
@@ -246,7 +258,6 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
             logInfo("Training loss: {}", loss);
             //lossHistory.push_back(loss);
         }
-        pRenderContext->waitForCuda(model->getStream()); // NOTE: Does not work on Vulkan
     }
 
     {
@@ -254,8 +265,9 @@ void NRC::execute(RenderContext* pRenderContext, const RenderData& renderData)
         tcnn::GPUMatrixDynamic inferenceInput {(float*) renderData[kInferenceInput]->asBuffer()->getCudaMemory()->getMappedData(), NRC_INPUT_SIZE, mInferenceSize};
         tcnn::GPUMatrixDynamic inferenceOutput {(float*) renderData[kInferenceOutputFloat]->asBuffer()->getCudaMemory()->getMappedData(), NRC_OUTPUT_SIZE, mInferenceSize};
         model->inference(inferenceInput, inferenceOutput);
-        pRenderContext->waitForCuda(model->getStream()); // NOTE: Does not work on Vulkan
     }
+
+    pRenderContext->waitForCuda(model->getStream()); // NOTE: CPU wait on Vulkan
 
     {
         FALCOR_PROFILE(pRenderContext, "OutputsToTexture");
