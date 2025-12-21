@@ -1,7 +1,11 @@
 #include "Falcor.h"
 #include "Core/Testbed.h"
 #include "Utils/Scripting/Scripting.h"
+
 #include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <args.hxx>
 
 using namespace Falcor;
 using nlohmann::json;
@@ -22,12 +26,17 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
 }
 
 // NOTE: QuerySearch is faster, RR improves performance with minimal quality loss, rejProb speeds up even more with some quality loss
-ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true) {
-    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}, rej={}, rr={}, stoch={})", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr, stoch));
+ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true, bool reduction = true) {
+    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}{}, rej={}, rr={})", stoch ? "Stoch" : "", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr, stoch));
 
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.01f}, {"causticRadius", 0.002f}, {"reverseSearch", reverseSearch}, {"stochEval", stoch}}));
+    Properties props = {json {{"visualizeHeatmap", false}, {"globalRadius", 0.02f}, {"causticRadius", 0.004f}, {"stochEval", stoch}, {"reverseSearch", reverseSearch}}};
+    if (!reduction) {
+        props["gloablAlpha"] = 1.0f;
+        props["causticAlpha"] = 1.0f;
+    }
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", props);
     g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
 
     for (const auto& output : g->getAvailableOutputs())
@@ -89,6 +98,31 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f, bo
     g->addEdge("qsamp.sample", "visQueries.queries");
     g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
     // g->markOutput("visQueries");
+
+    g->markOutput("nrc.output");
+    return g;
+}
+
+ref<RenderGraph> graphPhotonNRCSameR(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
+    auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={}, stoch={}, rev={}, r={})", rej, stoch, reverse, r));
+
+    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
+    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
+    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
+    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 1.0f}})); // OG used 1<<17
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
+
+    g->addEdge("TraceQueries.queries", "qsamp.queries");
+    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
+
+    g->addEdge("TracePhotons.photons", "AccumPh.photons");
+    g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
+    g->addEdge("qsamp.sample", "AccumPh.queries");
+
+    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+    g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
+    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
 
     g->markOutput("nrc.output");
     return g;
@@ -206,7 +240,6 @@ ref<Testbed> createApp(const std::string& scene, uint32_t res = 512, bool intera
     options.windowDesc.width = res;
     options.windowDesc.height = res;
     options.createWindow = interactive;
-    options.colorFormat = ResourceFormat::RGBA32Float;
 
     auto app = Testbed::create(options);
     app->loadScene(scene);
@@ -257,8 +290,88 @@ void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, ui
     captureOutputs(app, gFLIP);
 }
 
+namespace Falcor {
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Stats, min, max, mean, stdDev)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Capture::Lane, name, stats, records)
+}
+
+json getProperties(const ref<RenderGraph>& graph) {
+    json j;
+    for (const auto& pass : graph->getAllPasses()) {
+        j[pass->getName()] = pass->getProperties().toJson();
+    }
+    return j;
+}
+
+json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, uint32_t frames, uint32_t warmupFrames = 10) {
+    json results;
+    for (const auto& g : graphs) {
+        app->setRenderGraph(g);
+
+        for (uint32_t i = 0; i < warmupFrames; ++i) app->frame();
+
+        app->getDevice()->getProfiler()->startCapture(frames);
+        for (uint32_t i = 0; i < frames; ++i) app->frame();
+        const auto capture = app->getDevice()->getProfiler()->endCapture();
+        json info;
+        for (const auto& lane : capture->getLanes()) {
+            info[lane.name] = lane.stats;
+        }
+        info["name"] = g->getName();
+        info["props"] = getProperties(g);
+        //info["dict"] = g->getPassesDictionary();
+        results.push_back(info);
+    }
+    return results;
+}
+
+std::vector<uint2> getLinearResolutionLevels(uint max, uint n) {
+    std::vector<uint2> levels;
+    uint step = (max << 1);
+    for (uint i = 1; i < n + 1; ++i) {
+        uint pixels = step * i / n;
+        uint res = pixels >> 1;
+        levels.emplace_back(res, res);
+    }
+    return levels;
+}
+
 int runMain(int argc, char** argv)
 {
+    args::ArgumentParser parser("PhotonNRC Testbed");
+    args::Flag sppmVsRes(parser, "sppm-res", "Run SPPM performance benchmark", {'s', "sppm-res"});
+    args::Flag nrcVsRes(parser, "nrc-res", "Run PhotonNRC performance benchmark", {'n', "nrc-res"});
+    args::Flag phnrcVsR(parser, "phnrc-r", "Run PhotonNRC vs radius performance benchmark", {'r', "phnrc-r"});
+
+    args::CompletionFlag completionFlag(parser, {"complete"});
+
+    try
+    {
+        parser.ParseCLI(argc, argv);
+    }
+    catch (const args::Completion& e)
+    {
+        std::cout << e.what();
+        return 0;
+    }
+    catch (const args::Help&)
+    {
+        std::cout << parser;
+        return 0;
+    }
+    catch (const args::ParseError& e)
+    {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
+    }
+    catch (const args::RequiredError& e)
+    {
+        std::cerr << e.what() << std::endl;
+        std::cerr << parser;
+        return 1;
+    }
+
     // Start Python interpreter
     Logger::setOutputs(Logger::OutputFlags::File | Logger::OutputFlags::Console);
     Scripting::start();
@@ -266,10 +379,72 @@ int runMain(int argc, char** argv)
     PluginManager::instance().loadAllPlugins();
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
 
-    auto app = createApp("cornell_box_caustic.pyscene", 512);
+    //auto app = createApp("cornell_box_caustic.pyscene", 512);
     // app->setRenderGraph(graphFLIP(app->getDevice(), ensureReference(app)));
     // app->run();
-    benchmarkQuality(app, graphSPPM(app->getDevice()), 512);
+    //benchmarkQuality(app, graphSPPM(app->getDevice()), 512);
+
+    if (args::get(sppmVsRes)) {
+        json results = {};
+        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        for (uint2 res : getLinearResolutionLevels(1080, 8)) {
+            app->resizeFrameBuffer(res.x, res.y);
+            results.push_back({
+                {"resolution", {res.x, res.y}},
+                {"MP", res.x * res.y / 1e6},
+                {"runs", benchmarkPerformance(app, {
+                    graphSPPM(app->getDevice(), false, 0.0f, true, false, false), // QuerySearch
+                    graphSPPM(app->getDevice(), true, 0.0f, true, false, false),  // PhotonSearch
+                    graphSPPM(app->getDevice(), false, 0.0f, true, true, false), // StochQuerySearch
+                    graphSPPM(app->getDevice(), true, 0.0f, true, true, false),  // StochPhotonSearch
+                    graphSPPM(app->getDevice(), false, 0.7f, true, false, false), // QuerySearch
+                    graphSPPM(app->getDevice(), true, 0.7f, true, false, false),  // PhotonSearch
+                    graphSPPM(app->getDevice(), false, 0.7f, true, true, false), // StochQuerySearch
+                    graphSPPM(app->getDevice(), true, 0.7f, true, true, false),  // StochPhotonSearch
+                }, 32)},
+            });
+        }
+        std::ofstream o("sppm_vs_res.json");
+        o << std::setw(4) << results << std::endl;
+    }
+
+    if (args::get(nrcVsRes)) {
+        json results = {};
+        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        for (uint2 res : getLinearResolutionLevels(1920, 8)) {
+            app->resizeFrameBuffer(res.x, res.y);
+            results.push_back({
+                {"resolution", {res.x, res.y}},
+                {"MP", res.x * res.y / 1e6},
+                {"runs", benchmarkPerformance(app, {
+                    graphPT(app->getDevice()), // Path Tracing
+                    graphPhotonNRC(app->getDevice(), 0.0f, false), // PhotonNRC
+                    graphSPPM(app->getDevice(), false, 0.0f, true, true, false), // StochQuerySearch
+                }, 32)},
+            });
+        }
+        std::ofstream o("nrc_vs_res.json");
+        o << std::setw(4) << results << std::endl;
+    }
+
+    if (args::get(phnrcVsR)) {
+        json results = {};
+        auto app = createApp("cornell_box.pyscene", 512);
+        for (float r : {0.001f, 0.005f, 0.01f, 0.015f, 0.02f, 0.03f}) {
+            logInfo("Running PhotonNRC vs radius benchmark for r={}", r);
+            results.push_back({
+                {"r", r},
+                {"runs", benchmarkPerformance(app, {
+                    graphPhotonNRCSameR(app->getDevice(), 0.0f, true, false, r),
+                    graphPhotonNRCSameR(app->getDevice(), 0.0f, true, true, r),
+                    graphPhotonNRCSameR(app->getDevice(), 0.7f, true, false, r),
+                    graphPhotonNRCSameR(app->getDevice(), 0.7f, true, true, r),
+                }, 32)},
+            });
+        }
+        std::ofstream o("phnrc_vs_r.json");
+        o << std::setw(4) << results << std::endl;
+    }
 
     Scripting::shutdown();
     logInfo("Log file: {}", Logger::getLogFilePath());

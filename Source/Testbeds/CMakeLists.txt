@@ -4,7 +4,7 @@ target_sources(Testbed PRIVATE
     Testbed.cpp
 )
 
-target_link_libraries(Testbed PRIVATE Falcor)
+target_link_libraries(Testbed PRIVATE Falcor args)
 
 # Rebuild after any plugins change.
 get_property(ALL_FALCOR_PLUGINS GLOBAL PROPERTY FALCOR_PLUGIN_TARGETS)

@@ -31,6 +31,8 @@
 *.tlog
 *.bak
 *.swp
+*.json
+*.exr
 
 out.png
 out/**

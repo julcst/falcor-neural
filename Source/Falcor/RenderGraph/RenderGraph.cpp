@@ -204,6 +204,17 @@ const ref<RenderPass>& RenderGraph::getPass(const std::string& name) const
     return mNodeData.at(index).pPass;
 }
 
+std::vector<ref<RenderPass>> RenderGraph::getAllPasses() const
+{
+    std::vector<ref<RenderPass>> passes;
+    passes.reserve(mNodeData.size());
+    for (const auto& [index, nodeData] : mNodeData)
+    {
+        passes.push_back(nodeData.pPass);
+    }
+    return passes;
+}
+
 using str_pair = std::pair<std::string, std::string>;
 
 static bool checkRenderPassIoExist(RenderPass* pPass, const std::string& name, const bool input, const RenderPass::CompileData& compileData)

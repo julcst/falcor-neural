@@ -109,6 +109,12 @@ public:
     const ref<RenderPass>& getPass(const std::string& name) const;
 
     /**
+     * Get all render passes in the graph.
+     * @return Vector of all render passes.
+     */
+    std::vector<ref<RenderPass>> getAllPasses() const;
+
+    /**
      * Remove a render pass and all its edges. You need to make sure the graph is still valid after the pass was removed.
      */
     void removePass(const std::string& name);
