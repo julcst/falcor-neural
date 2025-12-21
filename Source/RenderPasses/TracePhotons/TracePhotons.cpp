@@ -93,8 +93,6 @@ RenderPassReflection TracePhotons::reflect(const CompileData& compileData)
 
 void TracePhotons::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    FALCOR_PROFILE(pRenderContext, "TracePhotons");
-
     if (!mpScene) return;
 
     FALCOR_ASSERT(mpPhotonSampler);

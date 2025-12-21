@@ -95,8 +95,6 @@ RenderPassReflection TraceQueries::reflect(const CompileData& compileData)
 
 void TraceQueries::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    FALCOR_PROFILE(pRenderContext, "TraceQueries");
-
     if (!mpScene)
         return;
 
