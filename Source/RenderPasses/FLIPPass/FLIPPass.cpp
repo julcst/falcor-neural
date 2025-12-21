@@ -113,6 +113,9 @@ Properties FLIPPass::getProperties() const
     props[kMonitorDistance] = mMonitorDistanceMeters;
     props[kComputePooledFLIPValues] = mComputePooledFLIPValues;
     props[kUseRealMonitorInfo] = mUseRealMonitorInfo;
+    props["averageFLIP"] = mAverageFLIP;
+    props["maxFLIP"] = mMaxFLIP;
+    props["minFLIP"] = mMinFLIP;
     return props;
 }
 

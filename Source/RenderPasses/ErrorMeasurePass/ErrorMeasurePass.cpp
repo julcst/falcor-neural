@@ -114,6 +114,9 @@ Properties ErrorMeasurePass::getProperties() const
     props[kReportRunningError] = mReportRunningError;
     props[kRunningErrorSigma] = mRunningErrorSigma;
     props[kSelectedOutputId] = mSelectedOutputId;
+    props["error"] = mMeasurements.error;
+    props["avgError"] = mMeasurements.avgError;
+    props["valid"] = mMeasurements.valid;
     return props;
 }
 

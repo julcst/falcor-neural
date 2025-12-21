@@ -5,10 +5,22 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <chrono>
 #include <args.hxx>
 
 using namespace Falcor;
 using nlohmann::json;
+
+const std::filesystem::path resultsDir = getProjectDirectory() / "results/";
+
+// Helper to obtain (and create) a results directory, optionally nested.
+std::filesystem::path getResultsDir(const std::string& subdir = "")
+{
+    std::filesystem::path path = resultsDir;
+    if (!subdir.empty()) path /= subdir;
+    std::filesystem::create_directories(path);
+    return path;
+}
 
 ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
     auto g = RenderGraph::create(pDevice, "PT");
@@ -45,7 +57,8 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     }
     for (const auto& [name, value] : g->getPassesDictionary())
     {
-        logInfo("{}:{}", name, value);
+        // Avoid printing Dictionary::Value directly due to ambiguous conversions
+        logInfo("{}", name);
     }
 
     // VisualizePhotons
@@ -205,9 +218,25 @@ void addTonemapping(ref<RenderGraph>& g, const std::string& out) {
     g->markOutput("tonemap.dst");
 }
 
-void captureOutputs(const ref<Testbed>& app, const ref<RenderGraph>& graph, const std::string& prefix = "out_") {
+void captureOutputs(const ref<Testbed>& app, const ref<RenderGraph>& graph, const std::string& name = "", const std::filesystem::path& baseDir = resultsDir) {
+    std::string outputName = name;
+    if (outputName.empty()) {
+        outputName = graph->getName();
+    }
+    std::filesystem::create_directories(baseDir);
     for (uint32_t i = 0; i < graph->getOutputCount(); ++i) {
-        app->captureOutput(prefix + graph->getName() + "." + graph->getOutputName(i) + ".exr", i);
+        const auto pTex = graph->getOutput(i)->asTexture();
+        if (!pTex) {
+            logWarning("Output {} is not a texture, skipping capture.", graph->getOutputName(i));
+            continue;
+        }
+        const auto fmt = pTex->getFormat();
+        const auto isHdr = getFormatType(fmt) == FormatType::Float;
+        const auto fileformat = isHdr ? Bitmap::FileFormat::ExrFile : Bitmap::FileFormat::PngFile;
+        const auto ext = isHdr ? "exr" : "png";
+        const auto path = baseDir / fmt::format("{}.{}.{}", outputName, graph->getOutputName(i), ext);
+        pTex->captureToFile(0, 0, path, fileformat, Bitmap::ExportFlags::None);
+        //app->captureOutput(resultsDir / (outputName + "." + graph->getOutputName(i) + ".exr"), i);
     }
 }
 
@@ -231,8 +260,20 @@ void render(const ref<Testbed>& app, const ref<RenderGraph>& graph, uint32_t fra
             logInfo("{}: mean={} min={} max={} stdDev={}", lane.name, lane.stats.mean, lane.stats.min, lane.stats.max, lane.stats.stdDev);
         }
     }
+}
 
-    captureOutputs(app, graph);
+// Render for a fixed wall-clock duration with warmup frames first.
+void renderForSeconds(const ref<Testbed>& app, const ref<RenderGraph>& graph, double seconds, uint32_t warmupFrames = 10)
+{
+    app->setRenderGraph(graph);
+
+    for (uint32_t i = 0; i < warmupFrames; ++i) app->frame();
+
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() < seconds)
+    {
+        app->frame();
+    }
 }
 
 ref<Testbed> createApp(const std::string& scene, uint32_t res = 512, bool interactive = false) {
@@ -246,10 +287,14 @@ ref<Testbed> createApp(const std::string& scene, uint32_t res = 512, bool intera
     return app;
 }
 
-std::filesystem::path ensureReference(const ref<Testbed>& app) {
-    const auto scene = app->getScene()->getPath().filename().string();
+std::string getSceneName(const ref<Testbed>& app) {
+    const auto scene = app->getScene()->getPath().stem().string();
     const auto res = app->getFrameBufferSize().x;
-    std::filesystem::path path = fmt::format("ref.{}.{}.exr", scene, res);
+    return fmt::format("{}.{}", scene, res);
+}
+
+std::filesystem::path ensureReference(const ref<Testbed>& app) {
+    std::filesystem::path path = resultsDir / fmt::format("ref.{}.exr", getSceneName(app));
     if (!std::filesystem::exists(path)) {
         auto pt = graphPT(app->getDevice());
         app->setRenderGraph(pt);
@@ -257,7 +302,6 @@ std::filesystem::path ensureReference(const ref<Testbed>& app) {
             app->frame();
         logInfo("Output format: {}", to_string(pt->getOutput(0)->asTexture()->getFormat()));
         pt->getOutput(0)->asTexture()->captureToFile(0, 0, path, Bitmap::FileFormat::ExrFile, Bitmap::ExportFlags::Uncompressed); // NOTE: Compression messes up loading later
-        //app->captureOutput(path);
     }
     return path;
 }
@@ -265,29 +309,17 @@ std::filesystem::path ensureReference(const ref<Testbed>& app) {
 ref<RenderGraph> graphFLIP(const ref<Device>& pDevice, const std::string& ref) {
     auto g = RenderGraph::create(pDevice, "FLIP");
 
-    g->createPass("ref", "ImageLoader", Properties(json {{"filename", ref}}));
-    g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}}));
+    g->createPass("ref", "ImageLoader", Properties(json {{"filename", ref}, {"outputFormat", "RGBA32Float"}}));
+    g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
     g->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}}));
+    g->createPass("tonemap", "ToneMapper", Properties());
 
     g->addEdge("ref.dst", "flip.referenceImage");
     g->addEdge("ref.dst", "error.Reference");
+    g->markOutput("tonemap.dst");
     g->markOutput("flip.errorMapDisplay");
     g->markOutput("error.Output");
     return g;
-}
-
-void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, uint32_t spp) {
-    auto ref = ensureReference(app);
-    app->setRenderGraph(graph);
-    render(app, graph, spp);
-
-    auto output = graph->getOutput(0);
-    auto gFLIP = graphFLIP(app->getDevice(), ref);
-    gFLIP->setInput("flip.testImage", output);
-    gFLIP->setInput("error.Source", output);
-    app->setRenderGraph(gFLIP);
-    app->frame();
-    captureOutputs(app, gFLIP);
 }
 
 namespace Falcor {
@@ -301,6 +333,28 @@ json getProperties(const ref<RenderGraph>& graph) {
         j[pass->getName()] = pass->getProperties().toJson();
     }
     return j;
+}
+
+void writeJson(const json& j, const std::filesystem::path& path) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream file(path);
+    file << std::setw(4) << j << std::endl;
+}
+
+void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, double seconds, const std::filesystem::path& dir) {
+    auto ref = ensureReference(app);
+    renderForSeconds(app, graph, seconds, 10);
+
+    auto output = graph->getOutput(0);
+    auto gFLIP = graphFLIP(app->getDevice(), ref);
+    gFLIP->setInput("flip.testImage", output);
+    gFLIP->setInput("error.Source", output);
+    gFLIP->setInput("tonemap.src", output);
+    app->setRenderGraph(gFLIP);
+    app->frame();
+    captureOutputs(app, gFLIP, fmt::format("{}.{}", graph->getName(), getSceneName(app)), dir);
+
+    writeJson(getProperties(gFLIP), dir / fmt::format("{}.{}.json", graph->getName(), getSceneName(app)));
 }
 
 json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, uint32_t frames, uint32_t warmupFrames = 10) {
@@ -319,7 +373,7 @@ json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderG
         }
         info["name"] = g->getName();
         info["props"] = getProperties(g);
-        //info["dict"] = g->getPassesDictionary();
+
         results.push_back(info);
     }
     return results;
@@ -342,6 +396,9 @@ int runMain(int argc, char** argv)
     args::Flag sppmVsRes(parser, "sppm-res", "Run SPPM performance benchmark", {'s', "sppm-res"});
     args::Flag nrcVsRes(parser, "nrc-res", "Run PhotonNRC performance benchmark", {'n', "nrc-res"});
     args::Flag phnrcVsR(parser, "phnrc-r", "Run PhotonNRC vs radius performance benchmark", {'r', "phnrc-r"});
+    args::Flag nrcVariants(parser, "nrc-variants", "Run NRC variants performance benchmark", {'v', "nrc-variants"});
+    args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
+    args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
 
@@ -379,6 +436,8 @@ int runMain(int argc, char** argv)
     PluginManager::instance().loadAllPlugins();
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
 
+    std::filesystem::create_directories(resultsDir);
+
     //auto app = createApp("cornell_box_caustic.pyscene", 512);
     // app->setRenderGraph(graphFLIP(app->getDevice(), ensureReference(app)));
     // app->run();
@@ -404,8 +463,7 @@ int runMain(int argc, char** argv)
                 }, 32)},
             });
         }
-        std::ofstream o("sppm_vs_res.json");
-        o << std::setw(4) << results << std::endl;
+        writeJson(results, resultsDir / "sppm_vs_res.json");
     }
 
     if (args::get(nrcVsRes)) {
@@ -423,8 +481,7 @@ int runMain(int argc, char** argv)
                 }, 32)},
             });
         }
-        std::ofstream o("nrc_vs_res.json");
-        o << std::setw(4) << results << std::endl;
+        writeJson(results, resultsDir / "nrc_vs_res.json");
     }
 
     if (args::get(phnrcVsR)) {
@@ -442,8 +499,37 @@ int runMain(int argc, char** argv)
                 }, 32)},
             });
         }
-        std::ofstream o("phnrc_vs_r.json");
-        o << std::setw(4) << results << std::endl;
+        writeJson(results, resultsDir / "phnrc_vs_r.json");
+    }
+
+    if (args::get(nrcVariants)) {
+        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        auto json = benchmarkPerformance(app, {
+            graphNRC(app->getDevice(), 1), // NRC
+            graphNRC(app->getDevice(), 32), // MultiNRC
+            graphBiNRC(app->getDevice()), // BiNRC
+            graphPhotonNRC(app->getDevice()), // PhotonNRC
+        }, 128);
+        writeJson(json, resultsDir / "nrc_variants.json");
+    }
+
+    if (args::get(quality)) {
+        for (const auto& scene : {
+            "cornell_box_caustic.pyscene",
+            "cornell_box.pyscene",
+        }) {
+            auto app = createApp(scene, 512);
+            std::vector graphs = {
+                graphNRC(app->getDevice(), 1), // NRC
+                graphNRC(app->getDevice(), 32), // MultiNRC
+                graphBiNRC(app->getDevice()), // BiNRC
+                graphPhotonNRC(app->getDevice()), // PhotonNRC
+                graphSPPM(app->getDevice()), // SPPM
+            };
+            for (const auto& g : graphs) {
+                benchmarkQuality(app, g, 10.0, getResultsDir("quality"));
+            }
+        }
     }
 
     Scripting::shutdown();
