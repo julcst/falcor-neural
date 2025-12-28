@@ -462,6 +462,87 @@ json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderG
     return results;
 }
 
+json benchmarkConvergence(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, const std::filesystem::path& referencePath, double timeMinutes, uint32_t warmup = 4) {
+    json results;
+    
+    // Load reference once for all graphs
+    auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
+    
+    for (const auto& g : graphs) {
+        logInfo("Running convergence test for: {}", g->getName());
+        
+        // Add FLIP and error passes to the graph
+        g->createPass("refLoader", "ImageLoader", Properties(json {{"filename", referencePath.string()}, {"outputFormat", "RGBA32Float"}}));
+        g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
+        g->createPass("error", "ErrorMeasurePass", Properties(json {{"ComputeSquaredDifference", true}, {"ComputeAverage", true}}));
+        
+        // Get the main output
+        std::string mainOutput = g->getOutputName(0);
+        
+        // Connect FLIP and error passes
+        g->addEdge("refLoader.dst", "flip.referenceImage");
+        g->addEdge(mainOutput, "flip.testImage");
+        g->addEdge("refLoader.dst", "error.Reference");
+        g->addEdge(mainOutput, "error.Source");
+        
+        g->markOutput("flip.errorMap");
+        g->markOutput("error.Output");
+        
+        json graphData;
+        graphData["name"] = g->getName();
+        graphData["properties"] = getProperties(g);
+        json measurements = json::array();
+        
+        app->setRenderGraph(g);
+        
+        auto startTime = std::chrono::steady_clock::now();
+        double maxSeconds = timeMinutes * 60.0;
+        uint32_t frameCount = 0;
+        
+        while (true) {
+            auto elapsed = frameCount < warmup ? 0.0 : std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+
+            if (elapsed > maxSeconds) {
+                break;
+            }
+            
+            // Render frame (includes FLIP and error computation)
+            app->frame();
+            frameCount++;
+            
+            // Get metrics from passes
+            auto flipJson = g->getPass("flip")->getProperties().toJson();
+            auto errorJson = g->getPass("error")->getProperties().toJson();
+
+            double min = flipJson["minFLIP"];
+            double max = flipJson["maxFLIP"];
+            double avg = flipJson["averageFLIP"];
+            double mse = errorJson["avgError"];
+
+            logInfo("Frame {}: Time {:.1f}s, FLIP avg {}, min {}, max {}, MSE {}", 
+                    frameCount, elapsed, avg, min, max, mse);
+
+            measurements.push_back({
+                {"frame", frameCount},
+                {"time", elapsed},
+                {"flip", avg},
+                {"min", min},
+                {"max", max},
+                {"mse", mse}
+            });
+        }
+        
+        graphData["measurements"] = measurements;
+        graphData["totalFrames"] = frameCount;
+        graphData["totalTime"] = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+        results.push_back(graphData);
+        
+        logInfo("Completed convergence test for {} ({} frames in {:.1f}s)", g->getName(), frameCount, (double)graphData["totalTime"]);
+    }
+    
+    return results;
+}
+
 std::vector<uint2> getLinearResolutionLevels(uint max, uint n) {
     std::vector<uint2> levels;
     uint step = (max << 1);
@@ -482,6 +563,7 @@ int runMain(int argc, char** argv)
     args::Flag nrcVariants(parser, "nrc-variants", "Run NRC variants performance benchmark", {'v', "nrc-variants"});
     args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
     args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
+    args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
@@ -531,6 +613,7 @@ int runMain(int argc, char** argv)
         for (const auto& scene : {
             "cornell_box.pyscene",
             "cornell_box_caustic.pyscene",
+            "cornell_box_bunny.pyscene",
         }) {
             auto app = createApp(scene, 512);
             logInfo("Building reference for scene: {}", scene);
@@ -617,6 +700,7 @@ int runMain(int argc, char** argv)
         for (const auto& scene : {
             "cornell_box_caustic.pyscene",
             "cornell_box.pyscene",
+            "cornell_box_bunny.pyscene",
         }) {
             auto app = createApp(scene, 512);
             std::vector graphs = {
@@ -630,6 +714,22 @@ int runMain(int argc, char** argv)
                 benchmarkQuality(app, g, 10.0, getResultsDir("quality"));
             }
         }
+    }
+
+    if (args::get(convergenceTest)) {
+        const auto& scene = "cornell_box.pyscene";
+        auto app = createApp(scene, 512);
+        auto ref = ensureReference(app);
+        
+        logInfo("Running convergence test for scene: {}", scene);
+        std::vector graphs = {
+            graphNRCPT(app->getDevice(), 1), // NRC
+            graphNRCLT(app->getDevice()), // NRC+LT
+            graphNRCSPPC(app->getDevice()), // NRC+SPPC
+        };
+        
+        auto convergenceResults = benchmarkConvergence(app, graphs, ref, 1.0);
+        writeJson(convergenceResults, resultsDir / "convergence.json");
     }
 
     Scripting::shutdown();
