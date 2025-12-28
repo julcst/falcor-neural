@@ -75,8 +75,8 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     return g;
 }
 
-ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true) {
-    auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={}, stoch={})", rej, stoch));
+ref<RenderGraph> graphNRCSPPC(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true) {
+    auto g = RenderGraph::create(pDevice, fmt::format("NRC+SPPC (rej={}, stoch={})", rej, stoch));
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
@@ -116,8 +116,8 @@ ref<RenderGraph> graphPhotonNRC(const ref<Device>& pDevice, float rej = 0.0f, bo
     return g;
 }
 
-ref<RenderGraph> graphPhotonNRCSameR(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
-    auto g = RenderGraph::create(pDevice, fmt::format("PhotonNRC (rej={}, stoch={}, rev={}, r={})", rej, stoch, reverse, r));
+ref<RenderGraph> graphNRCSPPCSameR(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
+    auto g = RenderGraph::create(pDevice, fmt::format("NRC+SPPC (rej={}, stoch={}, rev={}, r={})", rej, stoch, reverse, r));
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
@@ -141,8 +141,8 @@ ref<RenderGraph> graphPhotonNRCSameR(const ref<Device>& pDevice, float rej = 0.0
     return g;
 }
 
-ref<RenderGraph> graphNRC(const ref<Device>& pDevice, uint32_t spp = 1) {
-    auto g = RenderGraph::create(pDevice, spp == 1 ? "NRC" : fmt::format("MultisampleNRC (spp={})", spp));
+ref<RenderGraph> graphNRCPT(const ref<Device>& pDevice, uint32_t spp = 1) {
+    auto g = RenderGraph::create(pDevice, spp == 1 ? "NRC+PT" : fmt::format("NRC+PT{}", spp));
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
@@ -163,8 +163,8 @@ ref<RenderGraph> graphNRC(const ref<Device>& pDevice, uint32_t spp = 1) {
     return g;
 }
 
-ref<RenderGraph> graphBiNRC(const ref<Device>& pDevice) {
-    auto g = RenderGraph::create(pDevice, "BiNRC");
+ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice) {
+    auto g = RenderGraph::create(pDevice, "NRC+LT");
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
@@ -186,7 +186,7 @@ ref<RenderGraph> graphBiNRC(const ref<Device>& pDevice) {
 }
 
 ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
-    auto g = RenderGraph::create(pDevice, fmt::format("PTQuery (spp={})", spp));
+    auto g = RenderGraph::create(pDevice, fmt::format("PT (spp={})", spp));
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
@@ -236,6 +236,7 @@ void captureOutputs(const ref<Testbed>& app, const ref<RenderGraph>& graph, cons
         const auto ext = isHdr ? "exr" : "png";
         const auto path = baseDir / fmt::format("{}.{}.{}", outputName, graph->getOutputName(i), ext);
         pTex->captureToFile(0, 0, path, fileformat, Bitmap::ExportFlags::None);
+        logInfo("Captured output {} to {}", graph->getOutputName(i), path.string());
         //app->captureOutput(resultsDir / (outputName + "." + graph->getOutputName(i) + ".exr"), i);
     }
 }
@@ -293,15 +294,97 @@ std::string getSceneName(const ref<Testbed>& app) {
     return fmt::format("{}.{}", scene, res);
 }
 
-std::filesystem::path ensureReference(const ref<Testbed>& app) {
-    std::filesystem::path path = resultsDir / fmt::format("ref.{}.exr", getSceneName(app));
-    if (!std::filesystem::exists(path)) {
-        auto pt = graphPT(app->getDevice());
-        app->setRenderGraph(pt);
-        for (uint32_t i = 0; i < 1<<13; ++i)
+// Render PT until convergence by measuring frame-to-frame difference.
+// Returns the render graph with the converged texture as output.
+// errorThreshold: stop when frame difference is below this
+// maxMinutes: maximum time in minutes to spend rendering
+// batchSize: check convergence and log every batchSize samples
+ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorThreshold = 0.01f, double maxMinutes = 5.0, uint32_t batchSize = 128) {
+    auto pt = graphPT(app->getDevice());
+    app->setRenderGraph(pt);
+    
+    // Create error measure graph to compare consecutive frames
+    auto gError = RenderGraph::create(app->getDevice(), "PTConvergenceCheck");
+    gError->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}, {"ComputeSquaredDifference", true}, {"ComputeAverage", true}}));
+    gError->markOutput("error.Output");
+    
+    uint32_t spp = 0;
+    const uint32_t samplesPerFrame = 1;
+    ref<Texture> prevFrame = nullptr;
+    ref<Texture> currentFrame = nullptr;
+    
+    logInfo("Rendering PT until convergence (error threshold={}, max time={} minutes, batch size={})", errorThreshold, maxMinutes, batchSize);
+    
+    auto startTime = std::chrono::steady_clock::now();
+    double maxSeconds = maxMinutes * 60.0;
+    
+    while (true) {
+        // Check time limit
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+        if (elapsed > maxSeconds) {
+            logInfo("Time limit reached ({} minutes)", maxMinutes);
+            break;
+        }
+        
+        // Render frames in a batch
+        for (uint32_t i = 0; i < batchSize; ++i) {
+            app->setRenderGraph(pt);
             app->frame();
-        logInfo("Output format: {}", to_string(pt->getOutput(0)->asTexture()->getFormat()));
-        pt->getOutput(0)->asTexture()->captureToFile(0, 0, path, Bitmap::FileFormat::ExrFile, Bitmap::ExportFlags::Uncompressed); // NOTE: Compression messes up loading later
+            if (i == batchSize - 2) prevFrame = pt->getOutput(0)->asTexture();
+            if (i == batchSize - 1) currentFrame = pt->getOutput(0)->asTexture();
+            spp += samplesPerFrame;
+        }
+        
+        // Check convergence at batch boundaries
+        if (prevFrame) {
+            gError->setInput("error.Reference", prevFrame);
+            gError->setInput("error.Source", currentFrame);
+            app->setRenderGraph(gError);
+            app->frame();
+            
+            // Get MSE from error pass properties
+            auto errorPass = gError->getPass("error");
+            float avgError = errorPass->getProperties()["avgError"];
+            
+            elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+            logInfo("SPP: {}, Frame-to-Frame Error: {}, Elapsed: {:.1f}s", spp, avgError, elapsed);
+            
+            if (avgError < errorThreshold) {
+                logInfo("Converged at {} spp with error {} after {:.1f}s", spp, avgError, elapsed);
+                break;
+            }
+        }
+
+        prevFrame = currentFrame;
+    }
+    
+    logInfo("Rendering complete at {} spp", spp);
+    return pt;
+}
+
+ref<RenderGraph> graphTonemap(const ref<Device>& pDevice) {
+    auto g = RenderGraph::create(pDevice, "Tonemap");
+    g->createPass("tonemap", "ToneMapper", Properties());
+    g->markOutput("tonemap.dst");
+    return g;
+}
+
+std::filesystem::path ensureReference(const ref<Testbed>& app) {
+    std::filesystem::path refDir = resultsDir / "ref";
+    std::filesystem::path path = refDir / fmt::format("{}.exr", getSceneName(app));
+    if (!std::filesystem::exists(path)) {
+        logInfo("Building reference image: {}", path);
+        auto ptGraph = renderPTUntilConvergence(app, 1e-7f, 30.0); // 30 minutes, very low error threshold
+        
+        auto convergedTex = ptGraph->getOutput(0)->asTexture();
+        logInfo("Output format: {}", to_string(convergedTex->getFormat()));
+        convergedTex->captureToFile(0, 0, path, Bitmap::FileFormat::ExrFile, Bitmap::ExportFlags::Uncompressed); // NOTE: Compression messes up loading later
+
+        auto tm = graphTonemap(app->getDevice());
+        tm->setInput("tonemap.src", convergedTex);
+        app->setRenderGraph(tm);
+        app->frame();
+        captureOutputs(app, tm, getSceneName(app), refDir);
     }
     return path;
 }
@@ -394,10 +477,11 @@ int runMain(int argc, char** argv)
 {
     args::ArgumentParser parser("PhotonNRC Testbed");
     args::Flag sppmVsRes(parser, "sppm-res", "Run SPPM performance benchmark", {'s', "sppm-res"});
-    args::Flag nrcVsRes(parser, "nrc-res", "Run PhotonNRC performance benchmark", {'n', "nrc-res"});
-    args::Flag phnrcVsR(parser, "phnrc-r", "Run PhotonNRC vs radius performance benchmark", {'r', "phnrc-r"});
+    args::Flag nrcVsRes(parser, "nrc-res", "Run NRC performance benchmark", {'n', "nrc-res"});
+    args::Flag phnrcVsR(parser, "phnrc-r", "Run NRC+SPPC vs radius performance benchmark", {'r', "phnrc-r"});
     args::Flag nrcVariants(parser, "nrc-variants", "Run NRC variants performance benchmark", {'v', "nrc-variants"});
     args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
+    args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
@@ -443,6 +527,22 @@ int runMain(int argc, char** argv)
     // app->run();
     //benchmarkQuality(app, graphSPPM(app->getDevice()), 512);
 
+    if (args::get(buildRef)) {
+        for (const auto& scene : {
+            "cornell_box.pyscene",
+            "cornell_box_caustic.pyscene",
+        }) {
+            auto app = createApp(scene, 512);
+            logInfo("Building reference for scene: {}", scene);
+            ensureReference(app);
+        }
+        logInfo("All reference images built successfully.");
+        Scripting::shutdown();
+        logInfo("Log file: {}", Logger::getLogFilePath());
+        std::cout << "Log file: " << Logger::getLogFilePath() << std::endl;
+        return 0;
+    }
+
     if (args::get(sppmVsRes)) {
         json results = {};
         auto app = createApp("cornell_box_caustic.pyscene", 512);
@@ -475,8 +575,8 @@ int runMain(int argc, char** argv)
                 {"resolution", {res.x, res.y}},
                 {"MP", res.x * res.y / 1e6},
                 {"runs", benchmarkPerformance(app, {
-                    graphPT(app->getDevice()), // Path Tracing
-                    graphPhotonNRC(app->getDevice(), 0.0f, false), // PhotonNRC
+                    graphPT(app->getDevice()), // PT
+                    graphNRCSPPC(app->getDevice(), 0.0f, false), // NRC+SPPC
                     graphSPPM(app->getDevice(), false, 0.0f, true, true, false), // StochQuerySearch
                 }, 32)},
             });
@@ -488,14 +588,14 @@ int runMain(int argc, char** argv)
         json results = {};
         auto app = createApp("cornell_box.pyscene", 512);
         for (float r : {0.001f, 0.005f, 0.01f, 0.015f, 0.02f, 0.03f}) {
-            logInfo("Running PhotonNRC vs radius benchmark for r={}", r);
+            logInfo("Running NRC+SPPC vs radius benchmark for r={}", r);
             results.push_back({
                 {"r", r},
                 {"runs", benchmarkPerformance(app, {
-                    graphPhotonNRCSameR(app->getDevice(), 0.0f, true, false, r),
-                    graphPhotonNRCSameR(app->getDevice(), 0.0f, true, true, r),
-                    graphPhotonNRCSameR(app->getDevice(), 0.7f, true, false, r),
-                    graphPhotonNRCSameR(app->getDevice(), 0.7f, true, true, r),
+                    graphNRCSPPCSameR(app->getDevice(), 0.0f, true, false, r),
+                    graphNRCSPPCSameR(app->getDevice(), 0.0f, true, true, r),
+                    graphNRCSPPCSameR(app->getDevice(), 0.7f, true, false, r),
+                    graphNRCSPPCSameR(app->getDevice(), 0.7f, true, true, r),
                 }, 32)},
             });
         }
@@ -505,10 +605,10 @@ int runMain(int argc, char** argv)
     if (args::get(nrcVariants)) {
         auto app = createApp("cornell_box_caustic.pyscene", 512);
         auto json = benchmarkPerformance(app, {
-            graphNRC(app->getDevice(), 1), // NRC
-            graphNRC(app->getDevice(), 32), // MultiNRC
-            graphBiNRC(app->getDevice()), // BiNRC
-            graphPhotonNRC(app->getDevice()), // PhotonNRC
+            graphNRCPT(app->getDevice(), 1), // NRC
+            graphNRCPT(app->getDevice(), 32), // NRC+LT
+            graphNRCLT(app->getDevice()), // NRC+LT
+            graphNRCSPPC(app->getDevice()), // NRC+SPPC
         }, 128);
         writeJson(json, resultsDir / "nrc_variants.json");
     }
@@ -520,10 +620,10 @@ int runMain(int argc, char** argv)
         }) {
             auto app = createApp(scene, 512);
             std::vector graphs = {
-                graphNRC(app->getDevice(), 1), // NRC
-                graphNRC(app->getDevice(), 32), // MultiNRC
-                graphBiNRC(app->getDevice()), // BiNRC
-                graphPhotonNRC(app->getDevice()), // PhotonNRC
+                graphNRCPT(app->getDevice(), 1), // NRC
+                graphNRCPT(app->getDevice(), 32), // NRC+LT
+                graphNRCLT(app->getDevice()), // NRC+LT
+                graphNRCSPPC(app->getDevice()), // NRC+SPPC
                 graphSPPM(app->getDevice()), // SPPM
             };
             for (const auto& g : graphs) {

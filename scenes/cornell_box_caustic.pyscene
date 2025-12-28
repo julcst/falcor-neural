@@ -30,7 +30,7 @@
 
 light = StandardMaterial("Light")
 light.emissiveColor = float3(17, 12, 4)
-light.emissiveFactor = 50
+light.emissiveFactor = 250
 
 floor = StandardMaterial("Floor")
 floor.baseColor = float4(0.725, 0.71, 0.68, 1.0)
