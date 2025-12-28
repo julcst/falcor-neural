@@ -39,7 +39,7 @@ ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
 
 // NOTE: QuerySearch is faster, RR improves performance with minimal quality loss, rejProb speeds up even more with some quality loss
 ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true, bool reduction = true) {
-    auto g = RenderGraph::create(pDevice, fmt::format("SPPM ({}{}, rej={}, rr={})", stoch ? "Stoch" : "", reverseSearch ? "PhotonSearch" : "QuerySearch", rejProb, rr, stoch));
+    auto g = RenderGraph::create(pDevice, "SPPM");
 
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
@@ -76,7 +76,7 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
 }
 
 ref<RenderGraph> graphNRCSPPC(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true) {
-    auto g = RenderGraph::create(pDevice, fmt::format("NRC+SPPC (rej={}, stoch={})", rej, stoch));
+    auto g = RenderGraph::create(pDevice, "NRC+SPPC");
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
@@ -117,7 +117,7 @@ ref<RenderGraph> graphNRCSPPC(const ref<Device>& pDevice, float rej = 0.0f, bool
 }
 
 ref<RenderGraph> graphNRCSPPCSameR(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
-    auto g = RenderGraph::create(pDevice, fmt::format("NRC+SPPC (rej={}, stoch={}, rev={}, r={})", rej, stoch, reverse, r));
+    auto g = RenderGraph::create(pDevice, "NRC+SPPC");
 
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
     g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
@@ -186,7 +186,7 @@ ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice) {
 }
 
 ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
-    auto g = RenderGraph::create(pDevice, fmt::format("PT (spp={})", spp));
+    auto g = RenderGraph::create(pDevice, "PT");
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
