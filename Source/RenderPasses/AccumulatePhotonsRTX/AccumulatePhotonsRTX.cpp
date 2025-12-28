@@ -484,7 +484,7 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kStochPhotonSearch);
-            desc.setMaxPayloadSize(11 * sizeof(uint));
+            desc.setMaxPayloadSize(9 * sizeof(uint));
             desc.setMaxAttributeSize(sizeof(bool));
             desc.setMaxTraceRecursionDepth(1);
 

@@ -49,7 +49,7 @@ void photonIntersectionShared() {
     ReportHit(1e-6, 0, attribs);
 }
 
-Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, Reservoir<uint, 4> reservoir)
+Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, Reservoir<uint, 3> reservoir)
 {
     var flux = float3(0.0f);
     for (uint i = reservoir.begin(); i < reservoir.end(); i++) {
@@ -70,8 +70,8 @@ Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenera
 
 struct StochasticPhotonSearchPayloadShared {
     TinyUniformSampleGenerator sg; // Passing is faster than re-creating
-    Reservoir<uint, 4> causticIndices;
-    Reservoir<uint, 4> globalIndices;
+    Reservoir<uint, 3> causticIndices;
+    Reservoir<uint, 3> globalIndices;
 
     __init(TinyUniformSampleGenerator sg) {
         this.sg = sg;
