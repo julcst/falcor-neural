@@ -11,6 +11,11 @@
 using namespace Falcor;
 using nlohmann::json;
 
+namespace Falcor {
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Stats, min, max, mean, stdDev)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Capture::Lane, name, stats, records)
+}
+
 const std::filesystem::path resultsDir = getProjectDirectory() / "results/";
 
 // Helper to obtain (and create) a results directory, optionally nested.
@@ -264,17 +269,40 @@ void render(const ref<Testbed>& app, const ref<RenderGraph>& graph, uint32_t fra
 }
 
 // Render for a fixed wall-clock duration with warmup frames first.
-void renderForSeconds(const ref<Testbed>& app, const ref<RenderGraph>& graph, double seconds, uint32_t warmupFrames = 10)
+// Returns JSON with elapsed time, frame count, profiling data, and other metrics.
+json renderForSeconds(const ref<Testbed>& app, const ref<RenderGraph>& graph, double seconds, uint32_t warmupFrames = 10)
 {
     app->setRenderGraph(graph);
-
+    
     for (uint32_t i = 0; i < warmupFrames; ++i) app->frame();
 
+    app->getDevice()->getProfiler()->startCapture();
+    
     auto start = std::chrono::steady_clock::now();
+    uint32_t frameCount = 0;
     while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() < seconds)
     {
         app->frame();
+        frameCount++;
     }
+    
+    double elapsedSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    
+    auto capture = app->getDevice()->getProfiler()->endCapture();
+    
+    json result;
+    result["elapsedSeconds"] = elapsedSeconds;
+    result["frameCount"] = frameCount;
+    result["warmupFrames"] = warmupFrames;
+    
+    // Collect profiling data if enabled
+    json profileStats;
+    for (const auto& lane : capture->getLanes()) {
+        profileStats[lane.name] = lane.stats;
+    }
+    result["profile"] = profileStats;
+    
+    return result;
 }
 
 ref<Testbed> createApp(const std::string& scene, uint32_t res = 512, bool interactive = false) {
@@ -405,11 +433,6 @@ ref<RenderGraph> graphFLIP(const ref<Device>& pDevice, const std::string& ref) {
     return g;
 }
 
-namespace Falcor {
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Stats, min, max, mean, stdDev)
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Capture::Lane, name, stats, records)
-}
-
 json getProperties(const ref<RenderGraph>& graph) {
     json j;
     for (const auto& pass : graph->getAllPasses()) {
@@ -424,9 +447,11 @@ void writeJson(const json& j, const std::filesystem::path& path) {
     file << std::setw(4) << j << std::endl;
 }
 
-void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, double seconds, const std::filesystem::path& dir) {
+void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, double seconds, const std::filesystem::path& dir, uint32_t warmupFrames = 10) {
     auto ref = ensureReference(app);
-    renderForSeconds(app, graph, seconds, 10);
+    
+    // Render and profile (includes warmup and profiling)
+    auto renderStats = renderForSeconds(app, graph, seconds, warmupFrames);
 
     auto output = graph->getOutput(0);
     auto gFLIP = graphFLIP(app->getDevice(), ref);
@@ -435,9 +460,15 @@ void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, do
     gFLIP->setInput("tonemap.src", output);
     app->setRenderGraph(gFLIP);
     app->frame();
+    
+    // Capture outputs
     captureOutputs(app, gFLIP, fmt::format("{}.{}", graph->getName(), getSceneName(app)), dir);
 
-    writeJson(getProperties(gFLIP), dir / fmt::format("{}.{}.json", graph->getName(), getSceneName(app)));
+    // Collect FLIP metrics and combine with profiling stats
+    json outputJson = getProperties(gFLIP);
+    outputJson["renderStats"] = renderStats;
+    
+    writeJson(outputJson, dir / fmt::format("{}.{}.json", graph->getName(), getSceneName(app)));
 }
 
 json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, uint32_t frames, uint32_t warmupFrames = 10) {
