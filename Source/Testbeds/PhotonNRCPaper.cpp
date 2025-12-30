@@ -168,13 +168,13 @@ ref<RenderGraph> graphNRCPT(const ref<Device>& pDevice, uint32_t spp = 1) {
     return g;
 }
 
-ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice) {
+ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice, uint32_t maxBounces = 6, bool visualizeQueries = false) {
     auto g = RenderGraph::create(pDevice, "NRC+LT");
 
     g->createPass("TraceQueries", "TraceQueries", Properties());
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", false}})); // Factorization does not work with BiNRC
-    g->createPass("estim", "PhotonNEE", Properties());
+    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", true}})); // Factorization does not work with BiNRC
+    g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}}));
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -185,6 +185,14 @@ ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice) {
     g->addEdge("estim.output", "nrc.trainTarget");
     g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
     g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+
+    if (visualizeQueries)
+    {
+        g->createPass("visQueries", "VisualizeQueries", Properties(json {{"constantRadius", 0.005f}, {"mode", 3}}));
+        g->addEdge("qsamp.sample", "visQueries.queries");
+        g->addEdge("estim.output", "visQueries.colors");
+        g->markOutput("visQueries.output");
+    }
 
     g->markOutput("nrc.output");
     return g;
@@ -241,7 +249,7 @@ void captureOutputs(const ref<Testbed>& app, const ref<RenderGraph>& graph, cons
         const auto ext = isHdr ? "exr" : "png";
         const auto path = baseDir / fmt::format("{}.{}.{}", outputName, graph->getOutputName(i), ext);
         pTex->captureToFile(0, 0, path, fileformat, Bitmap::ExportFlags::None);
-        logInfo("Captured output {} to {}", graph->getOutputName(i), path.string());
+        logInfo("Captured output {} to {} ({})", graph->getOutputName(i), path.string(), to_string(fmt));
         //app->captureOutput(resultsDir / (outputName + "." + graph->getOutputName(i) + ".exr"), i);
     }
 }
@@ -595,6 +603,7 @@ int runMain(int argc, char** argv)
     args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
     args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
     args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
+    args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
@@ -761,6 +770,13 @@ int runMain(int argc, char** argv)
         
         auto convergenceResults = benchmarkConvergence(app, graphs, ref, 1.0);
         writeJson(convergenceResults, resultsDir / "convergence.json");
+    }
+
+    if (args::get(ltTest)) {
+        auto app = createApp("cornell_box.pyscene", 512);
+        auto gLT = graphNRCLT(app->getDevice(), 6, true);
+        render(app, gLT, 100, 10);
+        captureOutputs(app, gLT, "nrc_lt_test", getResultsDir("lt"));
     }
 
     Scripting::shutdown();

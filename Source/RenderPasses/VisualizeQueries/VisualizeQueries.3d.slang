@@ -6,13 +6,22 @@ import Scene.Camera.Camera;
 
 StructuredBuffer<Query> gQueries;
 StructuredBuffer<QueryState> gQueryStates;
+StructuredBuffer<float3> gQueryColors;
+
+#ifndef USE_QUERY_STATE
+#define USE_QUERY_STATE 0
+#endif
+
+#ifndef USE_COLOR_BUFFER
+#define USE_COLOR_BUFFER 0
+#endif
 
 cbuffer CB
 {
     Camera gCamera;
-    float gRadiusScale;
-    bool gVisualizeCaustics;
-    uint32_t gGlobalPhotonCount;
+    float gConstantRadius;
+    uint gMode;
+    uint gGlobalPhotonCount;
 }
 
 struct VSIn
@@ -47,7 +56,6 @@ VSOut vsMain(VSIn input, uint instanceID : SV_InstanceID)
     VSOut output;
     
     Query q = gQueries[instanceID];
-    QueryState qs = gQueryStates[instanceID];
     
     if (!q.isValid())
     {
@@ -56,18 +64,66 @@ VSOut vsMain(VSIn input, uint instanceID : SV_InstanceID)
         return output;
     }
 
-    float radius;
-    float3 flux;
+    float radius = gConstantRadius;
+    float3 flux = float3(0);
 
-    if (gVisualizeCaustics)
+#if USE_COLOR_BUFFER
+    float3 colorBuffer = gQueryColors[instanceID];
+#else
+    float3 colorBuffer = float3(-1.0f); // Invalid
+#endif
+
+#if USE_QUERY_STATE
+    QueryState qs = gQueryStates[instanceID];
+    float3 causticFlux = qs.getCausticRadiance(gGlobalPhotonCount);
+    float3 globalFlux = qs.getRadiance(gGlobalPhotonCount);
+    float maxRadius = max(qs.causticRadius, qs.globalRadius);
+#else
+    float3 causticFlux = float3(0);
+    float3 globalFlux = float3(0);
+    float maxRadius = gConstantRadius;
+#endif
+
+    // Mode selection
+    switch (gMode)
     {
-        radius = qs.causticRadius * gRadiusScale;
-        flux = qs.getCausticRadiance(gGlobalPhotonCount);
-    }
-    else
-    {
-        radius = qs.globalRadius * gRadiusScale;
-        flux = qs.getRadiance(gGlobalPhotonCount);
+    case 0: // Caustic radiance + radius
+#if USE_QUERY_STATE
+        radius = qs.causticRadius;
+        flux = causticFlux;
+#else
+        radius = gConstantRadius;
+        flux = colorBuffer;
+#endif
+        break;
+    case 1: // Global radiance + radius
+#if USE_QUERY_STATE
+        radius = qs.globalRadius;
+        flux = globalFlux;
+#else
+        radius = gConstantRadius;
+        flux = colorBuffer;
+#endif
+        break;
+    case 2: // Max radius + combined radiance
+#if USE_QUERY_STATE
+        radius = maxRadius;
+        flux = causticFlux + globalFlux;
+#else
+        radius = gConstantRadius;
+        flux = colorBuffer;
+#endif
+        break;
+    default: // Constant radius + provided color or combined radiance fallback
+        radius = gConstantRadius;
+#if USE_COLOR_BUFFER
+        flux = colorBuffer;
+#elif USE_QUERY_STATE
+        flux = causticFlux + globalFlux;
+#else
+        flux = float3(-1.0f); // Invalid
+#endif
+        break;
     }
     
     // Disk is originally in XZ plane with normal (0, 1, 0)

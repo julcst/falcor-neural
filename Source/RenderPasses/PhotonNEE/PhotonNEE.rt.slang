@@ -145,8 +145,9 @@ void collectRadianceFromPhoton(inout SampleGenerator sg, ShadingData sdQuery, IM
     float3 photonNormal = sdPhoton.getOrientedFaceNormal();
 
     float3 toPhoton = photonPos - queryPos;
+    if (abs(dot(toPhoton, queryNormal)) < 1e-3f) return; // Avoid grazing angles
     float dist2 = dot(toPhoton, toPhoton);
-    if (dist2 < 1e-4f) return; // Avoid NaN
+    if (dist2 < 1e-3f) return; // Avoid NaN
     float dist = sqrt(dist2);
     float3 wi = toPhoton / dist;
 
@@ -165,11 +166,11 @@ void collectRadianceFromLightSource(inout SampleGenerator sg, ShadingData sdQuer
 
     float3 toLight = lightPos - queryPos;
     float dist2 = dot(toLight, toLight);
-    if (dist2 < 1e-4f) return; // Avoid NaN
+    if (dist2 < 1e-3f) return; // Avoid NaN
     float dist = sqrt(dist2);
     float3 wi = toLight / dist;
     let lambert = abs(dot(lightNormal, wi)) * M_1_PI;
-    if (lambert < 1e-4f) return;
+    if (lambert < 1e-3f) return; // Avoid grazing angles
 
     // Check if the photon can contribute to the query (i.e., not blocked)
     // TODO: Handle environment lights correctly
@@ -251,7 +252,7 @@ void rayGen()
         TraceRay(gScene.rtAccel, RAY_FLAG_NONE, 0xff /* instanceInclusionMask */, 0 /* hitIdx */, rayTypeCount, 0 /* missIdx */, ray, rayPayload);
 
         HitInfo hit = HitInfo(rayPayload.packedHitInfo);
-        if (!hit.isValid()) return; // Stop if photon leaves the scene
+        if (!hit.isValid()) break; // Stop if photon leaves the scene
 
         // Get shading infos and material properties
         let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
@@ -263,8 +264,7 @@ void rayGen()
         BSDFSample bsdfSample = {};
         // TODO: Is this reciprocal for transmission?
         let validSample = miPhoton.sample(sdPhoton, sg, bsdfSample, true /*ImportanceSampling*/);
-        if (!validSample)
-            return;
+        if (!validSample) break;
         ray.Origin = sdPhoton.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission)); // false is for transmissions
         ray.Direction = bsdfSample.wo;
         ray.TMin = 0.0f;
@@ -276,7 +276,7 @@ void rayGen()
         const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
         const float survivalProb = min(rrVal, 1.f);
         if (sampleNext1D(sg) > survivalProb) {
-            return; // Photon is absorbed
+            break; // Photon is absorbed
         } else {
             photonFlux /= survivalProb;
         }

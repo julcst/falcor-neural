@@ -8,10 +8,11 @@ namespace
     const char kShaderFile[] = "RenderPasses/VisualizeQueries/VisualizeQueries.3d.slang";
     const char kQueryBuffer[] = "queries";
     const char kQueryStateBuffer[] = "queryStates";
+    const char kColorBuffer[] = "colors";
     const char kOutputTexture[] = "output";
 
-    const char kRadiusScale[] = "radiusScale";
-    const char kVisualizeCaustics[] = "visualizeCaustics";
+    const char kConstantRadius[] = "constantRadius";
+    const char kMode[] = "mode";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -41,7 +42,6 @@ VisualizeQueries::VisualizeQueries(ref<Device> pDevice, const Properties& props)
     // Create program
     ProgramDesc desc;
     desc.addShaderLibrary(kShaderFile).vsEntry("vsMain").psEntry("psMain");
-    //desc.setShaderModel(ShaderModel::SM6_5);
     mpProgram = Program::create(pDevice, desc);
     mpGraphicsState->setProgram(mpProgram);
 
@@ -67,8 +67,9 @@ void VisualizeQueries::setProperties(const Properties& props)
 {
     for (const auto& [key, value] : props)
     {
-        if (key == kRadiusScale) mRadiusScale = value;
-        else if (key == kVisualizeCaustics) mVisualizeCaustics = value;
+        if (key == kConstantRadius) mConstantRadius = value;
+        else if (key == kMode) mMode = static_cast<Mode>(value.operator uint32_t());
+        else if (key == "visualizeCaustics") mMode = value ? Mode::Caustic : Mode::Global; // backwards compatibility
         else logWarning("{} - Unknown property '{}'.", getClassName(), key);
     }
 }
@@ -76,8 +77,8 @@ void VisualizeQueries::setProperties(const Properties& props)
 Properties VisualizeQueries::getProperties() const
 {
     Properties props;
-    props[kRadiusScale] = mRadiusScale;
-    props[kVisualizeCaustics] = mVisualizeCaustics;
+    props[kConstantRadius] = mConstantRadius;
+    props[kMode] = static_cast<uint32_t>(mMode);
     return props;
 }
 
@@ -91,11 +92,18 @@ RenderPassReflection VisualizeQueries::reflect(const CompileData& compileData)
         
     reflector.addInput(kQueryStateBuffer, "Buffer containing query states (radius, flux).")
         .rawBuffer(0)
-        .bindFlags(ResourceBindFlags::ShaderResource);
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
+    reflector.addInput(kColorBuffer, "Optional float3 buffer for colors.")
+        .rawBuffer(0)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .flags(RenderPassReflection::Field::Flags::Optional);
 
     reflector.addOutput(kOutputTexture, "Output texture.")
         .texture2D(0, 0)
-        .bindFlags(ResourceBindFlags::RenderTarget);
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::RGBA32Float);
         
     return reflector;
 }
@@ -108,21 +116,47 @@ void VisualizeQueries::execute(RenderContext* pRenderContext, const RenderData& 
 {
     if (!mpScene) return;
 
-    const auto pQueryBuffer = renderData[kQueryBuffer]->asBuffer();
-    const auto pQueryStateBuffer = renderData[kQueryStateBuffer]->asBuffer();
+    const auto pQueryBuffer = renderData.getBuffer(kQueryBuffer);
+    const auto pQueryStateBuffer = renderData.getBuffer(kQueryStateBuffer);
+    const auto pColorBuffer = renderData.getBuffer(kColorBuffer);
     const auto pOutputTexture = renderData.getTexture(kOutputTexture);
     
-    if (!pQueryBuffer || !pQueryStateBuffer || !pOutputTexture) return;
+    if (!pQueryBuffer || !pOutputTexture) return;
+
+    // Validate buffer sizes match
+    uint32_t queryCount = pQueryBuffer->getSize() / sizeof(Query);
+    if (pQueryStateBuffer)
+    {
+        uint32_t queryStateCount = pQueryStateBuffer->getSize() / sizeof(QueryState);
+        FALCOR_ASSERT_EQ(queryCount, queryStateCount);
+    }
+    if (pColorBuffer)
+    {
+        uint32_t colorCount = pColorBuffer->getSize() / sizeof(float3);
+        FALCOR_ASSERT_EQ(queryCount, colorCount);
+    }
+
+    // Resolve mode depending on available data
+    Mode mode = mMode;
+    if (!pQueryStateBuffer && mode != Mode::Constant)
+    {
+        logWarningOnce("VisualizeQueries: Query states missing, falling back to constant mode.");
+        mode = Mode::Constant;
+    }
+
+    mpProgram->addDefine("USE_QUERY_STATE", pQueryStateBuffer ? "1" : "0");
+    mpProgram->addDefine("USE_COLOR_BUFFER", pColorBuffer ? "1" : "0");
 
     // Update vars
     if (!mpVars) mpVars = ProgramVars::create(mpDevice, mpProgram.get());
 
     auto var = mpVars->getRootVar();
     var["gQueries"] = pQueryBuffer;
-    var["gQueryStates"] = pQueryStateBuffer;
+    if (pQueryStateBuffer) var["gQueryStates"] = pQueryStateBuffer;
+    if (pColorBuffer) var["gQueryColors"] = pColorBuffer;
     
-    var["CB"]["gRadiusScale"] = mRadiusScale;
-    var["CB"]["gVisualizeCaustics"] = mVisualizeCaustics;
+    var["CB"]["gConstantRadius"] = mConstantRadius;
+    var["CB"]["gMode"] = static_cast<uint32_t>(mode);
     var["CB"]["gGlobalPhotonCount"] = renderData.getDictionary().getValue<uint32_t>("GlobalPhotonCount", 0);
     
     // Bind camera
@@ -145,8 +179,17 @@ void VisualizeQueries::execute(RenderContext* pRenderContext, const RenderData& 
 
 void VisualizeQueries::renderUI(Gui::Widgets& widget)
 {
-    widget.var("Radius Scale", mRadiusScale, 0.1f, 10.0f);
-    widget.checkbox("Visualize Caustics", mVisualizeCaustics);
+    widget.var("Constant Radius", mConstantRadius, 0.001f, 1.0f);
+    uint32_t mode = static_cast<uint32_t>(mMode);
+    if (widget.dropdown("Mode", {
+        {(uint32_t)Mode::Caustic, "Caustic Radiance/Radius"},
+        {(uint32_t)Mode::Global, "Global Radiance/Radius"},
+        {(uint32_t)Mode::MaxRadius, "Max Radius + Combined"},
+        {(uint32_t)Mode::Constant, "Constant Radius + Color"},
+    }, mode))
+    {
+        mMode = static_cast<Mode>(mode);
+    }
 }
 
 void VisualizeQueries::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

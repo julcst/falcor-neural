@@ -74,7 +74,7 @@ private:
     uint mQueryCount = 0;
 
     // Properties
-    uint mMaxBounces = 3;
+    uint mMaxBounces = 8;
     float mRussianRouletteWeight = 1.0f;
     bool mUseRussianRoulette = false;
 };

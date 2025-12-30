@@ -25,6 +25,14 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    enum class Mode : uint32_t
+    {
+        Caustic = 0,
+        Global = 1,
+        MaxRadius = 2,
+        Constant = 3,
+    };
+
     ref<Scene> mpScene;
     ref<GraphicsState> mpGraphicsState;
     ref<Program> mpProgram;
@@ -34,8 +42,8 @@ private:
     ref<Vao> mpVao;
 
     // Config
-    float mRadiusScale = 1.0f;
-    bool mVisualizeCaustics = false;
+    float mConstantRadius = 0.02f;
+    Mode mMode = Mode::Global;
     
     uint32_t mQueryCount = 0;
 };
