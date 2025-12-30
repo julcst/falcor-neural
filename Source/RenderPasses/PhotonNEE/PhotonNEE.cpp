@@ -120,7 +120,7 @@ void PhotonNEE::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
 
         mTracer.pBindingTable = RtBindingTable::create(2, 2, mpScene->getGeometryCount());
         auto& sbt = mTracer.pBindingTable;
-        sbt->setRayGen(desc.addRayGen("rayGen"));
+        sbt->setRayGen(desc.addRayGen("rayGenWarp"));
         sbt->setMiss(0, desc.addMiss("miss"));
         sbt->setMiss(1, desc.addMiss("shadowMiss"));
 
