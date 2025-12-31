@@ -443,3 +443,283 @@ void rayGenWarp()
 
     gOutput[idx] = outgoingRadianceAtQuery;
 }
+
+// Evaluate target PDF for photon contribution using full BSDFs (unshadowed)
+float evalPhotonTargetPdf(
+    ShadingData sdQuery,
+    IMaterialInstance miQuery,
+    ShadingData sdPhoton,
+    IMaterialInstance miPhoton,
+    float3 photonFlux,
+    inout SampleGenerator sg)
+{
+    float3 queryPos = sdQuery.posW;
+    float3 photonPos = sdPhoton.posW;
+    
+    float3 toPhoton = photonPos - queryPos;
+    float dist2 = dot(toPhoton, toPhoton);
+    if (dist2 < 1e-6f) return 0.f;
+    
+    float dist = sqrt(dist2);
+    float3 wi = toPhoton / dist;
+    
+    // Check grazing angle at query
+    if (abs(dot(wi, sdQuery.getOrientedFaceNormal())) < 1e-3f) return 0.f;
+    
+    // Geometry term (1/r²)
+    float geometry = 1.f / dist2;
+    
+    // Evaluate BSDFs at both ends (includes cosine terms)
+    float3 queryBsdf = miQuery.eval(sdQuery, wi, sg);
+    float3 photonBsdf = miPhoton.eval(sdPhoton, -wi, sg);
+    
+    // Target PDF: flux × queryBSDF × photonBSDF × geometry (no visibility)
+    float3 contribution = photonFlux * queryBsdf * photonBsdf * geometry;
+    
+    return luminance(contribution);
+}
+
+// Evaluate target PDF for light source (0-vertex) using full BSDF
+float evalLightTargetPdf(
+    ShadingData sdQuery,
+    IMaterialInstance miQuery,
+    float3 lightPos,
+    float3 lightNormal,
+    float3 lightFlux,
+    inout SampleGenerator sg)
+{
+    float3 queryPos = sdQuery.posW;
+    
+    float3 toLight = lightPos - queryPos;
+    float dist2 = dot(toLight, toLight);
+    if (dist2 < 1e-6f) return 0.f;
+    
+    float dist = sqrt(dist2);
+    float3 wi = toLight / dist;
+    
+    // Light Lambert term
+    float lambert = abs(dot(lightNormal, -wi)) * M_1_PI;
+    if (lambert < 1e-3f) return 0.f;
+    
+    // Geometry term
+    float geometry = 1.f / dist2;
+    
+    // Query BSDF (includes cosine)
+    float3 queryBsdf = miQuery.eval(sdQuery, wi, sg);
+    
+    // Target PDF: emission × lambert × queryBSDF × geometry
+    float3 contribution = lightFlux * lambert * queryBsdf * geometry;
+    
+    return luminance(contribution);
+}
+
+// Reservoir
+struct Reservoir<T>
+{
+    float weightSum;        // Sum of weights (Σw)
+    float targetPdfY;       // Target PDF value of selected sample
+    uint M;                 // Number of samples seen so far
+    T sample;               // Selected sample
+    
+    __init()
+    {
+        weightSum = 0.f;
+        targetPdfY = 0.f;
+        M = 0;
+    }
+    
+    // Weighted Incremental Resampling: stream a candidate
+    [mutating]
+    bool update<S: ISampleGenerator>(T candidate, float targetPdf, float weight, S sg)
+    {
+        weightSum += weight;
+        M += 1;
+        
+        // Accept with probability weight / weightSum
+        bool selected = (sampleNext1D(sg) * weightSum < weight);
+        if (selected)
+        {
+            sample = candidate;
+            targetPdfY = targetPdf;
+        }
+        return selected;
+    }
+
+    float getWeight()
+    {
+        return weightSum / (targetPdfY * M);
+    }
+    
+    // Check if reservoir has valid sample
+    bool isValid()
+    {
+        return weightSum > 0.0f;
+    }
+};
+
+[shader("raygeneration")]
+void rayGenReservoir()
+{
+    let idx = DispatchRaysIndex().x;
+    if (idx >= gQueryCount) return;
+
+    let query = gQueries[idx];
+    if (!query.isValid()) return;
+
+    SampleGenerator sg = SampleGenerator(idx, gFrameCount);
+    
+    PhotonLightSample ls;
+    if (!gLights.generateLightSample(sg, ls)) return;
+
+    float3 outgoingRadianceAtQuery = float3(0.0f);
+
+    RayDesc ray = ls.getRay().toRayDesc();
+    float3 photonFlux = ls.flux;
+
+    let sdQuery = loadShadingData(query.getHitInfo(), query.position, -query.getViewDir());
+    let miQuery = gScene.materials.getMaterialInstance(sdQuery, ExplicitLodTextureSampler(0));
+
+    // Compute subwarp membership
+    const uint laneIndex = WaveGetLaneIndex();
+    const uint subwarpID = laneIndex / gSubwarpSize;
+    const uint subwarpBase = 0;
+    const uint subwarpEnd = WaveGetLaneCount();
+
+    // ===== Resampling for 0-vertex (direct light) =====
+    Reservoir<uint> lightReservoir;
+    let mask = WaveGetActiveMask();
+    let sourcePdf = 1.f / float(WaveActiveCountBits(true)); // Uniform selection from subwarp
+    for (uint lane = subwarpBase; lane < subwarpEnd; lane++)
+    {
+        if ((mask & (1 << lane)) == 0) continue; // Check if lane is inactive
+        float3 lightPos = WaveReadLaneAt(ls.posW, lane);
+        float3 lightNormal = WaveReadLaneAt(ls.normal, lane);
+        float3 lightFlux = WaveReadLaneAt(ls.flux, lane);
+        
+        if (any(lightFlux > 0.f))
+        {
+            float targetPdf = evalLightTargetPdf(sdQuery, miQuery, lightPos, lightNormal, lightFlux, sg);
+            lightReservoir.update(lane, targetPdf, targetPdf, sg); // For uniform sampling, w = 1/M target/source = M/M target
+        }
+    }
+    
+    // Trace shadow ray only for selected light sample
+    if (lightReservoir.isValid())
+    {
+        uint selectedLane = lightReservoir.sample;
+        float3 lightPos = WaveReadLaneAt(ls.posW, selectedLane);
+        float3 lightNormal = WaveReadLaneAt(ls.normal, selectedLane);
+        float3 lightFlux = WaveReadLaneAt(ls.flux, selectedLane);
+        
+        float3 contribution = float3(0.f);
+        collectRadianceFromLightSource(sg, sdQuery, miQuery, lightPos, lightNormal, lightFlux, contribution);
+        
+        // Apply reservoir weight for unbiased contribution
+        outgoingRadianceAtQuery += contribution * lightReservoir.getWeight();
+    }
+
+    // ===== Main Raytrace Loop with Resampling =====
+    bool photonValid = true;
+    for (uint i = 0; i < gMaxBounces; i++) {
+        var rayPayload = RayPayload();
+        TraceRay(gScene.rtAccel, RAY_FLAG_NONE, 0xff, 0, rayTypeCount, 0, ray, rayPayload);
+
+        HitInfo hit = HitInfo(rayPayload.packedHitInfo);
+        photonValid = hit.isValid();
+        
+        // Store local photon data for broadcasting
+        PhotonVertex localPhoton;
+        localPhoton.packedHit = rayPayload.packedHitInfo;
+        localPhoton.flux = photonFlux;
+        localPhoton.rayOrigin = ray.Origin;
+        localPhoton.rayDir = ray.Direction;
+        
+        // ===== Resampling across subwarp photons =====
+        Reservoir<uint> photonReservoir;
+        let mask = WaveActiveBallot(photonValid).x;
+        let sourcePdf = 1.f / float(WaveActiveCountBits(photonValid)); // Uniform selection from valid photons
+        for (uint lane = subwarpBase; lane < subwarpEnd; lane++)
+        {
+            if ((mask & (1 << lane)) == 0) continue; // Check if lane has invalid photon
+            // Broadcast photon data from lane
+            PhotonVertex photon;
+            photon.packedHit = WaveReadLaneAt(localPhoton.packedHit, lane);
+            photon.flux = WaveReadLaneAt(localPhoton.flux, lane);
+            photon.rayOrigin = WaveReadLaneAt(localPhoton.rayOrigin, lane);
+            photon.rayDir = WaveReadLaneAt(localPhoton.rayDir, lane);
+            
+            if (photon.isValid())
+            {
+                // Reconstruct shading data for target PDF evaluation
+                HitInfo photonHit = HitInfo(photon.packedHit);
+                let sdPhoton = loadShadingData(photonHit, photon.rayOrigin, photon.rayDir);
+                let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
+                
+                // Evaluate target PDF using full combined BSDFs (unshadowed contribution)
+                float targetPdf = evalPhotonTargetPdf(
+                    sdQuery, miQuery,
+                    sdPhoton, miPhoton,
+                    photon.flux,
+                    sg);
+                
+                photonReservoir.update(lane, targetPdf, targetPdf, sg);
+            }
+        }
+        
+        // Trace single shadow ray for selected photon
+        if (photonReservoir.isValid())
+        {
+            uint selectedLane = photonReservoir.sample;
+            
+            // Broadcast selected photon data
+            PhotonVertex selectedPhoton;
+            selectedPhoton.packedHit = WaveReadLaneAt(localPhoton.packedHit, selectedLane);
+            selectedPhoton.flux = WaveReadLaneAt(localPhoton.flux, selectedLane);
+            selectedPhoton.rayOrigin = WaveReadLaneAt(localPhoton.rayOrigin, selectedLane);
+            selectedPhoton.rayDir = WaveReadLaneAt(localPhoton.rayDir, selectedLane);
+            
+            // Reconstruct full shading data for contribution evaluation
+            HitInfo photonHit = HitInfo(selectedPhoton.packedHit);
+            let sdPhoton = loadShadingData(photonHit, selectedPhoton.rayOrigin, selectedPhoton.rayDir);
+            let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
+            
+            // Collect contribution with reservoir weight
+            float3 contribution = float3(0.f);
+            collectRadianceFromPhoton(sg, sdQuery, miQuery, sdPhoton, miPhoton, selectedPhoton.flux, contribution);
+            
+            outgoingRadianceAtQuery += contribution * photonReservoir.getWeight();
+        }
+
+        if (!photonValid) break; // Stop if photon leaves the scene
+
+        // Get shading infos and material properties for next bounce
+        let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
+        let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
+
+        // Sample Photon bounce for next iteration
+        BSDFSample bsdfSample = {};
+        let validSample = miPhoton.sample(sdPhoton, sg, bsdfSample, true);
+        if (!validSample) break;
+        
+        ray.Origin = sdPhoton.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission));
+        ray.Direction = bsdfSample.wo;
+        ray.TMin = 0.0f;
+        ray.TMax = FLT_MAX;
+        var weight = bsdfSample.weight;
+
+        // Russian Roulette
+    #if USE_RUSSIAN_ROULETTE
+        const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
+        const float survivalProb = min(rrVal, 1.f);
+        if (sampleNext1D(sg) > survivalProb) {
+            photonValid = false;
+        } else {
+            photonFlux /= survivalProb;
+        }
+    #endif
+
+        photonFlux *= weight;
+    }
+
+    gOutput[idx] = outgoingRadianceAtQuery;
+}

@@ -773,7 +773,7 @@ int runMain(int argc, char** argv)
     }
 
     if (args::get(ltTest)) {
-        auto app = createApp("cornell_box.pyscene", 512);
+        auto app = createApp("cornell_box_caustic.pyscene", 512);
         auto gLT = graphNRCLT(app->getDevice(), 6, true);
         render(app, gLT, 100, 10);
         captureOutputs(app, gLT, "nrc_lt_test", getResultsDir("lt"));
