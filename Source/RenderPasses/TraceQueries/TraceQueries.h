@@ -35,7 +35,7 @@ private:
     bool mTerminateSAH = false;             ///< Enable/disable SAH termination heuristic
     bool mTerminateDiffuse = true;          ///< Enable/disable diffuse surface termination heuristic
     uint32_t mMaxBounces = 8;               ///< Maximum number of bounces
-    float mTerminationFactor = 1e3f;        ///< Termination factor for BTH heuristic, higher values mean more aggressive termination
+    float mTerminationFactor = 1e1f;        ///< Termination factor for BTH heuristic, higher values mean more aggressive termination
     float mVarianceTradeoff = 0.01f;        ///< Variance tradeoff for SAH heuristic
 
     // Internal state

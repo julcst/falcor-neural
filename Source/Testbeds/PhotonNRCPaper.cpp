@@ -168,13 +168,13 @@ ref<RenderGraph> graphNRCPT(const ref<Device>& pDevice, uint32_t spp = 1) {
     return g;
 }
 
-ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice, uint32_t maxBounces = 6, bool visualizeQueries = false) {
-    auto g = RenderGraph::create(pDevice, "NRC+LT");
+ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice, uint32_t maxBounces = 6, bool visualizeQueries = false, uint32_t mode = 0) {
+    auto g = RenderGraph::create(pDevice, mode == 0 ? "NRC+LT" : (mode == 1 ? "NRC+WarpLT" : "NRC+ResLT"));
 
-    g->createPass("TraceQueries", "TraceQueries", Properties());
+    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"terminateDiffuse", false}, {"terminateBTH", true}}));
     g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
     g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", true}})); // Factorization does not work with BiNRC
-    g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}}));
+    g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}, {"mode", mode}}));
 
     g->addEdge("TraceQueries.queries", "qsamp.queries");
     g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -773,10 +773,11 @@ int runMain(int argc, char** argv)
     }
 
     if (args::get(ltTest)) {
-        auto app = createApp("cornell_box_caustic.pyscene", 512);
-        auto gLT = graphNRCLT(app->getDevice(), 6, true);
-        render(app, gLT, 100, 10);
-        captureOutputs(app, gLT, "nrc_lt_test", getResultsDir("lt"));
+        auto app = createApp("veach-ajar/scene-v4.pbrt", 512);
+        for (uint mode = 0; mode < 3; ++mode) {
+            auto g = graphNRCLT(app->getDevice(), 10, false, mode);
+            benchmarkQuality(app, g, 10.0, getResultsDir("lt"));
+        }
     }
 
     Scripting::shutdown();

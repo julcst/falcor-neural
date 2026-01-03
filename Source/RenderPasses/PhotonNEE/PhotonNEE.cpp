@@ -44,9 +44,10 @@ namespace
     const char kMaxBounces[] = "maxBounces";
     const char kRussianRouletteWeight[] = "russianRouletteWeight";
     const char kUseRussianRoulette[] = "useRussianRoulette";
+    const char kRayGenMode[] = "mode";
 
     // Ray tracing settings
-    const uint32_t kMaxPayloadSizeBytes = 72u; // Estimate
+    const uint32_t kMaxPayloadSizeBytes = 3 * sizeof(float4); // Estimate
     const uint32_t kMaxRecursionDepth = 2u; // 1 for shadow ray?
 }
 
@@ -62,6 +63,7 @@ void PhotonNEE::setProperties(const Properties& props)
         if (key == kMaxBounces) mMaxBounces = value;
         else if (key == kRussianRouletteWeight) mRussianRouletteWeight = value;
         else if (key == kUseRussianRoulette) mUseRussianRoulette = value;
+        else if (key == kRayGenMode) mRayGenMode = static_cast<RayGenMode>(value.operator uint32_t());
         else logWarning("{} - Unrecognized property '{}'", getClassName(), key);
     }
 }
@@ -72,6 +74,7 @@ Properties PhotonNEE::getProperties() const
     props[kMaxBounces] = mMaxBounces;
     props[kRussianRouletteWeight] = mRussianRouletteWeight;
     props[kUseRussianRoulette] = mUseRussianRoulette;
+    props[kRayGenMode] = static_cast<uint32_t>(mRayGenMode);
     return props;
 }
 
@@ -120,7 +123,15 @@ void PhotonNEE::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene
 
         mTracer.pBindingTable = RtBindingTable::create(2, 2, mpScene->getGeometryCount());
         auto& sbt = mTracer.pBindingTable;
-        sbt->setRayGen(desc.addRayGen("rayGenReservoir"));
+
+        // Select raygen based on mode
+        const char* rayGenName = "rayGen";  // Default to Standard
+        if (mRayGenMode == RayGenMode::Warp)
+            rayGenName = "rayGenWarp";
+        else if (mRayGenMode == RayGenMode::ReserWarp)
+            rayGenName = "rayGenReservoir";
+
+        sbt->setRayGen(desc.addRayGen(rayGenName));
         sbt->setMiss(0, desc.addMiss("miss"));
         sbt->setMiss(1, desc.addMiss("shadowMiss"));
 

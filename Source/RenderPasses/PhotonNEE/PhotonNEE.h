@@ -34,6 +34,13 @@
 
 using namespace Falcor;
 
+enum class RayGenMode : uint32_t
+{
+    Standard = 0,   // rayGen
+    Warp = 1,       // rayGenWarp
+    ReserWarp = 2   // rayGenReSTIR
+};
+
 class PhotonNEE : public RenderPass
 {
 public:
@@ -77,4 +84,5 @@ private:
     uint mMaxBounces = 8;
     float mRussianRouletteWeight = 1.0f;
     bool mUseRussianRoulette = false;
+    RayGenMode mRayGenMode = RayGenMode::ReserWarp;
 };

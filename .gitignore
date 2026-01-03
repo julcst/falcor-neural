@@ -33,6 +33,7 @@
 *.swp
 *.json
 *.exr
+*.DS_Store
 
 out.png
 out/**
