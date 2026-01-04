@@ -73,15 +73,12 @@ water.doubleSided = True
 
 quadMesh = TriangleMesh.createQuad()
 cubeMesh = TriangleMesh.createCube()
-waterMesh = TriangleMesh.createFromFile("meshes/water.obj", smoothNormals=True)
-waterSideMesh = TriangleMesh.createFromFile(
-    "meshes/water_side.obj", smoothNormals=False
-)
+waterMesh = TriangleMesh.createFromFile("meshes/water.obj")
 
 # Create mesh instances
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode("Floor", Transform(scaling=float3(0.55, 1.0, 0.56))),
+    sceneBuilder.addNode("Floor", Transform(scaling=0.55)),
     sceneBuilder.addTriangleMesh(quadMesh, floor),
 )
 
@@ -89,7 +86,7 @@ sceneBuilder.addMeshInstance(
     sceneBuilder.addNode(
         "Ceiling",
         Transform(
-            scaling=float3(0.55, 1.0, 0.56),
+            scaling=0.55,
             translation=float3(0, 0.55, 0),
             rotationEulerDeg=float3(180, 0, 0),
         ),
@@ -98,39 +95,42 @@ sceneBuilder.addMeshInstance(
 )
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode(
-        "Back Wall",
-        Transform(
-            scaling=float3(0.55, 1.0, 0.56),
-            translation=float3(0, 0.275, -0.275),
-            rotationEulerDeg=float3(90, 0, 0),
-        ),
+    sceneBuilder.addNode("Back Wall Top", Transform(scaling=0.55)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/tzp.obj"), backWall
     ),
-    sceneBuilder.addTriangleMesh(quadMesh, backWall),
+)
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode("Back Wall Bottom", Transform(scaling=0.55)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/bzp.obj"), backWall
+    ),
 )
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode(
-        "Left Wall",
-        Transform(
-            scaling=float3(0.55, 1.0, 0.56),
-            translation=float3(-0.275, 0.275, 0),
-            rotationEulerDeg=float3(0, 0, -90),
-        ),
+    sceneBuilder.addNode("Right Wall Top", Transform(scaling=0.55)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/txp.obj"), rightWall
     ),
-    sceneBuilder.addTriangleMesh(quadMesh, leftWall),
+)
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode("Right Wall Bottom", Transform(scaling=0.55)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/bxp.obj"), rightWall
+    ),
 )
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode(
-        "Right Wall",
-        Transform(
-            scaling=float3(0.55, 1.0, 0.56),
-            translation=float3(0.275, 0.275, 0),
-            rotationEulerDeg=float3(0, 0, 90),
-        ),
+    sceneBuilder.addNode("Left Wall Top", Transform(scaling=0.55)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/tx-.obj"), leftWall
     ),
-    sceneBuilder.addTriangleMesh(quadMesh, rightWall),
+)
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode("Left Wall Bottom", Transform(scaling=0.55)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/bx-.obj"), leftWall
+    ),
 )
 
 sceneBuilder.addMeshInstance(
@@ -158,14 +158,9 @@ sceneBuilder.addMeshInstance(
 )
 
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode("Water", Transform(scaling=float3(0.275, 0.42, 0.275))),
+    sceneBuilder.addNode("Water", Transform(scaling=0.55)),
     sceneBuilder.addTriangleMesh(waterMesh, water),
 )
-
-# sceneBuilder.addMeshInstance(
-#     sceneBuilder.addNode("Water Side", Transform(scaling=float3(0.275, 0.42, 0.275))),
-#     sceneBuilder.addTriangleMesh(waterSideMesh, water),
-# )
 
 sceneBuilder.addMeshInstance(
     sceneBuilder.addNode(
