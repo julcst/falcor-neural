@@ -53,7 +53,7 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
     if (abs(dot(q.getNormal(), p.normal)) < gMaxNormalDeviation) IgnoreHit();
 #endif
 #if INSTANCE_REJECTION
-    if (hit.getInstanceID().index != p.geomID) continue;
+    if (hit.getInstanceID().index != p.geomID) IgnoreHit();
 #endif
 
     // TODO: Prefetch material? Or use photon hit?

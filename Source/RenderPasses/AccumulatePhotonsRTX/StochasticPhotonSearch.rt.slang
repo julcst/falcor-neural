@@ -93,7 +93,7 @@ void photonAnyHitShared(inout StochasticPhotonSearchPayloadShared pl : SV_RayPay
     }
 }
 
-DoubleAccumulator accumulatePhotonsShared<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, Hit hit, M mi, RayDesc r)
+DoubleAccumulator accumulatePhotonsShared<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, HitInfo hit, M mi, RayDesc r)
 {
     var p = StochasticPhotonSearchPayloadShared(sg);
     // TODO: Use different instance inclusion masks for caustic/global photons instead of hitGroups
