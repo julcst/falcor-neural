@@ -410,7 +410,7 @@ std::filesystem::path ensureReference(const ref<Testbed>& app) {
     std::filesystem::path path = refDir / fmt::format("{}.exr", getSceneName(app));
     if (!std::filesystem::exists(path)) {
         logInfo("Building reference image: {}", path);
-        auto ptGraph = renderPTUntilConvergence(app, 1e-7f, 30.0); // 30 minutes, very low error threshold
+        auto ptGraph = renderPTUntilConvergence(app, 1e-8f, 30.0); // 30 minutes, very low error threshold
         
         auto convergedTex = ptGraph->getOutput(0)->asTexture();
         logInfo("Output format: {}", to_string(convergedTex->getFormat()));
@@ -473,7 +473,8 @@ void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, do
     captureOutputs(app, gFLIP, fmt::format("{}.{}", graph->getName(), getSceneName(app)), dir);
 
     // Collect FLIP metrics and combine with profiling stats
-    json outputJson = getProperties(gFLIP);
+    json outputJson = getProperties(graph);
+    outputJson.merge_patch(getProperties(gFLIP));
     outputJson["renderStats"] = renderStats;
     
     writeJson(outputJson, dir / fmt::format("{}.{}.json", graph->getName(), getSceneName(app)));
@@ -593,6 +594,11 @@ std::vector<uint2> getLinearResolutionLevels(uint max, uint n) {
     return levels;
 }
 
+ref<RenderGraph> rename(const ref<RenderGraph>& g, const std::string& name) {
+    g->setName(name);
+    return g;
+}
+
 int runMain(int argc, char** argv)
 {
     args::ArgumentParser parser("PhotonNRC Testbed");
@@ -604,6 +610,7 @@ int runMain(int argc, char** argv)
     args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
     args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
     args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
+    args::Flag sppmTest(parser, "sppm-test", "Run SPPM test", {"sppm", "sppm-test"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
@@ -777,6 +784,19 @@ int runMain(int argc, char** argv)
         for (uint mode = 0; mode < 3; ++mode) {
             auto g = graphNRCLT(app->getDevice(), 10, false, mode);
             benchmarkQuality(app, g, 10.0, getResultsDir("lt"));
+        }
+    }
+
+    if (args::get(sppmTest)) {
+        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        for (const auto& g : {
+            rename(graphSPPM(app->getDevice(), false, 0.7f, true, false), "QuerySearch"),
+            rename(graphSPPM(app->getDevice(), true, 0.7f, true, false), "PhotonSearch"),
+            rename(graphSPPM(app->getDevice(), false, 0.7f, true, true), "StochQuerySearch"),
+            rename(graphSPPM(app->getDevice(), true, 0.7f, true, true), "StochPhotonSearch"),
+        }) 
+        {
+            benchmarkQuality(app, g, 10.0, getResultsDir("sppm"));
         }
     }
 
