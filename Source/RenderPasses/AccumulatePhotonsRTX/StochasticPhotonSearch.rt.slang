@@ -49,7 +49,7 @@ void photonIntersectionShared() {
     ReportHit(1e-6, 0, attribs);
 }
 
-Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, Reservoir<uint, 3> reservoir)
+Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, HitInfo hit, M mi, Reservoir<uint, 3> reservoir)
 {
     var flux = float3(0.0f);
     for (uint i = reservoir.begin(); i < reservoir.end(); i++) {
@@ -59,6 +59,9 @@ Accumulator accumulatePhotons<M:IMaterialInstance>(inout TinyUniformSampleGenera
         let n = sd.faceN; // TODO: Use shading normal?
     #if NORMAL_REJECTION
         if (abs(dot(n, ph.getNormal())) < gMaxNormalDeviation) continue; // In anyhit?
+    #endif
+    #if INSTANCE_REJECTION
+        if (hit.getInstanceID().index != ph.geomID) continue;
     #endif
         let cosThetaI = abs(dot(wi, n));
         if (cosThetaI < 1e-6) continue;
@@ -90,7 +93,7 @@ void photonAnyHitShared(inout StochasticPhotonSearchPayloadShared pl : SV_RayPay
     }
 }
 
-DoubleAccumulator accumulatePhotonsShared<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, M mi, RayDesc r)
+DoubleAccumulator accumulatePhotonsShared<M:IMaterialInstance>(inout TinyUniformSampleGenerator sg, ShadingData sd, Hit hit, M mi, RayDesc r)
 {
     var p = StochasticPhotonSearchPayloadShared(sg);
     // TODO: Use different instance inclusion masks for caustic/global photons instead of hitGroups
@@ -98,8 +101,8 @@ DoubleAccumulator accumulatePhotonsShared<M:IMaterialInstance>(inout TinyUniform
              /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, p);
     sg = p.sg;
 
-    let caustic = accumulatePhotons(sg, sd, mi, p.causticIndices);
-    let global = accumulatePhotons(sg, sd, mi, p.globalIndices);
+    let caustic = accumulatePhotons(sg, sd, hit, mi, p.causticIndices);
+    let global = accumulatePhotons(sg, sd, hit, mi, p.globalIndices);
     return {global, caustic};
 }
 
@@ -112,8 +115,9 @@ void rayGen()
     let q = gQueries[idx];
     if (!q.isValid()) return;
 
+    let hit = HitInfo(q.hit);
     var sg = TinyUniformSampleGenerator(idx, gFrameIndex);
-    let th = HitInfo(q.hit).getTriangleHit();
+    let th = hit.getTriangleHit();
     let materialID = gScene.getMaterialID(th.instanceID);
     let v = gScene.getVertexData(th);
     let sd = gScene.materials.prepareShadingData(v, materialID, q.getViewDir());
@@ -125,5 +129,5 @@ void rayGen()
     r.TMin = 0.0;
     r.TMax = 1e-6;
     
-    gQueryAccumulation[idx] = accumulatePhotonsShared(sg, sd, mi, r);
+    gQueryAccumulation[idx] = accumulatePhotonsShared(sg, sd, hit, mi, r);
 }

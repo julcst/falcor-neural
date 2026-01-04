@@ -45,12 +45,14 @@ struct StochQuerySearchPayload {
     Reservoir<uint, 3> queryReservoir;
     bool isCaustic;
     TinyUniformSampleGenerator sg;
+    uint geomID;
 
-    __init(TinyUniformSampleGenerator sg, bool isCaustic)
+    __init(TinyUniformSampleGenerator sg, bool isCaustic, uint geomID)
     {
         this.queryReservoir = {};
         this.sg = sg;
         this.isCaustic = isCaustic;
+        this.geomID = geomID;
     }
 };
 
@@ -60,11 +62,15 @@ void queryAnyHit(inout StochQuerySearchPayload pl : SV_RayPayload, in QueryIsect
     if (!attribs.sphere.contains(WorldRayOrigin(), pl.isCaustic)) IgnoreHit();
 
     let qi = PrimitiveIndex();
+    let q = gPhotonQueries[qi];
 
 #if NORMAL_REJECTION
-    let q = gPhotonQueries[qi];
     let N = WorldRayDirection(); // Encoded normal
     if (abs(dot(q.getNormal(), N)) < gMaxNormalDeviation) IgnoreHit();
+#endif
+#if INSTANCE_REJECTION
+    let hit = q.getHitInfo();
+    if (hit.getInstanceID().index != pl.geomID) IgnoreHit();
 #endif
 
     pl.queryReservoir.addSample(qi, pl.sg);
@@ -88,7 +94,7 @@ void rayGen()
     r.TMin = 0.0;
     r.TMax = 1e-6; // Make ray infinitesimally short
 
-    var pl = StochQuerySearchPayload(sg, ph.isCaustic);
+    var pl = StochQuerySearchPayload(sg, ph.isCaustic, ph.geomID);
     TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);
     sg = pl.sg;
 

@@ -47,8 +47,13 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
     let qi = PrimitiveIndex();
     let q = gPhotonQueries[qi];
 
+    let hit = q.getHitInfo();
+
 #if NORMAL_REJECTION
     if (abs(dot(q.getNormal(), p.normal)) < gMaxNormalDeviation) IgnoreHit();
+#endif
+#if INSTANCE_REJECTION
+    if (hit.getInstanceID().index != p.geomID) continue;
 #endif
 
     // TODO: Prefetch material? Or use photon hit?
@@ -57,7 +62,7 @@ void queryAnyHit(inout QuerySearchPayload p : SV_RayPayload, in QueryIsectAttrib
 
     // NOTE: We have to fetch material here because MaterialsInstance is up to 128B large
     // This is potentially inefficient however, especially for textured materials
-    let th = HitInfo(q.hit).getTriangleHit();
+    let th = hit.getTriangleHit();
     let materialID = gScene.getMaterialID(th.instanceID);
     let v = gScene.getVertexData(th);
     let sd = gScene.materials.prepareShadingData(v, materialID, wo);
@@ -95,7 +100,7 @@ void rayGen()
     r.TMin = 0.0;
     r.TMax = 1e-6; // Make ray infinitesimally short
 
-    var pl = QuerySearchPayload(ph.getFlux(), ph.isCaustic, ph.getNormal());
+    var pl = QuerySearchPayload(ph.getFlux(), ph.isCaustic, ph.getNormal(), ph.geomID);
 
     // Use no special ray flags to allow any-hit invocation for non-opaque geometry.
     TraceRay(gQueryAS, /*RayFlags*/ RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_SKIP_TRIANGLES, 0xFF, /*hitGroup*/ 0, /*rayTypeCount*/ 0, /*miss*/ 0, r, pl);

@@ -181,7 +181,8 @@ void rayGen()
                     sd.V,
                     sd.faceN,
                     storeFlux,
-                    isCaustic
+                    isCaustic,
+                    hit.getInstanceID()
                 ));
             }
         }

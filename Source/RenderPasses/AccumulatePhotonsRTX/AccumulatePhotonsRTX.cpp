@@ -42,6 +42,7 @@ const char kGlobalRadius[] = "globalRadius";
 const char kCausticRadius[] = "causticRadius";
 const char kMaxNormalDeviation[] = "maxNormalDeviation";
 const char kUseNormalRejection[] = "useNormalRejection";
+const char kUseInstanceRejection[] = "useInstanceRejection";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -70,6 +71,7 @@ void AccumulatePhotonsRTX::setProperties(const Properties& props)
         else if (key == kCausticRadius) mCausticRadius = value;
         else if (key == kMaxNormalDeviation) mMaxNormalDeviation = value;
         else if (key == kUseNormalRejection) mUseNormalRejection = value;
+        else if (key == kUseInstanceRejection) mUseInstanceRejection = value;
         else logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
     }
 }
@@ -86,6 +88,7 @@ Properties AccumulatePhotonsRTX::getProperties() const
     props[kCausticRadius] = mCausticRadius;
     props[kMaxNormalDeviation] = mMaxNormalDeviation;
     props[kUseNormalRejection] = mUseNormalRejection;
+    props[kUseInstanceRejection] = mUseInstanceRejection;
     return props;
 }
 
@@ -100,6 +103,7 @@ void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {
     widget.var("Caustic Alpha", mCausticAlpha, 0.1f, 1.0f, 0.01f);
     widget.var("Max Normal Deviation (degrees)", mMaxNormalDeviation, 0.0f, 90.0f, 1.0f);
     widget.checkbox("Use Normal Rejection", mUseNormalRejection);
+    widget.checkbox("Use Instance Rejection", mUseInstanceRejection);
 }
 
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
@@ -249,12 +253,13 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
 
     FALCOR_ASSERT(mpTLAS);
 
+    mTracer.pProgram->addDefine("NORMAL_REJECTION", mUseNormalRejection ? "1" : "0");
+    mTracer.pProgram->addDefine("INSTANCE_REJECTION", mUseInstanceRejection ? "1" : "0");
+    if (!mTracer.pVars) prepareVars();
+    auto var = mTracer.pVars->getRootVar();
+
     if (mReverseSearch) {
         FALCOR_PROFILE(pRenderContext, "PhotonSearch");
-        
-        mTracer.pProgram->addDefine("NORMAL_REJECTION", mUseNormalRejection ? "1" : "0");
-        if (!mTracer.pVars) prepareVars();
-        auto var = mTracer.pVars->getRootVar();
 
         var["gPhotonAS"].setAccelerationStructure(mpTLAS);
         var["gQueries"] = pQueryBuffer;
@@ -276,10 +281,6 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(mQueryCount, 1, 1));
     } else {
         FALCOR_PROFILE(pRenderContext, "QuerySearch");
-        
-        mTracer.pProgram->addDefine("NORMAL_REJECTION", mUseNormalRejection ? "1" : "0");
-        if (!mTracer.pVars) prepareVars();
-        auto var = mTracer.pVars->getRootVar();
 
         var["gQueryAS"].setAccelerationStructure(mpTLAS);
         var["gPhotonQueries"] = pQueryBuffer;
@@ -518,7 +519,7 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
             ProgramDesc desc;
             desc.addShaderModules(mpScene->getShaderModules());
             desc.addShaderLibrary(kStochQuerySearch);
-            desc.setMaxPayloadSize(6 * sizeof(uint));
+            desc.setMaxPayloadSize(7 * sizeof(uint));
             desc.setMaxAttributeSize(sizeof(QueryIsectAttribs));
             desc.setMaxTraceRecursionDepth(kMaxRecursionDepth);
 
@@ -558,7 +559,7 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         desc.addShaderLibrary(kFinalizeTextureComputeShaderFile);
         desc.csEntry("main");
 
-        mpFinalizeTexturePass = ComputePass::create(mpDevice, desc);
+        mpFinalizeTexturePass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
     if (!mpFinalizeBufferPass)
@@ -567,7 +568,7 @@ void AccumulatePhotonsRTX::setScene(RenderContext* pRenderContext, const ref<Sce
         desc.addShaderLibrary(kFinalizeBufferComputeShaderFile);
         desc.csEntry("main");
 
-        mpFinalizeBufferPass = ComputePass::create(mpDevice, desc);
+        mpFinalizeBufferPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 }
 

@@ -173,12 +173,15 @@ struct PhotonIsectAttribs {
     float3 wi;
     bool isCaustic;
     float3 flux;
+    uint geomID;
+    float3 normal;
 };
 
 struct QuerySearchPayload {
     float3 flux;
     bool isCaustic;
     float3 normal;
+    uint geomID;
 };
 
 struct QueryIsectAttribs {

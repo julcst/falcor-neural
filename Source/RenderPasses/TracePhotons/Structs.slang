@@ -5,6 +5,7 @@
 
 #ifndef HOST_CODE
 import Utils.Math.PackedFormats;
+import Scene.SceneTypes;
 #endif
 
 // NOTE: Compression is generally faster
@@ -23,21 +24,21 @@ struct PhotonHitUncompressed
     float3 posW;
     bool isCaustic;
     float3 flux;
-    uint pad0;
+    uint geomID;
     float3 wi;
     uint pad1;
     float3 normal;
     uint pad2;
 
 #ifndef HOST_CODE 
-    __init(float3 posW, float3 wi, float3 normal, float3 flux, bool isCaustic)
+    __init(float3 posW, float3 wi, float3 normal, float3 flux, bool isCaustic, GeometryInstanceID geomID)
     {
         this.posW = posW;
         this.wi = wi;
         this.normal = normal;
         this.flux = flux;
         this.isCaustic = isCaustic;
-        this.pad0 = 0;
+        this.geomID = geomID.index;
         this.pad1 = 0;
         this.pad2 = 0;
     }
@@ -67,17 +68,17 @@ struct PhotonHitCompressed
     uint flux;
     uint wi;
     uint normal;
-    uint pad0;
+    uint geomID;
 
 #ifndef HOST_CODE 
-    __init(float3 posW, float3 wi, float3 normal, float3 flux, bool isCaustic)
+    __init(float3 posW, float3 wi, float3 normal, float3 flux, bool isCaustic, GeometryInstanceID geomID)
     {
         this.posW = posW;
         this.wi = encodeNormal2x16(wi);
         this.normal = encodeNormal2x16(normal);
         this.flux = encodeLogLuvHDR(flux);
         this.isCaustic = isCaustic;
-        this.pad0 = 0;
+        this.geomID = geomID.index;
     }
 
     float3 getFlux() 

@@ -44,6 +44,7 @@ const ChannelList kOutputChannels = {
     {"queryEmission", "gQueryEmission", "Query emission (rgb)", true, ResourceFormat::RGBA32Float},
     {"queryNormal", "gQueryNormal", "Query normal (xyz)", true, ResourceFormat::RGBA32Float},
     {"queryThroughput", "gQueryThroughput", "Query throughput (rgb)", true, ResourceFormat::RGBA32Float},
+    {"queryGeomID", "gQueryGeomID", "Query geometry ID", true, ResourceFormat::R32Uint},
     // NRCInput fields
     {"nrcPosition", "gNRCPosition", "NRC position (xyz)", true, ResourceFormat::RGBA32Float},
     {"nrcRoughness", "gNRCRoughness", "NRC roughness (r)", true, ResourceFormat::R32Float},
@@ -87,6 +88,8 @@ RenderPassReflection DebugQueryBuffer::reflect(const CompileData& compileData)
 void DebugQueryBuffer::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     FALCOR_PROFILE(pRenderContext, "DebugQueryBuffer");
+
+    if (!mpScene) return;
     
     const auto pQueryBuffer = renderData[kInputQueries]->asBuffer();
     if (!pQueryBuffer)
@@ -130,6 +133,11 @@ void DebugQueryBuffer::execute(RenderContext* pRenderContext, const RenderData& 
 
 void DebugQueryBuffer::renderUI(Gui::Widgets& widget) {}
 
+void DebugQueryBuffer::setScene(RenderContext * pRenderContext, const ref<Scene>& pScene)
+{
+    mpScene = pScene;
+}
+
 void DebugQueryBuffer::preparePass()
 {
     if (!mpDebugPass)
@@ -138,6 +146,6 @@ void DebugQueryBuffer::preparePass()
         desc.addShaderLibrary(kShaderFile);
         desc.csEntry("main");
         
-        mpDebugPass = ComputePass::create(mpDevice, desc);
+        mpDebugPass = ComputePass::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 }

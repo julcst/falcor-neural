@@ -10,6 +10,7 @@ RWTexture2D<float4> gQueryViewDir;
 RWTexture2D<float4> gQueryEmission;
 RWTexture2D<float4> gQueryNormal;
 RWTexture2D<float4> gQueryThroughput;
+RWTexture2D<uint> gQueryGeomID;
 
 // Output textures for NRCInput fields
 RWTexture2D<float4> gNRCPosition;
@@ -53,6 +54,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
 #if is_valid_gQueryThroughput
     gQueryThroughput[pixel] = float4(query.getThroughput(), 1.0);
+#endif
+
+#if is_valid_gQueryGeomID
+    gQueryGeomID[pixel] = query.getHitInfo().getInstanceID().index;
 #endif
     
     // Output NRCInput fields

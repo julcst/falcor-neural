@@ -66,7 +66,8 @@ private:
     float mGlobalAlpha = 2.0f / 3.0f; // Optimal (Kaplanyan Dachsbacher 2012), smaller values lead to divergence
     float mCausticAlpha = 2.0f / 3.0f; // Optimal (Kaplanyan Dachsbacher 2012), smaller values lead to divergence
     float mMaxNormalDeviation = 60.0f; // in degrees
-    bool mUseNormalRejection = false;
+    bool mUseNormalRejection = true;
+    bool mUseInstanceRejection = true;
 
     // Internal
     uint32_t mQueryCount = 0; // Automatically derived from input data

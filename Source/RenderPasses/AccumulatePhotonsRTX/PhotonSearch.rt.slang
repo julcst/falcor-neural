@@ -38,7 +38,7 @@ void photonIntersection()
     
     if (!q.contains(ph.posW, ph.isCaustic)) return;
 
-    let attribs = PhotonIsectAttribs(ph.getWi(), ph.isCaustic, ph.getFlux());
+    let attribs = PhotonIsectAttribs(ph.getWi(), ph.isCaustic, ph.getFlux(), ph.geomID, ph.getNormal());
     ReportHit(1e-6, 0, attribs);
 }
 
@@ -52,11 +52,19 @@ void photonAnyHit(inout PhotonSearchPayload pl : SV_RayPayload, in PhotonIsectAt
     // This is potentially inefficient however especially for textured materials,
     // as we sample textures again for every photon hit
     // TODO: Pass a compressed representation of StandardMaterialInstance in Payload
-    let th = HitInfo(pl.hit).getTriangleHit();
+    let hit = HitInfo(pl.hit);
+    let th = hit.getTriangleHit();
     let materialID = gScene.getMaterialID(th.instanceID);
     let v = gScene.getVertexData(th);
     let sd = gScene.materials.prepareShadingData(v, materialID, wo);
     let mi = gScene.materials.getMaterialInstance(sd, ExplicitLodTextureSampler(0));
+
+#if NORMAL_REJECTION
+    if (abs(dot(sd.faceN, ph.normal)) < gMaxNormalDeviation) IgnoreHit();
+#endif
+#if INSTANCE_REJECTION
+    if (hit.getInstanceID().index != ph.geomID) IgnoreHit();
+#endif
 
     let cosThetaO = abs(dot(wi, sd.faceN)); // TODO: faceN or guideN
     if (cosThetaO < 1e-6) IgnoreHit();
