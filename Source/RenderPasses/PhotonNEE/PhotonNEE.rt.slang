@@ -23,6 +23,8 @@ ParameterBlock<PhotonSampler> gLights;
 StructuredBuffer<Query> gQueries;
 RWStructuredBuffer<float3> gOutput;
 
+static const uint gSubwarpSize = 32; // Number of threads to share light vertices (e.g., 8, 16, 32)
+
 struct ShadowRayData
 {
     bool visible;
@@ -308,8 +310,6 @@ struct PhotonVertex
     bool isValid() { return HitInfo(packedHit).isValid(); }
 };
 
-static const uint gSubwarpSize = 32; // Number of threads to share light vertices (e.g., 8, 16, 32)
-
 [shader("raygeneration")]
 void rayGenWarp()
 {
@@ -409,36 +409,39 @@ void rayGenWarp()
         }
         
         // Continue tracing local light path
-        if (!hit.isValid()) break; // Stop if photon leaves the scene
+        if (hit.isValid()) {
+            // Get shading infos and material properties for next bounce
+            let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
+            let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
 
-        // Get shading infos and material properties for next bounce
-        let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
-        let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
+            // Sample Photon bounce for next iteration
+            BSDFSample bsdfSample = {};
+            // TODO: Is this reciprocal for transmission?
+            let validSample = miPhoton.sample(sdPhoton, sg, bsdfSample, true /*ImportanceSampling*/);
+            if (validSample) {
+                ray.Origin = sdPhoton.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission)); // false is for transmissions
+                ray.Direction = bsdfSample.wo;
+                ray.TMin = 0.0f;
+                ray.TMax = FLT_MAX;
+                var weight = bsdfSample.weight;
 
-        // Sample Photon bounce for next iteration
-        BSDFSample bsdfSample = {};
-        // TODO: Is this reciprocal for transmission?
-        let validSample = miPhoton.sample(sdPhoton, sg, bsdfSample, true /*ImportanceSampling*/);
-        if (!validSample) break;
-        ray.Origin = sdPhoton.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission)); // false is for transmissions
-        ray.Direction = bsdfSample.wo;
-        ray.TMin = 0.0f;
-        ray.TMax = FLT_MAX;
-        var weight = bsdfSample.weight;
+                // Russian Roulette
+            #if USE_RUSSIAN_ROULETTE
+                const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
+                const float survivalProb = min(rrVal, 1.f);
+                if (sampleNext1D(sg) > survivalProb) {
+                    hit = makeInvalidHit(); // Photon is absorbed
+                } else {
+                    photonFlux /= survivalProb;
+                }
+            #endif
 
-        // Russian Roulette
-    #if USE_RUSSIAN_ROULETTE
-        const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
-        const float survivalProb = min(rrVal, 1.f);
-        if (sampleNext1D(sg) > survivalProb) {
-            break; // Photon is absorbed
-        } else {
-            photonFlux /= survivalProb;
+                // Update Photon
+                photonFlux *= weight;
+            } else {
+                hit = makeInvalidHit();
+            }
         }
-    #endif
-
-        // Update Photon
-        photonFlux *= weight;
     }
 
     gOutput[idx] = outgoingRadianceAtQuery;
@@ -530,8 +533,9 @@ struct Reservoir<T>
     
     // Weighted Incremental Resampling: stream a candidate
     [mutating]
-    bool update<S: ISampleGenerator>(T candidate, float targetPdf, float weight, S sg)
+    bool update<S: ISampleGenerator>(T candidate, float targetPdf, S sg)
     {
+        float weight = targetPdf; // For uniform sampling, w = 1/M target/source = M/M target
         weightSum += weight;
         M += 1;
         
@@ -547,13 +551,15 @@ struct Reservoir<T>
 
     float getWeight()
     {
-        return weightSum / (targetPdfY * M);
+        if (targetPdfY <= 0.0f || M == 0 || weightSum <= 0.0f)
+            return 0.0f;
+        return min(weightSum / (targetPdfY * M), 100.0f); // Clamp to avoid extreme weights
     }
     
     // Check if reservoir has valid sample
     bool isValid()
     {
-        return weightSum > 0.0f;
+        return weightSum > 0.0f && targetPdfY > 0.0f;
     }
 };
 
@@ -582,16 +588,15 @@ void rayGenReservoir()
     // Compute subwarp membership
     const uint laneIndex = WaveGetLaneIndex();
     const uint subwarpID = laneIndex / gSubwarpSize;
-    const uint subwarpBase = 0;
-    const uint subwarpEnd = WaveGetLaneCount();
+    const uint subwarpBase = subwarpID * gSubwarpSize;
+    const uint subwarpEnd = min(subwarpBase + gSubwarpSize, WaveGetLaneCount());
 
     // ===== Resampling for 0-vertex (direct light) =====
     Reservoir<uint> lightReservoir;
-    let mask = WaveGetActiveMask();
-    let sourcePdf = 1.f / float(WaveActiveCountBits(true)); // Uniform selection from subwarp
+    let mask = WaveActiveBallot(true).x;
     for (uint lane = subwarpBase; lane < subwarpEnd; lane++)
     {
-        if ((mask & (1 << lane)) == 0) continue; // Check if lane is inactive
+        if ((mask & (1u << lane)) == 0) continue; // Check if lane is inactive
         float3 lightPos = WaveReadLaneAt(ls.posW, lane);
         float3 lightNormal = WaveReadLaneAt(ls.normal, lane);
         float3 lightFlux = WaveReadLaneAt(ls.flux, lane);
@@ -599,7 +604,7 @@ void rayGenReservoir()
         if (any(lightFlux > 0.f))
         {
             float targetPdf = evalLightTargetPdf(sdQuery, miQuery, lightPos, lightNormal, lightFlux, sg);
-            lightReservoir.update(lane, targetPdf, targetPdf, sg); // For uniform sampling, w = 1/M target/source = M/M target
+            lightReservoir.update(lane, targetPdf, sg);
         }
     }
     
@@ -637,10 +642,9 @@ void rayGenReservoir()
         // ===== Resampling across subwarp photons =====
         Reservoir<uint> photonReservoir;
         let mask = WaveActiveBallot(photonValid).x;
-        let sourcePdf = 1.f / float(WaveActiveCountBits(photonValid)); // Uniform selection from valid photons
         for (uint lane = subwarpBase; lane < subwarpEnd; lane++)
         {
-            if ((mask & (1 << lane)) == 0) continue; // Check if lane has invalid photon
+            if ((mask & (1u << lane)) == 0) continue; // Check if lane has invalid photon
             // Broadcast photon data from lane
             PhotonVertex photon;
             photon.packedHit = WaveReadLaneAt(localPhoton.packedHit, lane);
@@ -662,7 +666,7 @@ void rayGenReservoir()
                     photon.flux,
                     sg);
                 
-                photonReservoir.update(lane, targetPdf, targetPdf, sg);
+                photonReservoir.update(lane, targetPdf, sg);
             }
         }
         
@@ -690,35 +694,36 @@ void rayGenReservoir()
             outgoingRadianceAtQuery += contribution * photonReservoir.getWeight();
         }
 
-        if (!photonValid) break; // Stop if photon leaves the scene
+        if (photonValid) {
+            // Get shading infos and material properties for next bounce
+            let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
+            let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
 
-        // Get shading infos and material properties for next bounce
-        let sdPhoton = loadShadingData(hit, ray.Origin, ray.Direction);
-        let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
+            // Sample Photon bounce for next iteration
+            BSDFSample bsdfSample = {};
+            photonValid = miPhoton.sample(sdPhoton, sg, bsdfSample, true);
+            
+            if (photonValid) {
+                ray.Origin = sdPhoton.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission));
+                ray.Direction = bsdfSample.wo;
+                ray.TMin = 0.0f;
+                ray.TMax = FLT_MAX;
+                var weight = bsdfSample.weight;
 
-        // Sample Photon bounce for next iteration
-        BSDFSample bsdfSample = {};
-        let validSample = miPhoton.sample(sdPhoton, sg, bsdfSample, true);
-        if (!validSample) break;
-        
-        ray.Origin = sdPhoton.computeRayOrigin(!bsdfSample.isLobe(LobeType::Transmission));
-        ray.Direction = bsdfSample.wo;
-        ray.TMin = 0.0f;
-        ray.TMax = FLT_MAX;
-        var weight = bsdfSample.weight;
+                // Russian Roulette
+            #if USE_RUSSIAN_ROULETTE
+                const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
+                const float survivalProb = min(rrVal, 1.f);
+                if (sampleNext1D(sg) > survivalProb) {
+                    photonValid = false;
+                } else {
+                    photonFlux /= survivalProb;
+                }
+            #endif
 
-        // Russian Roulette
-    #if USE_RUSSIAN_ROULETTE
-        const float rrVal = luminance(photonFlux) * gRussianRouletteWeight;
-        const float survivalProb = min(rrVal, 1.f);
-        if (sampleNext1D(sg) > survivalProb) {
-            photonValid = false;
-        } else {
-            photonFlux /= survivalProb;
+                photonFlux *= weight;
+            }
         }
-    #endif
-
-        photonFlux *= weight;
     }
 
     gOutput[idx] = outgoingRadianceAtQuery;

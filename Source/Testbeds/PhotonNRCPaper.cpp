@@ -199,7 +199,7 @@ GraphConfigurator graphNRCLT(uint32_t maxBounces = 6, bool visualizeQueries = fa
 
         if (visualizeQueries)
         {
-            g->createPass("visQueries", "VisualizeQueries", Properties(json {{"constantRadius", 0.005f}, {"mode", 3}}));
+            g->createPass("visQueries", "VisualizeQueries", Properties(json {{"constantRadius", 0.01f}, {"mode", 3}}));
             g->addEdge("qsamp.sample", "visQueries.queries");
             g->addEdge("estim.output", "visQueries.colors");
             g->markOutput("visQueries.output");
@@ -806,7 +806,7 @@ int runMain(int argc, char** argv)
     if (args::get(ltTest)) {
         auto app = createApp("veach-ajar/scene-v4.pbrt", 512);
         for (uint mode = 0; mode < 3; ++mode) {
-            auto g = graphNRCLT(10, false, mode)(app->createRenderGraph());
+            auto g = graphNRCLT(6, false, mode)(app->createRenderGraph());
             benchmarkQuality(app, g, 10.0, getResultsDir("lt"));
         }
     }
