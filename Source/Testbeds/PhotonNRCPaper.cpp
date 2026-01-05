@@ -47,6 +47,7 @@ ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = fals
     auto g = RenderGraph::create(pDevice, "SPPM");
 
     g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
+    // NOTE: photon count > 2e12 crashes PhotonSearch on Blackwell with Xid 109: CTX SWITCH TIMEOUT
     g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
     Properties props = {json {{"visualizeHeatmap", false}, {"globalRadius", 0.02f}, {"causticRadius", 0.004f}, {"stochEval", stoch}, {"reverseSearch", reverseSearch}}};
     if (!reduction) {
@@ -487,6 +488,7 @@ void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, do
 json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, uint32_t frames, uint32_t warmupFrames = 10) {
     json results;
     for (const auto& g : graphs) {
+        logInfo("Running performance test for: {}", g->getName());
         app->setRenderGraph(g);
 
         for (uint32_t i = 0; i < warmupFrames; ++i) app->frame();
@@ -686,14 +688,14 @@ int runMain(int argc, char** argv)
                 {"resolution", {res.x, res.y}},
                 {"MP", res.x * res.y / 1e6},
                 {"runs", benchmarkPerformance(app, {
-                    graphSPPM(app->getDevice(), false, 0.0f, true, false, false), // QuerySearch
-                    graphSPPM(app->getDevice(), true, 0.0f, true, false, false),  // PhotonSearch
-                    graphSPPM(app->getDevice(), false, 0.0f, true, true, false), // StochQuerySearch
-                    graphSPPM(app->getDevice(), true, 0.0f, true, true, false),  // StochPhotonSearch
-                    graphSPPM(app->getDevice(), false, 0.7f, true, false, false), // QuerySearch
-                    graphSPPM(app->getDevice(), true, 0.7f, true, false, false),  // PhotonSearch
-                    graphSPPM(app->getDevice(), false, 0.7f, true, true, false), // StochQuerySearch
-                    graphSPPM(app->getDevice(), true, 0.7f, true, true, false),  // StochPhotonSearch
+                    graphSPPM(app->getDevice(), false, 0.0f, true, false), // QuerySearch
+                    // graphSPPM(app->getDevice(), true, 0.0f, true, false),  // PhotonSearch // NOTE: This crashes on Blackwell
+                    graphSPPM(app->getDevice(), false, 0.0f, true, true), // StochQuerySearch
+                    // graphSPPM(app->getDevice(), true, 0.0f, true, true),  // StochPhotonSearch // NOTE: This crashes on Blackwell
+                    graphSPPM(app->getDevice(), false, 0.7f, true, false), // QuerySearch
+                    graphSPPM(app->getDevice(), true, 0.7f, true, false),  // PhotonSearch
+                    graphSPPM(app->getDevice(), false, 0.7f, true, true), // StochQuerySearch
+                    graphSPPM(app->getDevice(), true, 0.7f, true, true),  // StochPhotonSearch
                 }, 32)},
             });
         }
@@ -710,8 +712,8 @@ int runMain(int argc, char** argv)
                 {"MP", res.x * res.y / 1e6},
                 {"runs", benchmarkPerformance(app, {
                     graphPT(app->getDevice()), // PT
-                    graphNRCSPPC(app->getDevice(), 0.0f, false), // NRC+SPPC
-                    graphSPPM(app->getDevice(), false, 0.0f, true, true, false), // StochQuerySearch
+                    graphNRCSPPC(app->getDevice()), // NRC+SPPC
+                    graphSPPM(app->getDevice(), false, 0.7f, true, true), // StochQuerySearch
                 }, 32)},
             });
         }

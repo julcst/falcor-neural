@@ -237,7 +237,7 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         mpPreparationPass->execute(pRenderContext, mQueryCount, 1);
     }
 
-    pRenderContext->uavBarrier(pQueryAABBBuffer.get()); // TODO: Is this necessary?
+    // pRenderContext->uavBarrier(pQueryAABBBuffer.get()); // TODO: Is this necessary?
     // const auto aabbs = pQueryAABBBuffer->getElements<AABB>();
     // auto valid = 0u;
     // for (const auto aabb : aabbs) {
@@ -301,11 +301,12 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         mpScene->raytrace(pRenderContext, mTracer.pProgram.get(), mTracer.pVars, uint3(counters.PhotonStores, 1, 1));
     }
 
-    pRenderContext->uavBarrier(pDebugCounters.get());
+#ifdef _DEBUG
     const auto debugCounters = pDebugCounters->getElement<DebugCounters>(0u);
     logInfo("IntersectorCalls={}, Accumulations={}",
         debugCounters.IntersectorCalls,
         debugCounters.Accumulations);
+#endif
 
     {
         FALCOR_PROFILE(pRenderContext, "ComputeFinalRadiance");
@@ -426,7 +427,7 @@ void AccumulatePhotonsRTX::buildAccelerationStructure(RenderContext* pRenderCont
 
     RtAccelerationStructureBuildInputs tlasInputs = {
         .kind = RtAccelerationStructureKind::TopLevel,
-        .flags = RtAccelerationStructureBuildFlags::PreferFastBuild,
+        .flags = RtAccelerationStructureBuildFlags::PreferFastBuild | RtAccelerationStructureBuildFlags::MinimizeMemory,
         .descCount = 1,
         .instanceDescs = allocation.getGpuAddress(),
     };

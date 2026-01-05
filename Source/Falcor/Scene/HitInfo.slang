@@ -301,7 +301,6 @@ struct HitInfo
     static const uint kInstanceIDBits = HIT_INFO_INSTANCE_ID_BITS;
     static const uint kPrimitiveIndexBits = HIT_INFO_PRIMITIVE_INDEX_BITS;
 #else
-    #error HIT_INFO_DEFINES not defined, invalid HitInfo usage
     static const uint kTypeBits = 1;
     static const uint kInstanceIDBits = 1;
     static const uint kPrimitiveIndexBits = 1;

@@ -1,8 +1,9 @@
-set(CMAKE_CUDA_ARCHITECTURES 86)
+set(CMAKE_CUDA_ARCHITECTURES native) # Change according to your GPU architecture
+
 # Force tiny-cuda-nn to generate Position Independent Code
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-set (target NRC)
+set(target NRC)
 
 # add_plugin with added tiny-cuda-nn
 add_library(${target} SHARED)
