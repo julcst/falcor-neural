@@ -414,7 +414,6 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorTh
         for (uint32_t i = 0; i < batchSize; ++i) {
             app->setRenderGraph(pt);
             app->frame();
-            if (i == batchSize - 2) prevFrame = pt->getOutput(0)->asTexture();
             if (i == batchSize - 1) currentFrame = pt->getOutput(0)->asTexture();
             spp += samplesPerFrame;
         }
@@ -429,6 +428,7 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorTh
             // Get MSE from error pass properties
             auto errorPass = gError->getPass("error");
             float avgError = errorPass->getProperties()["avgError"];
+            avgError /= batchSize;
             
             elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
             logInfo("SPP: {}, Frame-to-Frame Error: {}, Elapsed: {:.1f}s", spp, avgError, elapsed);
@@ -684,6 +684,9 @@ int runMain(int argc, char** argv)
             "cornell_box.pyscene",
             "cornell_box_caustic.pyscene",
             "cornell_box_bunny.pyscene",
+            "veach-ajar/veach-ajar.pbrt",
+            "veach-bidir/veach-bidir.pbrt",
+            "kitchen/kitchen.pbrt",
         }) {
             auto app = createApp(scene, 512);
             logInfo("Building reference for scene: {}", scene);
@@ -746,7 +749,7 @@ int runMain(int argc, char** argv)
                 {"r", r},
                 {"runs", benchmarkPerformance(app, {
                     graphNRCSPPCSameR(0.0f, true, false, r),
-                    graphNRCSPPCSameR(0.0f, true, true, r),
+                    // graphNRCSPPCSameR(0.0f, true, true, r),
                     graphNRCSPPCSameR(0.7f, true, false, r),
                     graphNRCSPPCSameR(0.7f, true, true, r),
                 }, 32)},
@@ -771,6 +774,9 @@ int runMain(int argc, char** argv)
             "cornell_box_caustic.pyscene",
             "cornell_box.pyscene",
             "cornell_box_bunny.pyscene",
+            "veach-ajar/veach-ajar.pbrt",
+            "veach-bidir/veach-bidir.pbrt",
+            "kitchen/kitchen.pbrt",
         }) {
             auto app = createApp(scene, 512);
             std::vector<GraphConfigurator> configs = {
@@ -804,7 +810,7 @@ int runMain(int argc, char** argv)
     }
 
     if (args::get(ltTest)) {
-        auto app = createApp("veach-ajar/scene-v4.pbrt", 512);
+        auto app = createApp("veach-ajar/veach-ajar.pbrt", 512);
         for (uint mode = 0; mode < 3; ++mode) {
             auto g = graphNRCLT(6, false, mode)(app->createRenderGraph());
             benchmarkQuality(app, g, 10.0, getResultsDir("lt"));

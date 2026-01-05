@@ -201,6 +201,8 @@ namespace Falcor
             return nullptr;
         }
 
+        logInfo("Loading triangle mesh from file '{}'", path.string());
+
         Assimp::Importer importer;
 
         unsigned int flags =
