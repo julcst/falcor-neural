@@ -88,38 +88,38 @@ GraphConfigurator graphSPPM(bool reverseSearch = false, float rejProb = 0.0f, bo
     };
 }
 
-GraphConfigurator graphNRCSPPC(float rej = 0.0f, bool stoch = true) {
+GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true) {
     return [=](const ref<RenderGraph>& g) {
         g->setName("NRC+SPPC");
         g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
         g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
         g->createPass("Accum", "AccumulatePass", Properties());
         g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 0.02f}})); // OG used 1<<17
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", 0.02f}})); // OG used 1<<17
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
         g->createPass("visPh", "VisualizePhotons", Properties());
         g->createPass("debug", "DebugQueryBuffer", Properties());
         g->createPass("visQueries", "VisualizeQueries", Properties());
 
-    g->addEdge("TracePhotons.photons", "visPh.photons");
-    g->addEdge("TracePhotons.counters", "visPh.counters");
-    // g->markOutput("visPh.dst");
+        g->addEdge("TracePhotons.photons", "visPh.photons");
+        g->addEdge("TracePhotons.counters", "visPh.counters");
+        // g->markOutput("visPh.dst");
 
-    g->addEdge("TraceQueries.queries", "qsamp.queries");
-    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
+        g->addEdge("TraceQueries.queries", "qsamp.queries");
+        g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
 
-    g->addEdge("TracePhotons.photons", "AccumPh.photons");
-    g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
-    g->addEdge("qsamp.sample", "AccumPh.queries");
+        g->addEdge("TracePhotons.photons", "AccumPh.photons");
+        g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
+        g->addEdge("qsamp.sample", "AccumPh.queries");
 
-    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
-    g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
-    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
-    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+        g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+        g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
+        g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+        g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
 
-    g->addEdge("TraceQueries.queries", "debug.queries");
-    g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
-    // g->markOutput("debug");
+        g->addEdge("TraceQueries.queries", "debug.queries");
+        g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
+        // g->markOutput("debug");
 
         g->addEdge("qsamp.sample", "visQueries.queries");
         g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
@@ -130,13 +130,13 @@ GraphConfigurator graphNRCSPPC(float rej = 0.0f, bool stoch = true) {
     };
 }
 
-GraphConfigurator graphNRCSPPCSameR(float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
+GraphConfigurator graphNRCSPPCSameR(float rej = 0.7f, bool stoch = true, bool reverse = false, float r = 0.015) {
     return [=](const ref<RenderGraph>& g) {
         g->setName("NRC+SPPC");
-        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
+        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
         g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
         g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 1.0f}})); // OG used 1<<17
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", 1.0f}})); // OG used 1<<17
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
 
         g->addEdge("TraceQueries.queries", "qsamp.queries");
@@ -160,7 +160,7 @@ GraphConfigurator graphNRCPT(uint32_t spp = 1) {
     return [=](const ref<RenderGraph>& g) {
         g->setName(spp == 1 ? "NRC+PT" : fmt::format("NRC+PT{}", spp));
         g->createPass("TraceQueries", "TraceQueries", Properties());
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}}));
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
         g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
 
@@ -181,9 +181,9 @@ GraphConfigurator graphNRCPT(uint32_t spp = 1) {
 
 GraphConfigurator graphNRCLT(uint32_t maxBounces = 6, bool visualizeQueries = false, uint32_t mode = 0) {
     return [=](const ref<RenderGraph>& g) {
-        g->setName(mode == 0 ? "NRC+LT" : (mode == 1 ? "NRC+WarpLT" : "NRC+ResLT"));
-        g->createPass("TraceQueries", "TraceQueries", Properties(json {{"terminateDiffuse", false}, {"terminateBTH", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
+        g->setName(mode == 0 ? "NRC+LT" : (mode == 1 ? "NRC+LT+Warp" : "NRC+LT+Reservoir"));
+        g->createPass("TraceQueries", "TraceQueries", Properties());
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}}));
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", true}})); // Factorization does not work with BiNRC
         g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}, {"mode", mode}}));
 
@@ -780,11 +780,12 @@ int runMain(int argc, char** argv)
         }) {
             auto app = createApp(scene, 512);
             std::vector<GraphConfigurator> configs = {
-                graphNRCPT(1), // NRC
-                graphNRCPT(32), // NRC+LT
+                graphNRCPT(1), // NRC+PT
+                graphNRCPT(32), // NRC+PT32
                 graphNRCLT(), // NRC+LT
+                graphNRCLT(6, false, 1), // NRC+LT+Warp
                 graphNRCSPPC(), // NRC+SPPC
-                graphSPPM(), // SPPM
+                // graphSPPM(), // SPPM
             };
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
