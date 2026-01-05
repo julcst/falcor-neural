@@ -10,6 +10,7 @@
 
 using namespace Falcor;
 using nlohmann::json;
+using GraphConfigurator = std::function<ref<RenderGraph>(const ref<RenderGraph>&)>;
 
 namespace Falcor {
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Profiler::Stats, min, max, mean, stdDev)
@@ -27,76 +28,78 @@ std::filesystem::path getResultsDir(const std::string& subdir = "")
     return path;
 }
 
-ref<RenderGraph> graphPT(const ref<Device>& pDevice) {
-    auto g = RenderGraph::create(pDevice, "PT");
+GraphConfigurator graphPT() {
+    return [](const ref<RenderGraph>& g) {
+        g->setName("PT");
+        g->createPass("accum", "AccumulatePass", Properties());
+        g->createPass("pt", "PathTracer", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}}));
+        g->createPass("vbuff", "VBufferRT", Properties());
 
-    g->createPass("accum", "AccumulatePass", Properties());
-    g->createPass("pt", "PathTracer", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}}));
-    g->createPass("vbuff", "VBufferRT", Properties());
-
-    g->addEdge("vbuff.vbuffer", "pt.vbuffer");
-    g->addEdge("vbuff.viewW", "pt.viewW");
-    g->addEdge("vbuff.mvec", "pt.mvec");
-    g->addEdge("pt.color", "accum.input");
-    g->markOutput("accum.output");
-    return g;
+        g->addEdge("vbuff.vbuffer", "pt.vbuffer");
+        g->addEdge("vbuff.viewW", "pt.viewW");
+        g->addEdge("vbuff.mvec", "pt.mvec");
+        g->addEdge("pt.color", "accum.input");
+        g->markOutput("accum.output");
+        return g;
+    };
 }
 
 // NOTE: QuerySearch is faster, RR improves performance with minimal quality loss, rejProb speeds up even more with some quality loss
-ref<RenderGraph> graphSPPM(const ref<Device>& pDevice, bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true, bool reduction = true) {
-    auto g = RenderGraph::create(pDevice, "SPPM");
+GraphConfigurator graphSPPM(bool reverseSearch = false, float rejProb = 0.0f, bool rr = true, bool stoch = true, bool reduction = true) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName("SPPM");
+        g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
+        // NOTE: photon count > 2e12 crashes PhotonSearch on Blackwell with Xid 109: CTX SWITCH TIMEOUT
+        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
+        Properties props = {json {{"visualizeHeatmap", false}, {"globalRadius", 0.02f}, {"causticRadius", 0.004f}, {"stochEval", stoch}, {"reverseSearch", reverseSearch}}};
+        if (!reduction) {
+            props["gloablAlpha"] = 1.0f;
+            props["causticAlpha"] = 1.0f;
+        }
+        g->createPass("AccumPh", "AccumulatePhotonsRTX", props);
+        g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
 
-    g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
-    // NOTE: photon count > 2e12 crashes PhotonSearch on Blackwell with Xid 109: CTX SWITCH TIMEOUT
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
-    Properties props = {json {{"visualizeHeatmap", false}, {"globalRadius", 0.02f}, {"causticRadius", 0.004f}, {"stochEval", stoch}, {"reverseSearch", reverseSearch}}};
-    if (!reduction) {
-        props["gloablAlpha"] = 1.0f;
-        props["causticAlpha"] = 1.0f;
-    }
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", props);
-    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", false}}));
+        for (const auto& output : g->getAvailableOutputs())
+        {
+            logInfo("RenderGraph output: {}", output);
+        }
+        for (const auto& [name, value] : g->getPassesDictionary())
+        {
+            // Avoid printing Dictionary::Value directly due to ambiguous conversions
+            logInfo("{}", name);
+        }
 
-    for (const auto& output : g->getAvailableOutputs())
-    {
-        logInfo("RenderGraph output: {}", output);
-    }
-    for (const auto& [name, value] : g->getPassesDictionary())
-    {
-        // Avoid printing Dictionary::Value directly due to ambiguous conversions
-        logInfo("{}", name);
-    }
+        // VisualizePhotons
+        g->addEdge("TracePhotons.photons", "VisualizePhotons.photons");
+        g->addEdge("TracePhotons.counters", "VisualizePhotons.counters");
 
-    // VisualizePhotons
-    g->addEdge("TracePhotons.photons", "VisualizePhotons.photons");
-    g->addEdge("TracePhotons.counters", "VisualizePhotons.counters");
+        // SPPM
+        g->addEdge("TracePhotons.photons", "AccumPh.photons");
+        g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
+        g->addEdge("TraceQueries.queries", "AccumPh.queries");
 
-    // SPPM
-    g->addEdge("TracePhotons.photons", "AccumPh.photons");
-    g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
-    g->addEdge("TraceQueries.queries", "AccumPh.queries");
+        // g->createPass("debug", "DebugQueryBuffer", Properties());
+        // g->addEdge("TraceQueries.queries", "debug.queries");
+        // g->markOutput("debug.queryGeomID");
 
-    // g->createPass("debug", "DebugQueryBuffer", Properties());
-    // g->addEdge("TraceQueries.queries", "debug.queries");
-    // g->markOutput("debug.queryGeomID");
-
-    g->markOutput("AccumPh.outputTexture");
-    //g->markOutput("VisualizePhotons");
-    return g;
+        g->markOutput("AccumPh.outputTexture");
+        //g->markOutput("VisualizePhotons");
+        return g;
+    };
 }
 
-ref<RenderGraph> graphNRCSPPC(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true) {
-    auto g = RenderGraph::create(pDevice, "NRC+SPPC");
-
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
-    g->createPass("Accum", "AccumulatePass", Properties());
-    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 0.02f}})); // OG used 1<<17
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
-    g->createPass("visPh", "VisualizePhotons", Properties());
-    g->createPass("debug", "DebugQueryBuffer", Properties());
-    g->createPass("visQueries", "VisualizeQueries", Properties());
+GraphConfigurator graphNRCSPPC(float rej = 0.0f, bool stoch = true) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName("NRC+SPPC");
+        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
+        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
+        g->createPass("Accum", "AccumulatePass", Properties());
+        g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 0.02f}})); // OG used 1<<17
+        g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
+        g->createPass("visPh", "VisualizePhotons", Properties());
+        g->createPass("debug", "DebugQueryBuffer", Properties());
+        g->createPass("visQueries", "VisualizeQueries", Properties());
 
     g->addEdge("TracePhotons.photons", "visPh.photons");
     g->addEdge("TracePhotons.counters", "visPh.counters");
@@ -118,103 +121,134 @@ ref<RenderGraph> graphNRCSPPC(const ref<Device>& pDevice, float rej = 0.0f, bool
     g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
     // g->markOutput("debug");
 
-    g->addEdge("qsamp.sample", "visQueries.queries");
-    g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
-    // g->markOutput("visQueries");
-
-    g->markOutput("nrc.output");
-    return g;
-}
-
-ref<RenderGraph> graphNRCSPPCSameR(const ref<Device>& pDevice, float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
-    auto g = RenderGraph::create(pDevice, "NRC+SPPC");
-
-    g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
-    g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
-    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 1.0f}})); // OG used 1<<17
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
-
-    g->addEdge("TraceQueries.queries", "qsamp.queries");
-    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
-
-    g->addEdge("TracePhotons.photons", "AccumPh.photons");
-    g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
-    g->addEdge("qsamp.sample", "AccumPh.queries");
-
-    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
-    g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
-    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
-    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
-
-    g->markOutput("nrc.output");
-    return g;
-}
-
-ref<RenderGraph> graphNRCPT(const ref<Device>& pDevice, uint32_t spp = 1) {
-    auto g = RenderGraph::create(pDevice, spp == 1 ? "NRC+PT" : fmt::format("NRC+PT{}", spp));
-
-    g->createPass("TraceQueries", "TraceQueries", Properties());
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
-    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
-
-    g->addEdge("TraceQueries.queries", "qsamp.queries");
-    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
-
-    g->addEdge("qsamp.sample", "PTQuery.queries");
-
-    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
-    g->addEdge("PTQuery.radiance", "nrc.trainTarget");
-    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
-    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
-
-    g->markOutput("nrc.output");
-    return g;
-}
-
-ref<RenderGraph> graphNRCLT(const ref<Device>& pDevice, uint32_t maxBounces = 6, bool visualizeQueries = false, uint32_t mode = 0) {
-    auto g = RenderGraph::create(pDevice, mode == 0 ? "NRC+LT" : (mode == 1 ? "NRC+WarpLT" : "NRC+ResLT"));
-
-    g->createPass("TraceQueries", "TraceQueries", Properties(json {{"terminateDiffuse", false}, {"terminateBTH", true}}));
-    g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
-    g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", true}})); // Factorization does not work with BiNRC
-    g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}, {"mode", mode}}));
-
-    g->addEdge("TraceQueries.queries", "qsamp.queries");
-    g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
-
-    g->addEdge("qsamp.sample", "estim.queries");
-
-    g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
-    g->addEdge("estim.output", "nrc.trainTarget");
-    g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
-    g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
-
-    if (visualizeQueries)
-    {
-        g->createPass("visQueries", "VisualizeQueries", Properties(json {{"constantRadius", 0.005f}, {"mode", 3}}));
         g->addEdge("qsamp.sample", "visQueries.queries");
-        g->addEdge("estim.output", "visQueries.colors");
-        g->markOutput("visQueries.output");
-    }
+        g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
+        // g->markOutput("visQueries");
 
-    g->markOutput("nrc.output");
-    return g;
+        g->markOutput("nrc.output");
+        return g;
+    };
 }
 
-ref<RenderGraph> graphPTQuery(const ref<Device>& pDevice, uint32_t spp = 1) {
-    auto g = RenderGraph::create(pDevice, "PT");
+GraphConfigurator graphNRCSPPCSameR(float rej = 0.0f, bool stoch = true, bool reverse = false, float r = 0.015) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName("NRC+SPPC");
+        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
+        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
+        g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<15}, {"replacementFactor", 1.0f}})); // OG used 1<<17
+        g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
 
-    g->createPass("TraceQueries", "TraceQueries", Properties());
-    g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
-    g->createPass("B2T", "BufferToTexture", Properties());
+        g->addEdge("TraceQueries.queries", "qsamp.queries");
+        g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
 
-    g->addEdge("TraceQueries.queries", "PTQuery.queries");
-    g->addEdge("PTQuery.radiance", "B2T.input");
+        g->addEdge("TracePhotons.photons", "AccumPh.photons");
+        g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
+        g->addEdge("qsamp.sample", "AccumPh.queries");
 
-    g->markOutput("B2T.output");
-    return g;
+        g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+        g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
+        g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+        g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+
+        g->markOutput("nrc.output");
+        return g;
+    };
+}
+
+GraphConfigurator graphNRCPT(uint32_t spp = 1) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName(spp == 1 ? "NRC+PT" : fmt::format("NRC+PT{}", spp));
+        g->createPass("TraceQueries", "TraceQueries", Properties());
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
+        g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
+        g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
+
+        g->addEdge("TraceQueries.queries", "qsamp.queries");
+        g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
+
+        g->addEdge("qsamp.sample", "PTQuery.queries");
+
+        g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+        g->addEdge("PTQuery.radiance", "nrc.trainTarget");
+        g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+        g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+
+        g->markOutput("nrc.output");
+        return g;
+    };
+}
+
+GraphConfigurator graphNRCLT(uint32_t maxBounces = 6, bool visualizeQueries = false, uint32_t mode = 0) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName(mode == 0 ? "NRC+LT" : (mode == 1 ? "NRC+WarpLT" : "NRC+ResLT"));
+        g->createPass("TraceQueries", "TraceQueries", Properties(json {{"terminateDiffuse", false}, {"terminateBTH", true}}));
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<16}}));
+        g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", true}})); // Factorization does not work with BiNRC
+        g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}, {"mode", mode}}));
+
+        g->addEdge("TraceQueries.queries", "qsamp.queries");
+        g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
+
+        g->addEdge("qsamp.sample", "estim.queries");
+
+        g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
+        g->addEdge("estim.output", "nrc.trainTarget");
+        g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
+        g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
+
+        if (visualizeQueries)
+        {
+            g->createPass("visQueries", "VisualizeQueries", Properties(json {{"constantRadius", 0.005f}, {"mode", 3}}));
+            g->addEdge("qsamp.sample", "visQueries.queries");
+            g->addEdge("estim.output", "visQueries.colors");
+            g->markOutput("visQueries.output");
+        }
+
+        g->markOutput("nrc.output");
+        return g;
+    };
+}
+
+GraphConfigurator graphPTQuery(uint32_t spp = 1) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName("PT");
+        g->createPass("TraceQueries", "TraceQueries", Properties());
+        g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
+        g->createPass("B2T", "BufferToTexture", Properties());
+
+        g->addEdge("TraceQueries.queries", "PTQuery.queries");
+        g->addEdge("PTQuery.radiance", "B2T.input");
+
+        g->markOutput("B2T.output");
+        return g;
+    };
+}
+
+GraphConfigurator graphTonemap() {
+    return [](const ref<RenderGraph>& g) {
+        g->setName("Tonemap");
+        g->createPass("tonemap", "ToneMapper", Properties());
+        g->markOutput("tonemap.dst");
+        return g;
+    };
+}
+
+GraphConfigurator graphFLIP(const std::string& refPath) {
+    return [=](const ref<RenderGraph>& g) {
+        g->setName("FLIP");
+        g->createPass("ref", "ImageLoader", Properties(json {{"filename", refPath}, {"outputFormat", "RGBA32Float"}}));
+        g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
+        g->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}}));
+        g->createPass("tonemap", "ToneMapper", Properties());
+
+        g->addEdge("ref.dst", "flip.referenceImage");
+        g->addEdge("ref.dst", "error.Reference");
+        g->markOutput("tonemap.dst");
+        g->markOutput("flip.errorMapDisplay");
+        g->markOutput("error.Output");
+        return g;
+    };
 }
 
 std::vector<std::string> getMarkedOutputs(const ref<RenderGraph>& g) {
@@ -234,6 +268,15 @@ void addTonemapping(ref<RenderGraph>& g, const std::string& out) {
 
     g->addEdge(out, "tonemap.src");
     g->markOutput("tonemap.dst");
+}
+
+// Compose a configurator with a name change
+GraphConfigurator rename(GraphConfigurator config, const std::string& name) {
+    return [=](const ref<RenderGraph>& g) {
+        auto result = config(g);
+        result->setName(name);
+        return result;
+    };
 }
 
 void captureOutputs(const ref<Testbed>& app, const ref<RenderGraph>& graph, const std::string& name = "", const std::filesystem::path& baseDir = resultsDir) {
@@ -341,7 +384,7 @@ std::string getSceneName(const ref<Testbed>& app) {
 // maxMinutes: maximum time in minutes to spend rendering
 // batchSize: check convergence and log every batchSize samples
 ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorThreshold = 0.01f, double maxMinutes = 5.0, uint32_t batchSize = 128) {
-    auto pt = graphPT(app->getDevice());
+    auto pt = graphPT()(app->createRenderGraph());
     app->setRenderGraph(pt);
     
     // Create error measure graph to compare consecutive frames
@@ -403,13 +446,6 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorTh
     return pt;
 }
 
-ref<RenderGraph> graphTonemap(const ref<Device>& pDevice) {
-    auto g = RenderGraph::create(pDevice, "Tonemap");
-    g->createPass("tonemap", "ToneMapper", Properties());
-    g->markOutput("tonemap.dst");
-    return g;
-}
-
 std::filesystem::path ensureReference(const ref<Testbed>& app) {
     std::filesystem::path refDir = resultsDir / "ref";
     std::filesystem::path path = refDir / fmt::format("{}.exr", getSceneName(app));
@@ -421,29 +457,13 @@ std::filesystem::path ensureReference(const ref<Testbed>& app) {
         logInfo("Output format: {}", to_string(convergedTex->getFormat()));
         convergedTex->captureToFile(0, 0, path, Bitmap::FileFormat::ExrFile, Bitmap::ExportFlags::Uncompressed); // NOTE: Compression messes up loading later
 
-        auto tm = graphTonemap(app->getDevice());
+        auto tm = graphTonemap()(app->createRenderGraph());
         tm->setInput("tonemap.src", convergedTex);
         app->setRenderGraph(tm);
         app->frame();
         captureOutputs(app, tm, getSceneName(app), refDir);
     }
     return path;
-}
-
-ref<RenderGraph> graphFLIP(const ref<Device>& pDevice, const std::string& ref) {
-    auto g = RenderGraph::create(pDevice, "FLIP");
-
-    g->createPass("ref", "ImageLoader", Properties(json {{"filename", ref}, {"outputFormat", "RGBA32Float"}}));
-    g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
-    g->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}}));
-    g->createPass("tonemap", "ToneMapper", Properties());
-
-    g->addEdge("ref.dst", "flip.referenceImage");
-    g->addEdge("ref.dst", "error.Reference");
-    g->markOutput("tonemap.dst");
-    g->markOutput("flip.errorMapDisplay");
-    g->markOutput("error.Output");
-    return g;
 }
 
 json getProperties(const ref<RenderGraph>& graph) {
@@ -467,7 +487,7 @@ void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, do
     auto renderStats = renderForSeconds(app, graph, seconds, warmupFrames);
 
     auto output = graph->getOutput(0);
-    auto gFLIP = graphFLIP(app->getDevice(), ref);
+    auto gFLIP = graphFLIP(ref)(app->createRenderGraph());
     gFLIP->setInput("flip.testImage", output);
     gFLIP->setInput("error.Source", output);
     gFLIP->setInput("tonemap.src", output);
@@ -485,9 +505,10 @@ void benchmarkQuality(const ref<Testbed>& app, const ref<RenderGraph>& graph, do
     writeJson(outputJson, dir / fmt::format("{}.{}.json", graph->getName(), getSceneName(app)));
 }
 
-json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, uint32_t frames, uint32_t warmupFrames = 10) {
+json benchmarkPerformance(const ref<Testbed>& app, const std::vector<GraphConfigurator>& graphConfigs, uint32_t frames, uint32_t warmupFrames = 10) {
     json results;
-    for (const auto& g : graphs) {
+    for (const auto& config : graphConfigs) {
+        auto g = config(app->createRenderGraph());
         logInfo("Running performance test for: {}", g->getName());
         app->setRenderGraph(g);
 
@@ -508,13 +529,14 @@ json benchmarkPerformance(const ref<Testbed>& app, const std::vector<ref<RenderG
     return results;
 }
 
-json benchmarkConvergence(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, const std::filesystem::path& referencePath, double timeMinutes, uint32_t warmup = 4) {
+json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfigurator>& graphConfigs, const std::filesystem::path& referencePath, double timeMinutes, uint32_t warmup = 4) {
     json results;
     
     // Load reference once for all graphs
     auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
     
-    for (const auto& g : graphs) {
+    for (const auto& config : graphConfigs) {
+        auto g = config(app->createRenderGraph());
         logInfo("Running convergence test for: {}", g->getName());
         
         // Add FLIP and error passes to the graph
@@ -600,11 +622,6 @@ std::vector<uint2> getLinearResolutionLevels(uint max, uint n) {
     return levels;
 }
 
-ref<RenderGraph> rename(const ref<RenderGraph>& g, const std::string& name) {
-    g->setName(name);
-    return g;
-}
-
 int runMain(int argc, char** argv)
 {
     args::ArgumentParser parser("PhotonNRC Testbed");
@@ -688,14 +705,14 @@ int runMain(int argc, char** argv)
                 {"resolution", {res.x, res.y}},
                 {"MP", res.x * res.y / 1e6},
                 {"runs", benchmarkPerformance(app, {
-                    graphSPPM(app->getDevice(), false, 0.0f, true, false), // QuerySearch
-                    // graphSPPM(app->getDevice(), true, 0.0f, true, false),  // PhotonSearch // NOTE: This crashes on Blackwell
-                    graphSPPM(app->getDevice(), false, 0.0f, true, true), // StochQuerySearch
-                    // graphSPPM(app->getDevice(), true, 0.0f, true, true),  // StochPhotonSearch // NOTE: This crashes on Blackwell
-                    graphSPPM(app->getDevice(), false, 0.7f, true, false), // QuerySearch
-                    graphSPPM(app->getDevice(), true, 0.7f, true, false),  // PhotonSearch
-                    graphSPPM(app->getDevice(), false, 0.7f, true, true), // StochQuerySearch
-                    graphSPPM(app->getDevice(), true, 0.7f, true, true),  // StochPhotonSearch
+                    graphSPPM(false, 0.0f, true, false), // QuerySearch
+                    // graphSPPM(true, 0.0f, true, false),  // PhotonSearch // NOTE: This crashes on Blackwell
+                    graphSPPM(false, 0.0f, true, true), // StochQuerySearch
+                    // graphSPPM(true, 0.0f, true, true),  // StochPhotonSearch // NOTE: This crashes on Blackwell
+                    graphSPPM(false, 0.7f, true, false), // QuerySearch
+                    graphSPPM(true, 0.7f, true, false),  // PhotonSearch
+                    graphSPPM(false, 0.7f, true, true), // StochQuerySearch
+                    graphSPPM(true, 0.7f, true, true),  // StochPhotonSearch
                 }, 32)},
             });
         }
@@ -711,9 +728,9 @@ int runMain(int argc, char** argv)
                 {"resolution", {res.x, res.y}},
                 {"MP", res.x * res.y / 1e6},
                 {"runs", benchmarkPerformance(app, {
-                    graphPT(app->getDevice()), // PT
-                    graphNRCSPPC(app->getDevice()), // NRC+SPPC
-                    graphSPPM(app->getDevice(), false, 0.7f, true, true), // StochQuerySearch
+                    graphPT(), // PT
+                    graphNRCSPPC(), // NRC+SPPC
+                    graphSPPM(false, 0.7f, true, true), // StochQuerySearch
                 }, 32)},
             });
         }
@@ -728,10 +745,10 @@ int runMain(int argc, char** argv)
             results.push_back({
                 {"r", r},
                 {"runs", benchmarkPerformance(app, {
-                    graphNRCSPPCSameR(app->getDevice(), 0.0f, true, false, r),
-                    graphNRCSPPCSameR(app->getDevice(), 0.0f, true, true, r),
-                    graphNRCSPPCSameR(app->getDevice(), 0.7f, true, false, r),
-                    graphNRCSPPCSameR(app->getDevice(), 0.7f, true, true, r),
+                    graphNRCSPPCSameR(0.0f, true, false, r),
+                    graphNRCSPPCSameR(0.0f, true, true, r),
+                    graphNRCSPPCSameR(0.7f, true, false, r),
+                    graphNRCSPPCSameR(0.7f, true, true, r),
                 }, 32)},
             });
         }
@@ -741,10 +758,10 @@ int runMain(int argc, char** argv)
     if (args::get(nrcVariants)) {
         auto app = createApp("cornell_box_caustic.pyscene", 512);
         auto json = benchmarkPerformance(app, {
-            graphNRCPT(app->getDevice(), 1), // NRC
-            graphNRCPT(app->getDevice(), 32), // NRC+LT
-            graphNRCLT(app->getDevice()), // NRC+LT
-            graphNRCSPPC(app->getDevice()), // NRC+SPPC
+            graphNRCPT(1), // NRC
+            graphNRCPT(32), // NRC+LT
+            graphNRCLT(), // NRC+LT
+            graphNRCSPPC(), // NRC+SPPC
         }, 128);
         writeJson(json, resultsDir / "nrc_variants.json");
     }
@@ -756,14 +773,15 @@ int runMain(int argc, char** argv)
             "cornell_box_bunny.pyscene",
         }) {
             auto app = createApp(scene, 512);
-            std::vector graphs = {
-                graphNRCPT(app->getDevice(), 1), // NRC
-                graphNRCPT(app->getDevice(), 32), // NRC+LT
-                graphNRCLT(app->getDevice()), // NRC+LT
-                graphNRCSPPC(app->getDevice()), // NRC+SPPC
-                graphSPPM(app->getDevice()), // SPPM
+            std::vector<GraphConfigurator> configs = {
+                graphNRCPT(1), // NRC
+                graphNRCPT(32), // NRC+LT
+                graphNRCLT(), // NRC+LT
+                graphNRCSPPC(), // NRC+SPPC
+                graphSPPM(), // SPPM
             };
-            for (const auto& g : graphs) {
+            for (const auto& config : configs) {
+                auto g = config(app->createRenderGraph());
                 benchmarkQuality(app, g, 10.0, getResultsDir("quality"));
             }
         }
@@ -775,10 +793,10 @@ int runMain(int argc, char** argv)
         auto ref = ensureReference(app);
         
         logInfo("Running convergence test for scene: {}", scene);
-        std::vector graphs = {
-            graphNRCPT(app->getDevice(), 1), // NRC
-            graphNRCLT(app->getDevice()), // NRC+LT
-            graphNRCSPPC(app->getDevice()), // NRC+SPPC
+        std::vector<GraphConfigurator> graphs = {
+            graphNRCPT(1), // NRC
+            graphNRCLT(), // NRC+LT
+            graphNRCSPPC(), // NRC+SPPC
         };
         
         auto convergenceResults = benchmarkConvergence(app, graphs, ref, 1.0);
@@ -788,20 +806,21 @@ int runMain(int argc, char** argv)
     if (args::get(ltTest)) {
         auto app = createApp("veach-ajar/scene-v4.pbrt", 512);
         for (uint mode = 0; mode < 3; ++mode) {
-            auto g = graphNRCLT(app->getDevice(), 10, false, mode);
+            auto g = graphNRCLT(10, false, mode)(app->createRenderGraph());
             benchmarkQuality(app, g, 10.0, getResultsDir("lt"));
         }
     }
 
     if (args::get(sppmTest)) {
         auto app = createApp("cornell_box_caustic.pyscene", 512);
-        for (const auto& g : {
-            rename(graphSPPM(app->getDevice(), false, 0.7f, true, false), "QuerySearch"),
-            rename(graphSPPM(app->getDevice(), true, 0.7f, true, false), "PhotonSearch"),
-            rename(graphSPPM(app->getDevice(), false, 0.7f, true, true), "StochQuerySearch"),
-            rename(graphSPPM(app->getDevice(), true, 0.7f, true, true), "StochPhotonSearch"),
-        }) 
-        {
+        std::vector<GraphConfigurator> configs = {
+            rename(graphSPPM(false, 0.7f, true, false), "QuerySearch"),
+            rename(graphSPPM(true, 0.7f, true, false), "PhotonSearch"),
+            rename(graphSPPM(false, 0.7f, true, true), "StochQuerySearch"),
+            rename(graphSPPM(true, 0.7f, true, true), "StochPhotonSearch"),
+        };
+        for (const auto& config : configs) {
+            auto g = config(app->createRenderGraph());
             benchmarkQuality(app, g, 10.0, getResultsDir("sppm"));
         }
     }
