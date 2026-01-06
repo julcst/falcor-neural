@@ -339,8 +339,6 @@ void rayGenWarp()
     const uint subwarpEnd = min(subwarpBase + gSubwarpSize, WaveGetLaneCount());
 
     // Warp shuffling for 0-vertex (direct light source connection)
-    float3 lightRadiance = float3(0.f);
-    uint validLightCount = 0;
     for (uint lane = subwarpBase; lane < subwarpEnd; lane++)
     {
         // Broadcast light sample data from lane
@@ -349,17 +347,7 @@ void rayGenWarp()
         float3 lightFlux = WaveReadLaneAt(ls.flux, lane);
         
         // Check if this light sample is valid (non-zero flux)
-        if (any(lightFlux > 0.f))
-        {
-            validLightCount++;
-            collectRadianceFromLightSource(sg, sdQuery, miQuery, lightPos, lightNormal, lightFlux, lightRadiance);
-        }
-    }
-    
-    // Average contributions from all light samples in subwarp
-    if (validLightCount > 0)
-    {
-        outgoingRadianceAtQuery += lightRadiance / validLightCount;
+        collectRadianceFromLightSource(sg, sdQuery, miQuery, lightPos, lightNormal, lightFlux, outgoingRadianceAtQuery);
     }
 
     // Main Raytrace Loop with Warp Light Tracing
@@ -377,8 +365,6 @@ void rayGenWarp()
         localPhoton.rayDir = ray.Direction;
         
         // Collect contributions from all photons in subwarp
-        uint validPhotonCount = 0;
-        float3 accumulatedRadiance = float3(0.f);
         for (uint lane = subwarpBase; lane < subwarpEnd; lane++)
         {
             // Broadcast photon data from lane
@@ -390,22 +376,14 @@ void rayGenWarp()
             
             if (photon.isValid())
             {
-                validPhotonCount++;
-                
                 // Reconstruct shading data for this photon
                 HitInfo photonHit = HitInfo(photon.packedHit);
                 let sdPhoton = loadShadingData(photonHit, photon.rayOrigin, photon.rayDir);
                 let miPhoton = gScene.materials.getMaterialInstance(sdPhoton, ExplicitLodTextureSampler(0));
                 
                 // Accumulate contribution from this photon
-                collectRadianceFromPhoton(sg, sdQuery, miQuery, sdPhoton, miPhoton, photon.flux, accumulatedRadiance);
+                collectRadianceFromPhoton(sg, sdQuery, miQuery, sdPhoton, miPhoton, photon.flux, outgoingRadianceAtQuery);
             }
-        }
-        
-        // Average contributions by number of valid photons in subwarp
-        if (validPhotonCount > 0)
-        {
-            outgoingRadianceAtQuery += accumulatedRadiance / validPhotonCount;
         }
         
         // Continue tracing local light path
@@ -444,7 +422,7 @@ void rayGenWarp()
         }
     }
 
-    gOutput[idx] = outgoingRadianceAtQuery;
+    gOutput[idx] = outgoingRadianceAtQuery / gSubwarpSize; // Take average over subwarp
 }
 
 // Evaluate target PDF for photon contribution using full BSDFs (unshadowed)
