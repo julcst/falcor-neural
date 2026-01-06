@@ -1218,40 +1218,11 @@ AttributeBegin
     Shape "trianglemesh"
         "point2 uv" [ 0 0 1 0 1 1 0 1 
             ]
-        "normal N" [ 1.99681e-21 9.96628e-8 1 1.99681e-21 9.96628e-8 1 1.99681e-21 
-                     9.96628e-8 1 1.99681e-21 9.96628e-8 1 ]
-        "point3 P" [ -0.75145 0.873153 -3.1173 0.872078 0.873153 -3.1173 0.872078 
-                     3.07443 -3.1173 -0.75145 3.07443 -3.1173 ]
-        "integer indices" [ 0 1 2 0 2 3 ]
-AttributeEnd
-
-AttributeBegin
-    AreaLightSource "diffuse"
-        "rgb L" [ 11.221238 11.221238 11.221238 ]
-    Material "diffuse"
-        "rgb reflectance" [ 0 0 0 ]
-    Shape "trianglemesh"
-        "point2 uv" [ 0 0 1 0 1 1 0 1 
-            ]
-        "normal N" [ -1.50996e-7 -1 -4.2715e-8 -1.50996e-7 -1 -4.2715e-8 -1.50996e-7 
-                     -1 -4.2715e-8 -1.50996e-7 -1 -4.2715e-8 ]
-        "point3 P" [ -2.3594 1.6129 -0.804218 -2.41746 1.6129 -0.804218 -2.41746 
-                     1.6129 -1.29282 -2.3594 1.6129 -1.29282 ]
-        "integer indices" [ 0 1 2 0 2 3 ]
-AttributeEnd
-
-AttributeBegin
-    AreaLightSource "diffuse"
-        "rgb L" [ 11.221238 11.221238 11.221238 ]
-    Material "diffuse"
-        "rgb reflectance" [ 0 0 0 ]
-    Shape "trianglemesh"
-        "point2 uv" [ 0 0 1 0 1 1 0 1 
-            ]
-        "normal N" [ -1.50996e-7 -1 -4.2715e-8 -1.50996e-7 -1 -4.2715e-8 -1.50996e-7 
-                     -1 -4.2715e-8 -1.50996e-7 -1 -4.2715e-8 ]
-        "point3 P" [ -2.3594 1.6129 -1.34067 -2.41746 1.6129 -1.34067 -2.41746 1.6129 
-                     -1.82928 -2.3594 1.6129 -1.82928 ]
+        "normal N" [ 0 0 1 0 0 1 0 0 1 0 0 1]
+        "point3 P" [ -0.5 1 -2.9
+                      0.4 1 -2.9
+                      0.4 2.5 -2.9
+                     -0.5 2.5 -2.9 ]
         "integer indices" [ 0 1 2 0 2 3 ]
 AttributeEnd
 

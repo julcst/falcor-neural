@@ -96,6 +96,12 @@ namespace Falcor
             mpEmissiveSampler.reset();
         }
 
+        logInfo("PhotonSampler ENV={} EMISSIVE={} ANALYTIC={}",
+            (mpScene->useEnvLight() && mpEnvMapSampler),
+            (mpScene->useEmissiveLights() && mpEmissiveSampler),
+            mpScene->useAnalyticLights()
+        );
+
         return updated;
     }
 

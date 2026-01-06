@@ -88,22 +88,15 @@ GraphConfigurator graphSPPM(bool reverseSearch = false, float rejProb = 0.0f, bo
     };
 }
 
-GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true) {
+GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float r = 0.015f, uint32_t photonCount = 1<<19, float replacement = 0.02f) {
     return [=](const ref<RenderGraph>& g) {
         g->setName("NRC+SPPC");
-        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<19}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
-        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}}));
+        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", photonCount}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
+        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r * 0.2f}, {"stochEval", stoch}}));
         g->createPass("Accum", "AccumulatePass", Properties());
         g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", 0.02f}})); // OG used 1<<17
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", replacement}})); // OG used 1<<17
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
-        g->createPass("visPh", "VisualizePhotons", Properties());
-        g->createPass("debug", "DebugQueryBuffer", Properties());
-        g->createPass("visQueries", "VisualizeQueries", Properties());
-
-        g->addEdge("TracePhotons.photons", "visPh.photons");
-        g->addEdge("TracePhotons.counters", "visPh.counters");
-        // g->markOutput("visPh.dst");
 
         g->addEdge("TraceQueries.queries", "qsamp.queries");
         g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
@@ -117,15 +110,23 @@ GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true) {
         g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
         g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
 
-        g->addEdge("TraceQueries.queries", "debug.queries");
-        g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
+        g->markOutput("nrc.output");
+
+        // Debug outputs
+        // g->createPass("visPh", "VisualizePhotons", Properties());
+        // g->addEdge("TracePhotons.photons", "visPh.photons");
+        // g->addEdge("TracePhotons.counters", "visPh.counters");
+        // g->markOutput("visPh.dst");
+
+        // g->createPass("debug", "DebugQueryBuffer", Properties());
+        // g->addEdge("TraceQueries.queries", "debug.queries");
+        // g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
         // g->markOutput("debug");
 
-        g->addEdge("qsamp.sample", "visQueries.queries");
-        g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
-        // g->markOutput("visQueries");
-
-        g->markOutput("nrc.output");
+        // g->createPass("visQueries", "VisualizeQueries", Properties());
+        // g->addEdge("qsamp.sample", "visQueries.queries");
+        // g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
+        // g->markOutput("visQueries.output");
         return g;
     };
 }
@@ -784,12 +785,19 @@ int runMain(int argc, char** argv)
                 graphNRCPT(32), // NRC+PT32
                 graphNRCLT(), // NRC+LT
                 graphNRCLT(6, false, 1), // NRC+LT+Warp
-                graphNRCSPPC(), // NRC+SPPC
                 // graphSPPM(), // SPPM
             };
+            // NRC+SPPC
+            if (scene == "veach-ajar/veach-ajar.pbrt" || scene == "veach-bidir/veach-bidir.pbrt") {
+                configs.push_back(graphNRCSPPC(0.0f, true, 0.1f, 1<<21));
+            } else if (scene == "kitchen/kitchen.pbrt") {
+                configs.push_back(graphNRCSPPC(0.0f, true, 0.06f, 1<<20));
+            } else {
+                configs.push_back(graphNRCSPPC(0.7f, true, 0.015f, 1<<19));
+            }
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
-                benchmarkQuality(app, g, 10.0, getResultsDir("quality"));
+                benchmarkQuality(app, g, 20.0, getResultsDir("quality"));
             }
         }
     }
@@ -830,6 +838,15 @@ int runMain(int argc, char** argv)
             auto g = config(app->createRenderGraph());
             benchmarkQuality(app, g, 10.0, getResultsDir("sppm"));
         }
+    }
+
+    if (true) {
+        auto app = createApp("veach-ajar/veach-ajar.pbrt", 512);
+        auto g = graphNRCSPPC(0.0f, true, 0.06f)(app->createRenderGraph());
+        // app->setRenderGraph(g);
+        // app->run();
+        renderForSeconds(app, g, 20.0);
+        captureOutputs(app, g, "test", getResultsDir("test"));
     }
 
     Scripting::shutdown();
