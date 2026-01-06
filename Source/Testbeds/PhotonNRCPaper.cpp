@@ -88,7 +88,7 @@ GraphConfigurator graphSPPM(bool reverseSearch = false, float rejProb = 0.0f, bo
     };
 }
 
-GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float r = 0.015f, uint32_t photonCount = 1<<19, float replacement = 0.02f) {
+GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float r = 0.015f, uint32_t photonCount = 1<<19, float replacement = 0.02f, bool debug = false) {
     return [=](const ref<RenderGraph>& g) {
         g->setName("NRC+SPPC");
         g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", photonCount}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
@@ -113,20 +113,22 @@ GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float r = 0.
         g->markOutput("nrc.output");
 
         // Debug outputs
-        // g->createPass("visPh", "VisualizePhotons", Properties());
-        // g->addEdge("TracePhotons.photons", "visPh.photons");
-        // g->addEdge("TracePhotons.counters", "visPh.counters");
-        // g->markOutput("visPh.dst");
+        if (debug) {
+            g->createPass("visPh", "VisualizePhotons", Properties());
+            g->addEdge("TracePhotons.photons", "visPh.photons");
+            g->addEdge("TracePhotons.counters", "visPh.counters");
+            g->markOutput("visPh.dst");
 
-        // g->createPass("debug", "DebugQueryBuffer", Properties());
-        // g->addEdge("TraceQueries.queries", "debug.queries");
-        // g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
-        // g->markOutput("debug");
+            g->createPass("visQueries", "VisualizeQueries", Properties());
+            g->addEdge("qsamp.sample", "visQueries.queries");
+            g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
+            g->markOutput("visQueries.output");
 
-        // g->createPass("visQueries", "VisualizeQueries", Properties());
-        // g->addEdge("qsamp.sample", "visQueries.queries");
-        // g->addEdge("AccumPh.queryStates", "visQueries.queryStates");
-        // g->markOutput("visQueries.output");
+            // g->createPass("debug", "DebugQueryBuffer", Properties());
+            // g->addEdge("TraceQueries.queries", "debug.queries");
+            // g->addEdge("TraceQueries.nrcInput", "debug.nrcInput");
+            // g->markOutput("debug");
+        }
         return g;
     };
 }
@@ -635,6 +637,7 @@ int runMain(int argc, char** argv)
     args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
     args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
     args::Flag sppmTest(parser, "sppm-test", "Run SPPM test", {"sppm", "sppm-test"});
+    args::Flag sppcTest(parser, "sppc-test", "Run NRC+SPPC test", {"sppc", "sppc-test"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
@@ -771,10 +774,10 @@ int runMain(int argc, char** argv)
     }
 
     if (args::get(quality)) {
-        for (const auto& scene : {
+        for (const std::string& scene : {
             "cornell_box_caustic.pyscene",
             "cornell_box.pyscene",
-            "cornell_box_bunny.pyscene",
+            // "cornell_box_bunny.pyscene",
             "veach-ajar/veach-ajar.pbrt",
             "veach-bidir/veach-bidir.pbrt",
             "kitchen/kitchen.pbrt",
@@ -788,12 +791,14 @@ int runMain(int argc, char** argv)
                 // graphSPPM(), // SPPM
             };
             // NRC+SPPC
-            if (scene == "veach-ajar/veach-ajar.pbrt" || scene == "veach-bidir/veach-bidir.pbrt") {
+            if (scene.find("veach-ajar") != std::string::npos || scene.find("veach-bidir") != std::string::npos) {
                 configs.push_back(graphNRCSPPC(0.0f, true, 0.1f, 1<<21));
-            } else if (scene == "kitchen/kitchen.pbrt") {
-                configs.push_back(graphNRCSPPC(0.0f, true, 0.06f, 1<<20));
-            } else {
+            } else if (scene.find("kitchen") != std::string::npos) {
+                configs.push_back(graphNRCSPPC(0.0f, true, 0.06f, 1<<21));
+            } else if (scene.find("caustic") != std::string::npos) {
                 configs.push_back(graphNRCSPPC(0.7f, true, 0.015f, 1<<19));
+            } else {
+                configs.push_back(graphNRCSPPC(0.0f, true, 0.015f, 1<<19));
             }
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
@@ -840,13 +845,14 @@ int runMain(int argc, char** argv)
         }
     }
 
-    if (true) {
-        auto app = createApp("veach-ajar/veach-ajar.pbrt", 512);
-        auto g = graphNRCSPPC(0.0f, true, 0.06f)(app->createRenderGraph());
+    if (args::get(sppcTest)) {
+        // auto app = createApp("kitchen/kitchen.pbrt", 512);
+        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        auto g = graphNRCSPPC(0.7f, true, 0.015f, 1<<20, 0.02f, true)(app->createRenderGraph());
         // app->setRenderGraph(g);
         // app->run();
-        renderForSeconds(app, g, 20.0);
-        captureOutputs(app, g, "test", getResultsDir("test"));
+        renderForSeconds(app, g, 10.0);
+        captureOutputs(app, g, "sppc", getResultsDir("sppc"));
     }
 
     Scripting::shutdown();
