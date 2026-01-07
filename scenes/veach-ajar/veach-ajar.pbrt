@@ -45,12 +45,8 @@ MakeNamedMaterial "Diffuse"
     "string type" [ "diffuse" ]
     "rgb reflectance" [ 0.8 0.8 0.8 ]
 MakeNamedMaterial "Floor"
-    "string type" [ "conductor" ]
-    "float vroughness" [ 0.1 ]
-    "float uroughness" [ 0.1 ]
-    "bool remaproughness" [ false ]
-    "rgb k" [ 9.223869 6.269523 4.837001 ]
-    "rgb eta" [ 1.65746 0.880369 0.521229 ]
+    "string type" [ "diffuse" ]
+    "rgb reflectance" [ 0.8 0.8 0.8 ]
 MakeNamedMaterial "DoorFrame"
     "string type" [ "diffuse" ]
     "rgb reflectance" [ 0.247059 0.168627 0.090196 ]

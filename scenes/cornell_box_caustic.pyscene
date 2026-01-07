@@ -69,6 +69,14 @@ water.specularTransmission = 1
 water.doubleSided = True
 # water.thinSurface = True
 
+glass = StandardMaterial("Glass")
+glass.transmissionColor = float3(1.0, 1.0, 1.0)
+glass.roughness = 0
+glass.metallic = 0
+glass.indexOfRefraction = 1.5
+glass.specularTransmission = 1
+glass.doubleSided = True
+
 # Create geometry
 
 quadMesh = TriangleMesh.createQuad()
@@ -147,14 +155,16 @@ sceneBuilder.addMeshInstance(
 
 sceneBuilder.addMeshInstance(
     sceneBuilder.addNode(
-        "Small Box",
+        "Small Sphere",
         Transform(
-            scaling=float3(0.165, 0.165, 0.165),
+            scaling=float3(0.0825, 0.0825, 0.0825),
             translation=float3(0.09, 0.0825, 0.111),
             rotationEuler=float3(0, -0.29, 0),
         ),
     ),
-    sceneBuilder.addTriangleMesh(cubeMesh, smallBox),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/sphere.obj"), glass
+    ),
 )
 
 sceneBuilder.addMeshInstance(

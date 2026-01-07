@@ -64,6 +64,14 @@ bunny = StandardMaterial('Bunny')
 bunny.baseColor = float4(0.0, 0.6, 0.7, 1.0)
 bunny.roughness = 0.3
 
+water = StandardMaterial("Water")
+water.transmissionColor = float3(0.0, 0.5, 1.0)
+water.roughness = 0
+water.metallic = 0
+water.indexOfRefraction = 1.33
+water.specularTransmission = 1
+water.doubleSided = True
+
 # Create geometry
 
 quadMesh = TriangleMesh.createQuad()
@@ -163,7 +171,7 @@ sceneBuilder.addMeshInstance(
 
 sceneBuilder.addMeshInstance(
     sceneBuilder.addNode('Bunny', Transform(translation=float3(0.09, -0.068, 0.111), rotationEuler=float3(0, 0, 0), scaling=2)),
-    sceneBuilder.addTriangleMesh(bunnyMesh, bunny)
+    sceneBuilder.addTriangleMesh(bunnyMesh, water)
 )
 
 # Create camera

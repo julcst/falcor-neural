@@ -1,0 +1,144 @@
+# Create materials
+
+diffuse = StandardMaterial("Diffuse")
+diffuse.baseColor = float4(0.8, 0.8, 0.8, 1.0)
+diffuse.roughness = 0.5
+
+gold = StandardMaterial("Gold")
+gold.baseColor = float4(1.0, 0.766, 0.336, 1.0)
+gold.metallic = 1.0
+gold.roughness = 0.0
+
+water = StandardMaterial("Water")
+water.transmissionColor = float3(0.0, 0.5, 1.0)
+water.roughness = 0
+water.metallic = 0
+water.indexOfRefraction = 1.33
+water.specularTransmission = 1
+water.doubleSided = True
+
+glass = StandardMaterial("Glass")
+glass.transmissionColor = float3(1.0, 1.0, 1.0)
+glass.roughness = 0
+glass.metallic = 0
+glass.indexOfRefraction = 1.5
+glass.specularTransmission = 1
+glass.doubleSided = True
+
+tea = StandardMaterial("Tea")
+tea.transmissionColor = float3(0.9, 0.5, 0.2)
+tea.roughness = 0
+tea.metallic = 0
+tea.indexOfRefraction = 1.33
+tea.specularTransmission = 1
+tea.doubleSided = True
+
+ice = StandardMaterial("Ice")
+ice.transmissionColor = float3(0.9, 0.95, 1.0)
+ice.roughness = 0.5
+ice.metallic = 0
+ice.indexOfRefraction = 1.31
+ice.specularTransmission = 1
+ice.doubleSided = True
+
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode("Floor", Transform(scaling=3)),
+    sceneBuilder.addTriangleMesh(
+        TriangleMesh.createFromFile("meshes/Floor.obj"), diffuse
+    ),
+)
+
+if False:
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("RingSmall", Transform(scaling=3)),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/RingSmall.obj"), gold
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("RingBig", Transform(scaling=3)),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/RingBig.obj"), gold
+        ),
+    )
+
+if False:
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Glass"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/Glass.obj"), glass
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Icecube"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/Icecube.obj"), ice
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Icecube2"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/Icecube2.obj"), ice
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Whisky"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/Whisky.obj"), tea
+        ),
+    )
+
+if True:
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Glass"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/glass.obj"), glass
+        ),
+    )
+
+if False:
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Teapot"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/teapot.obj"), glass
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Lid"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/lid.obj"), glass
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("TeaSurface"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/surface.obj"), tea
+        ),
+    )
+    sceneBuilder.addMeshInstance(
+        sceneBuilder.addNode("Tea"),
+        sceneBuilder.addTriangleMesh(
+            TriangleMesh.createFromFile("meshes/inside.obj"), tea
+        ),
+    )
+
+light = StandardMaterial("Light")
+light.emissiveColor = float3(17, 16, 15)
+light.emissiveFactor = 50
+
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode(
+        "Light",
+        Transform(translation=float3(-2, 2, 0), rotationEulerDeg=float3(180, 45, 45)),
+    ),
+    sceneBuilder.addTriangleMesh(TriangleMesh.createQuad(float2(0.1)), light),
+)
+
+# Create camera
+
+camera = Camera()
+camera.position = float3(0, 5, -4)
+camera.target = float3(1, 1, 0)
+camera.up = float3(0, 1, 0)
+camera.focalLength = 35.0
+sceneBuilder.addCamera(camera)

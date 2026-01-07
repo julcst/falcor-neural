@@ -51,7 +51,7 @@ GraphConfigurator graphSPPM(bool reverseSearch = false, float rejProb = 0.0f, bo
         g->createPass("VisualizePhotons", "VisualizePhotons", Properties());
         // NOTE: photon count > 2e12 crashes PhotonSearch on Blackwell with Xid 109: CTX SWITCH TIMEOUT
         g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rejProb}, {"useRussianRoulette", rr}}));
-        Properties props = {json {{"visualizeHeatmap", false}, {"globalRadius", 0.02f}, {"causticRadius", 0.004f}, {"stochEval", stoch}, {"reverseSearch", reverseSearch}}};
+        Properties props = {json {{"visualizeHeatmap", false}, {"globalRadius", 0.015f}, {"causticRadius", 0.003f}, {"stochEval", stoch}, {"reverseSearch", reverseSearch}}};
         if (!reduction) {
             props["gloablAlpha"] = 1.0f;
             props["causticAlpha"] = 1.0f;
@@ -88,11 +88,11 @@ GraphConfigurator graphSPPM(bool reverseSearch = false, float rejProb = 0.0f, bo
     };
 }
 
-GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float r = 0.015f, uint32_t photonCount = 1<<19, float replacement = 0.02f, bool debug = false) {
+GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float globalR = 0.015f, float causticR = 0.003f, uint32_t photonCount = 1<<19, float replacement = 0.02f, bool debug = false) {
     return [=](const ref<RenderGraph>& g) {
         g->setName("NRC+SPPC");
         g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", photonCount}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
-        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r * 0.2f}, {"stochEval", stoch}}));
+        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", globalR}, {"causticRadius", causticR}, {"stochEval", stoch}}));
         g->createPass("Accum", "AccumulatePass", Properties());
         g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
         g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", replacement}})); // OG used 1<<17
@@ -625,6 +625,22 @@ std::vector<uint2> getLinearResolutionLevels(uint max, uint n) {
     return levels;
 }
 
+GraphConfigurator configSPPC(const std::string& scene) {
+    if (scene.find("veach-ajar") != std::string::npos || scene.find("veach-bidir") != std::string::npos) {
+        return graphNRCSPPC(0.0f, true, 0.4f, 0.2f, 1<<19);
+    } else if (scene.find("kitchen") != std::string::npos) {
+        return graphNRCSPPC(0.0f, true, 0.06f, 0.03f, 1<<19);
+    } else if (scene.find("caustic") != std::string::npos) {
+        return graphNRCSPPC(0.7f, true, 0.015f, 0.003f, 1<<19);
+    } else if (scene.find("rings") != std::string::npos) {
+        return graphNRCSPPC(0.7f, false, 0.2f, 0.02f, 1<<19, 0.02f);
+    } else if (scene.find("glass") != std::string::npos) {
+        return graphNRCSPPC(0.7f, false, 0.2f, 0.03f, 1<<19, 0.02f);
+    } else {
+        return graphNRCSPPC(0.0f, true, 0.015f, 0.003f, 1<<19);
+    }
+}
+
 int runMain(int argc, char** argv)
 {
     args::ArgumentParser parser("PhotonNRC Testbed");
@@ -633,6 +649,8 @@ int runMain(int argc, char** argv)
     args::Flag phnrcVsR(parser, "phnrc-r", "Run NRC+SPPC vs radius performance benchmark", {'r', "phnrc-r"});
     args::Flag nrcVariants(parser, "nrc-variants", "Run NRC variants performance benchmark", {'v', "nrc-variants"});
     args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
+    args::Flag teaser(parser, "teaser", "Run teaser benchmark", {'t', "teaser"});
+    args::Flag limitations(parser, "limit", "Run limitation benchmark", {'t', "limit"});
     args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
     args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
     args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
@@ -773,33 +791,42 @@ int runMain(int argc, char** argv)
         writeJson(json, resultsDir / "nrc_variants.json");
     }
 
+    if (args::get(teaser)) {
+        for (const std::string& scene : {
+            "cornell_box_caustic.pyscene",
+            "rings.pyscene",
+            "glass.pyscene",
+        }) {
+            auto app = createApp(scene, 512);
+            std::vector<GraphConfigurator> configs = {
+                graphNRCPT(1), // NRC+PT
+                configSPPC(scene), // NRC+SPPC
+            };
+            
+            for (const auto& config : configs) {
+                auto g = config(app->createRenderGraph());
+                benchmarkQuality(app, g, 20.0, getResultsDir("teaser"));
+            }
+        }
+    }
+
     if (args::get(quality)) {
         for (const std::string& scene : {
             "cornell_box_caustic.pyscene",
             "cornell_box.pyscene",
             // "cornell_box_bunny.pyscene",
-            "veach-ajar/veach-ajar.pbrt",
-            "veach-bidir/veach-bidir.pbrt",
-            "kitchen/kitchen.pbrt",
+            // "veach-ajar/veach-ajar.pbrt", // gr 0.4, cr 0.4, stoch leads to noise
+            // "veach-bidir/veach-bidir.pbrt",
+            "rings.pyscene",
+            "glass.pyscene",
+            // "kitchen/kitchen.pbrt",
         }) {
             auto app = createApp(scene, 512);
             std::vector<GraphConfigurator> configs = {
                 graphNRCPT(1), // NRC+PT
                 graphNRCPT(32), // NRC+PT32
-                graphNRCLT(), // NRC+LT
-                graphNRCLT(6, false, 1), // NRC+LT+Warp
-                // graphSPPM(), // SPPM
+                configSPPC(scene), // NRC+SPPC
             };
-            // NRC+SPPC
-            if (scene.find("veach-ajar") != std::string::npos || scene.find("veach-bidir") != std::string::npos) {
-                configs.push_back(graphNRCSPPC(0.0f, true, 0.1f, 1<<21));
-            } else if (scene.find("kitchen") != std::string::npos) {
-                configs.push_back(graphNRCSPPC(0.0f, true, 0.06f, 1<<21));
-            } else if (scene.find("caustic") != std::string::npos) {
-                configs.push_back(graphNRCSPPC(0.7f, true, 0.015f, 1<<19));
-            } else {
-                configs.push_back(graphNRCSPPC(0.0f, true, 0.015f, 1<<19));
-            }
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
                 benchmarkQuality(app, g, 20.0, getResultsDir("quality"));
@@ -807,8 +834,27 @@ int runMain(int argc, char** argv)
         }
     }
 
+    if (args::get(limitations)) {
+        for (const std::string& scene : {
+            "veach-ajar/veach-ajar.pbrt", // gr 0.4, cr 0.4, stoch leads to noise
+            "veach-bidir/veach-bidir.pbrt",
+            "kitchen/kitchen.pbrt",
+        }) {
+            auto app = createApp(scene, 512);
+            std::vector<GraphConfigurator> configs = {
+                graphNRCPT(1), // NRC+PT
+                graphNRCPT(32), // NRC+PT32
+                configSPPC(scene), // NRC+SPPC
+            };
+            for (const auto& config : configs) {
+                auto g = config(app->createRenderGraph());
+                benchmarkQuality(app, g, 20.0, getResultsDir("limitations"));
+            }
+        }
+    }
+
     if (args::get(convergenceTest)) {
-        const auto& scene = "cornell_box.pyscene";
+        const auto& scene = "cornell_box_caustic.pyscene";
         auto app = createApp(scene, 512);
         auto ref = ensureReference(app);
         
@@ -847,8 +893,11 @@ int runMain(int argc, char** argv)
 
     if (args::get(sppcTest)) {
         // auto app = createApp("kitchen/kitchen.pbrt", 512);
-        auto app = createApp("cornell_box_caustic.pyscene", 512);
-        auto g = graphNRCSPPC(0.7f, true, 0.015f, 1<<20, 0.02f, true)(app->createRenderGraph());
+        // auto app = createApp("rings.pyscene", 512);
+        auto app = createApp("glass.pyscene", 512);
+        auto g = graphNRCSPPC(0.7f, false, 0.2f, 0.03f, 1<<19, 0.02f, true)(app->createRenderGraph());
+        //auto g = graphSPPM()(app->createRenderGraph());
+        //auto g = graphPT()(app->createRenderGraph());
         // app->setRenderGraph(g);
         // app->run();
         renderForSeconds(app, g, 10.0);
