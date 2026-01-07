@@ -124,7 +124,7 @@ if False:
 
 light = StandardMaterial("Light")
 light.emissiveColor = float3(17, 16, 15)
-light.emissiveFactor = 50
+light.emissiveFactor = 200
 
 sceneBuilder.addMeshInstance(
     sceneBuilder.addNode(

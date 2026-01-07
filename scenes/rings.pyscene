@@ -1,9 +1,5 @@
 # Create materials
 
-light = StandardMaterial("Light")
-light.emissiveColor = float3(17, 16, 15)
-light.emissiveFactor = 50
-
 diffuse = StandardMaterial("Diffuse")
 diffuse.baseColor = float4(0.8, 0.8, 0.8, 1.0)
 diffuse.roughness = 0.5
@@ -125,6 +121,10 @@ if False:
             TriangleMesh.createFromFile("meshes/inside.obj"), tea
         ),
     )
+
+light = StandardMaterial("Light")
+light.emissiveColor = float3(17, 16, 15)
+light.emissiveFactor = 90
 
 sceneBuilder.addMeshInstance(
     sceneBuilder.addNode(

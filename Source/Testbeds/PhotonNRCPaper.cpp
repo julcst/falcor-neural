@@ -386,7 +386,7 @@ std::string getSceneName(const ref<Testbed>& app) {
 // errorThreshold: stop when frame difference is below this
 // maxMinutes: maximum time in minutes to spend rendering
 // batchSize: check convergence and log every batchSize samples
-ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorThreshold = 0.01f, double maxMinutes = 5.0, uint32_t batchSize = 128) {
+ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint convergenceFrames = 10, double maxMinutes = 10.0, uint32_t batchSize = 256) {
     auto pt = graphPT()(app->createRenderGraph());
     app->setRenderGraph(pt);
     
@@ -400,10 +400,12 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorTh
     ref<Texture> prevFrame = nullptr;
     ref<Texture> currentFrame = nullptr;
     
-    logInfo("Rendering PT until convergence (error threshold={}, max time={} minutes, batch size={})", errorThreshold, maxMinutes, batchSize);
+    logInfo("Rendering PT until convergence (max time={} minutes, batch size={})", maxMinutes, batchSize);
     
     auto startTime = std::chrono::steady_clock::now();
     double maxSeconds = maxMinutes * 60.0;
+    float minError = std::numeric_limits<float>::max();
+    uint framesSinceImprovement = 0;
     
     while (true) {
         // Check time limit
@@ -432,11 +434,17 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, float errorTh
             auto errorPass = gError->getPass("error");
             float avgError = errorPass->getProperties()["avgError"];
             avgError /= batchSize;
+            if (avgError < minError) {
+                minError = avgError;
+                framesSinceImprovement = 0;
+            } else {
+                framesSinceImprovement++;
+            }
             
             elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
-            logInfo("SPP: {}, Frame-to-Frame Error: {}, Elapsed: {:.1f}s", spp, avgError, elapsed);
+            logInfo("SPP: {}, Frame-to-Frame Error: {}, Elapsed: {:.1f}s, Frames Since Improvement: {}", spp, avgError, elapsed, framesSinceImprovement);
             
-            if (avgError < errorThreshold) {
+            if (framesSinceImprovement >= convergenceFrames) {
                 logInfo("Converged at {} spp with error {} after {:.1f}s", spp, avgError, elapsed);
                 break;
             }
@@ -454,7 +462,7 @@ std::filesystem::path ensureReference(const ref<Testbed>& app) {
     std::filesystem::path path = refDir / fmt::format("{}.exr", getSceneName(app));
     if (!std::filesystem::exists(path)) {
         logInfo("Building reference image: {}", path);
-        auto ptGraph = renderPTUntilConvergence(app, 1e-8f, 30.0); // 30 minutes, very low error threshold
+        auto ptGraph = renderPTUntilConvergence(app); // 30 minutes, very low error threshold
         
         auto convergedTex = ptGraph->getOutput(0)->asTexture();
         logInfo("Output format: {}", to_string(convergedTex->getFormat()));
@@ -650,7 +658,7 @@ int runMain(int argc, char** argv)
     args::Flag nrcVariants(parser, "nrc-variants", "Run NRC variants performance benchmark", {'v', "nrc-variants"});
     args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
     args::Flag teaser(parser, "teaser", "Run teaser benchmark", {'t', "teaser"});
-    args::Flag limitations(parser, "limit", "Run limitation benchmark", {'t', "limit"});
+    args::Flag limitations(parser, "limit", "Run limitation benchmark", {'l', "limit"});
     args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
     args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
     args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
@@ -709,6 +717,8 @@ int runMain(int argc, char** argv)
             "veach-ajar/veach-ajar.pbrt",
             "veach-bidir/veach-bidir.pbrt",
             "kitchen/kitchen.pbrt",
+            "glass.pyscene",
+            "rings.pyscene",
         }) {
             auto app = createApp(scene, 512);
             logInfo("Building reference for scene: {}", scene);
@@ -805,7 +815,7 @@ int runMain(int argc, char** argv)
             
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
-                benchmarkQuality(app, g, 20.0, getResultsDir("teaser"));
+                benchmarkQuality(app, g, 10.0, getResultsDir("teaser"));
             }
         }
     }
@@ -826,7 +836,7 @@ int runMain(int argc, char** argv)
             };
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
-                benchmarkQuality(app, g, 20.0, getResultsDir("quality"));
+                benchmarkQuality(app, g, 10.0, getResultsDir("quality"));
             }
         }
     }
@@ -845,7 +855,7 @@ int runMain(int argc, char** argv)
             };
             for (const auto& config : configs) {
                 auto g = config(app->createRenderGraph());
-                benchmarkQuality(app, g, 20.0, getResultsDir("limitations"));
+                benchmarkQuality(app, g, 10.0, getResultsDir("limitations"));
             }
         }
     }
