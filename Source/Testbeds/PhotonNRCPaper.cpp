@@ -95,7 +95,7 @@ GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float global
         g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", globalR}, {"causticRadius", causticR}, {"stochEval", stoch}}));
         g->createPass("Accum", "AccumulatePass", Properties());
         g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", replacement}})); // OG used 1<<17
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"replacementFactor", replacement}})); // OG used 1<<17
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
 
         g->addEdge("TraceQueries.queries", "qsamp.queries");
@@ -139,7 +139,7 @@ GraphConfigurator graphNRCSPPCSameR(float rej = 0.7f, bool stoch = true, bool re
         g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
         g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
         g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}, {"replacementFactor", 1.0f}})); // OG used 1<<17
+        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"replacementFactor", 1.0f}})); // OG used 1<<17
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
 
         g->addEdge("TraceQueries.queries", "qsamp.queries");
@@ -163,7 +163,7 @@ GraphConfigurator graphNRCPT(uint32_t spp = 1) {
     return [=](const ref<RenderGraph>& g) {
         g->setName(spp == 1 ? "NRC+PT" : fmt::format("NRC+PT{}", spp));
         g->createPass("TraceQueries", "TraceQueries", Properties());
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}}));
+        g->createPass("qsamp", "QuerySubsampling", Properties());
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
         g->createPass("PTQuery", "PathTracerQuery", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}, {"samplesPerPixel", spp}, {"parallelMultiSampling", true}}));
 
@@ -186,7 +186,7 @@ GraphConfigurator graphNRCLT(uint32_t maxBounces = 6, bool visualizeQueries = fa
     return [=](const ref<RenderGraph>& g) {
         g->setName(mode == 0 ? "NRC+LT" : (mode == 1 ? "NRC+LT+Warp" : "NRC+LT+Reservoir"));
         g->createPass("TraceQueries", "TraceQueries", Properties());
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"count", 1<<17}}));
+        g->createPass("qsamp", "QuerySubsampling", Properties());
         g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}, {"useFactorization", true}})); // Factorization does not work with BiNRC
         g->createPass("estim", "PhotonNEE", Properties(json {{"maxBounces", maxBounces}, {"mode", mode}}));
 
@@ -631,11 +631,11 @@ GraphConfigurator configSPPC(const std::string& scene) {
     } else if (scene.find("kitchen") != std::string::npos) {
         return graphNRCSPPC(0.0f, true, 0.06f, 0.03f, 1<<19);
     } else if (scene.find("caustic") != std::string::npos) {
-        return graphNRCSPPC(0.7f, true, 0.015f, 0.003f, 1<<19);
+        return graphNRCSPPC(0.7f, true, 0.02f, 0.003f, 1<<19);
     } else if (scene.find("rings") != std::string::npos) {
-        return graphNRCSPPC(0.7f, false, 0.2f, 0.02f, 1<<19, 0.02f);
+        return graphNRCSPPC(0.7f, false, 0.04f, 0.015f, 1<<19);
     } else if (scene.find("glass") != std::string::npos) {
-        return graphNRCSPPC(0.7f, false, 0.2f, 0.03f, 1<<19, 0.02f);
+        return graphNRCSPPC(0.7f, false, 0.06f, 0.03f, 1<<19);
     } else {
         return graphNRCSPPC(0.0f, true, 0.015f, 0.003f, 1<<19);
     }
@@ -815,11 +815,8 @@ int runMain(int argc, char** argv)
             "cornell_box_caustic.pyscene",
             "cornell_box.pyscene",
             // "cornell_box_bunny.pyscene",
-            // "veach-ajar/veach-ajar.pbrt", // gr 0.4, cr 0.4, stoch leads to noise
-            // "veach-bidir/veach-bidir.pbrt",
             "rings.pyscene",
             "glass.pyscene",
-            // "kitchen/kitchen.pbrt",
         }) {
             auto app = createApp(scene, 512);
             std::vector<GraphConfigurator> configs = {

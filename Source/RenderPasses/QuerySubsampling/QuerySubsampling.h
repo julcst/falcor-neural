@@ -61,7 +61,7 @@ private:
 
     // Config
     float mReplacementFactor = 1.0f; ///< Proportion of queries that are replaced from frame to frame [0,1]
-    uint32_t mOutputCount = 1<<10;
+    uint32_t mOutputCount = 1<<15;
     uint32_t mFrameCount = 0;
 
     ref<ComputePass> mpSubsamplePass;

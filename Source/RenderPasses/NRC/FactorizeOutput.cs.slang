@@ -17,5 +17,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     let out = gOutput[idx];
     let in = gInput[idx];
     
-    gOutput[idx].radiance = out.radiance / in.weight();
+    gOutput[idx].radiance = clamp(out.radiance / in.weight(), 0.0f, 1e3f); // Clamp to safe range to avoid divergence
+    // NOTE: fireflies > 1e3 lead to training loss evaluating to nan
 }
