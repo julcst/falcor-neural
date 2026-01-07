@@ -634,18 +634,20 @@ std::vector<uint2> getLinearResolutionLevels(uint max, uint n) {
 }
 
 GraphConfigurator configSPPC(const std::string& scene) {
-    if (scene.find("veach-ajar") != std::string::npos || scene.find("veach-bidir") != std::string::npos) {
-        return graphNRCSPPC(0.0f, true, 0.4f, 0.2f, 1<<19);
+    if (scene.find("veach-ajar") != std::string::npos) {
+        return graphNRCSPPC(0.0f, true, 0.1f, 0.1f, 1<<19, 0.01f);
+    } else if (scene.find("veach-bidir") != std::string::npos) {
+        return graphNRCSPPC(0.0f, true, 0.2f, 0.1f, 1<<19, 0.01f);
     } else if (scene.find("kitchen") != std::string::npos) {
-        return graphNRCSPPC(0.0f, true, 0.06f, 0.03f, 1<<19);
+        return graphNRCSPPC(0.0f, true, 0.06f, 0.03f, 1<<19, 0.01f);
     } else if (scene.find("caustic") != std::string::npos) {
-        return graphNRCSPPC(0.7f, true, 0.02f, 0.003f, 1<<19);
+        return graphNRCSPPC(0.7f, true, 0.02f, 0.003f, 1<<19, 0.02f);
     } else if (scene.find("rings") != std::string::npos) {
-        return graphNRCSPPC(0.7f, false, 0.04f, 0.015f, 1<<19);
+        return graphNRCSPPC(0.7f, true, 0.04f, 0.015f, 1<<19, 0.02f);
     } else if (scene.find("glass") != std::string::npos) {
-        return graphNRCSPPC(0.7f, false, 0.06f, 0.03f, 1<<19);
+        return graphNRCSPPC(0.7f, true, 0.06f, 0.03f, 1<<19, 0.02f);
     } else {
-        return graphNRCSPPC(0.0f, true, 0.015f, 0.003f, 1<<19);
+        return graphNRCSPPC(0.0f, true, 0.015f, 0.003f, 1<<19, 0.02f);
     }
 }
 
@@ -720,7 +722,7 @@ int runMain(int argc, char** argv)
             "glass.pyscene",
             "rings.pyscene",
         }) {
-            auto app = createApp(scene, 512);
+            auto app = createApp(scene, 1440);
             logInfo("Building reference for scene: {}", scene);
             ensureReference(app);
         }
@@ -828,7 +830,7 @@ int runMain(int argc, char** argv)
             "rings.pyscene",
             "glass.pyscene",
         }) {
-            auto app = createApp(scene, 512);
+            auto app = createApp(scene, 1440);
             std::vector<GraphConfigurator> configs = {
                 graphNRCPT(1), // NRC+PT
                 graphNRCPT(32), // NRC+PT32
@@ -847,7 +849,7 @@ int runMain(int argc, char** argv)
             "veach-bidir/veach-bidir.pbrt",
             "kitchen/kitchen.pbrt",
         }) {
-            auto app = createApp(scene, 512);
+            auto app = createApp(scene, 1440);
             std::vector<GraphConfigurator> configs = {
                 graphNRCPT(1), // NRC+PT
                 graphNRCPT(32), // NRC+PT32
