@@ -31,7 +31,7 @@ std::filesystem::path getResultsDir(const std::string& subdir = "")
 GraphConfigurator graphPT() {
     return [](const ref<RenderGraph>& g) {
         g->setName("PT");
-        g->createPass("accum", "AccumulatePass", Properties());
+        g->createPass("accum", "AccumulatePass", Properties(json {{"precisionMode", "Double"}}));
         g->createPass("pt", "PathTracer", Properties(json {{"maxDiffuseBounces", 8}, {"maxSpecularBounces", 8}}));
         g->createPass("vbuff", "VBufferRT", Properties());
 
@@ -360,7 +360,7 @@ std::string getSceneName(const ref<Testbed>& app) {
 // errorThreshold: stop when frame difference is below this
 // maxMinutes: maximum time in minutes to spend rendering
 // batchSize: check convergence and log every batchSize samples
-ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint convergenceFrames = 10, float errorThreshold = 1e-10f, double maxMinutes = 10.0, uint32_t batchSize = 256) {
+ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint convergenceFrames = 10, float errorThreshold = 1e-10f, double maxMinutes = 30.0, uint32_t batchSize = 256, double minMinutes = 20.0) {
     auto pt = graphPT()(app->createRenderGraph());
     app->setRenderGraph(pt);
     
@@ -418,12 +418,12 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint converge
             elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
             logInfo("SPP: {}, Frame-to-Frame Error: {}, Elapsed: {:.1f}s, Frames Since Improvement: {}", spp, avgError, elapsed, framesSinceImprovement);
             
-            if (framesSinceImprovement >= convergenceFrames) {
+            if (framesSinceImprovement >= convergenceFrames && elapsed >= minMinutes * 60.0) {
                 logInfo("Converged at {} spp with error {} after {:.1f}s", spp, avgError, elapsed);
                 break;
             }
 
-            if (avgError < errorThreshold) {
+            if (avgError < errorThreshold && elapsed >= minMinutes * 60.0) {
                 logInfo("Error threshold {} reached at {} spp after {:.1f}s", errorThreshold, spp, elapsed);
                 break;
             }
@@ -523,16 +523,16 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
     json results;
     
     // Load reference once for all graphs
-    // auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
+    auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
     
     for (const auto& config : graphConfigs) {
         auto g = config(app->createRenderGraph());
         logInfo("Running convergence test for: {}", g->getName());
         
         // Add FLIP and error passes to the graph
-        g->createPass("refLoader", "ImageLoader", Properties(json {{"filename", referencePath.string()}, {"outputFormat", "RGBA32Float"}}));
+        // g->createPass("refLoader", "ImageLoader", Properties(json {{"filename", referencePath.string()}, {"outputFormat", "RGBA32Float"}}));
         // g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
-        g->createPass("error", "ErrorMeasurePass", Properties(json {{"ComputeSquaredDifference", true}, {"ComputeAverage", true}, {"SelectedOutputId", "Difference"}}));
+        g->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}, {"MeasurementsFilePath", (getResultsDir() / fmt::format("{}.{}.error.csv", g->getName(), getSceneName(app))).string()}, {"ReportRunningError", false}}));
         
         // Get the main output
         std::string mainOutput = g->getOutputName(0);
@@ -541,9 +541,9 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
         // Connect FLIP and error passes
         // g->addEdge("refLoader.dst", "flip.referenceImage");
         // g->addEdge(mainOutput, "flip.testImage");
-        g->addEdge("refLoader.dst", "error.Reference");
+        // g->addEdge("refLoader.dst", "error.Reference");
         g->addEdge(mainOutput, "error.Source");
-        
+
         // g->markOutput("flip.errorMap");
         g->markOutput("error.Output");
         // g->markOutput("refLoader.dst");
@@ -566,19 +566,18 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
             }
             
             // Render frame (includes FLIP and error computation)
+            g->setInput("error.Reference", refTexture);
             app->frame();
             frameCount++;
-            
+
             // Get metrics from passes
             // auto flipJson = g->getPass("flip")->getProperties().toJson();
             auto errorJson = g->getPass("error")->getProperties().toJson();
-
+            // logInfo("Error json {}", errorJson.dump(4));
             // double min = flipJson["minFLIP"];
             // double max = flipJson["maxFLIP"];
             // double avg = flipJson["averageFLIP"];
             double mse = errorJson["avgError"];
-
-            logInfo("Error json {}", errorJson.dump(4));
 
             logInfo("Frame {}: Time {:.1f}s, MSE {}", 
                     frameCount, elapsed, mse);
@@ -926,14 +925,20 @@ int runMain(int argc, char** argv)
     if (args::get(sppcTest)) {
         // auto app = createApp("kitchen/kitchen.pbrt", 512);
         // auto app = createApp("rings.pyscene", 512);
-        auto app = createApp("glass.pyscene", 512);
-        auto g = graphNRCSPPC(0.7f, false, 0.2f, 0.03f, 1<<19, 0.02f, true)(app->createRenderGraph());
+        // auto app = createApp("glass.pyscene", 512);
+        // auto g = graphNRCSPPC(0.7f, false, 0.2f, 0.03f, 1<<19, 0.02f, true)(app->createRenderGraph());
         //auto g = graphSPPM()(app->createRenderGraph());
         //auto g = graphPT()(app->createRenderGraph());
-        // app->setRenderGraph(g);
-        // app->run();
-        renderForSeconds(app, g, 10.0);
-        captureOutputs(app, g, "sppc", getResultsDir("sppc"));
+        // renderForSeconds(app, g, 10.0);
+        // captureOutputs(app, g, "sppc", getResultsDir("sppc"));
+        auto app = createApp("cornell_box_caustic.pyscene", 512, true);
+        auto g = configSPPC("cornell_box_caustic.pyscene")(app->createRenderGraph());
+        g->createPass("error", "ErrorMeasurePass", Properties(json {{"ComputeSquaredDifference", true}, {"SelectedOutputId", "Difference"}}));
+        g->addEdge("nrc.output", "error.Source");
+        g->unmarkOutput("nrc.output");
+        g->markOutput("error.Output");
+        app->setRenderGraph(g);
+        app->run();
     }
 
     Scripting::shutdown();
