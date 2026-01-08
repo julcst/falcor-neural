@@ -133,32 +133,6 @@ GraphConfigurator graphNRCSPPC(float rej = 0.7f, bool stoch = true, float global
     };
 }
 
-GraphConfigurator graphNRCSPPCSameR(float rej = 0.7f, bool stoch = true, bool reverse = false, float r = 0.015) {
-    return [=](const ref<RenderGraph>& g) {
-        g->setName("NRC+SPPC");
-        g->createPass("TracePhotons", "TracePhotons", Properties(json {{"photonCount", 1<<20}, {"maxBounces", 8}, {"globalRejectionProb", rej}})); // OG used 1<<17
-        g->createPass("AccumPh", "AccumulatePhotonsRTX", Properties(json {{"visualizeHeatmap", false}, {"globalRadius", r}, {"causticRadius", r}, {"stochEval", stoch}, {"reverseSearch", reverse}}));
-        g->createPass("TraceQueries", "TraceQueries", Properties(json {{"resetStatisticsPerFrame", true}}));
-        g->createPass("qsamp", "QuerySubsampling", Properties(json {{"replacementFactor", 1.0f}})); // OG used 1<<17
-        g->createPass("nrc", "NRC", Properties(json {{"jitFusion", true}}));
-
-        g->addEdge("TraceQueries.queries", "qsamp.queries");
-        g->addEdge("TraceQueries.nrcInput", "qsamp.nrcInput");
-
-        g->addEdge("TracePhotons.photons", "AccumPh.photons");
-        g->addEdge("TracePhotons.counters", "AccumPh.photonCounters");
-        g->addEdge("qsamp.sample", "AccumPh.queries");
-
-        g->addEdge("qsamp.nrcOutput", "nrc.trainInput");
-        g->addEdge("AccumPh.outputBuffer", "nrc.trainTarget");
-        g->addEdge("TraceQueries.nrcInput", "nrc.inferenceInput");
-        g->addEdge("TraceQueries.queries", "nrc.inferenceQueries");
-
-        g->markOutput("nrc.output");
-        return g;
-    };
-}
-
 GraphConfigurator graphNRCPT(uint32_t spp = 1) {
     return [=](const ref<RenderGraph>& g) {
         g->setName(spp == 1 ? "NRC+PT" : fmt::format("NRC+PT{}", spp));
@@ -386,7 +360,7 @@ std::string getSceneName(const ref<Testbed>& app) {
 // errorThreshold: stop when frame difference is below this
 // maxMinutes: maximum time in minutes to spend rendering
 // batchSize: check convergence and log every batchSize samples
-ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint convergenceFrames = 10, double maxMinutes = 10.0, uint32_t batchSize = 256) {
+ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint convergenceFrames = 10, float errorThreshold = 1e-10f, double maxMinutes = 10.0, uint32_t batchSize = 256) {
     auto pt = graphPT()(app->createRenderGraph());
     app->setRenderGraph(pt);
     
@@ -446,6 +420,11 @@ ref<RenderGraph> renderPTUntilConvergence(const ref<Testbed>& app, uint converge
             
             if (framesSinceImprovement >= convergenceFrames) {
                 logInfo("Converged at {} spp with error {} after {:.1f}s", spp, avgError, elapsed);
+                break;
+            }
+
+            if (avgError < errorThreshold) {
+                logInfo("Error threshold {} reached at {} spp after {:.1f}s", errorThreshold, spp, elapsed);
                 break;
             }
         }
@@ -540,11 +519,11 @@ json benchmarkPerformance(const ref<Testbed>& app, const std::vector<GraphConfig
     return results;
 }
 
-json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfigurator>& graphConfigs, const std::filesystem::path& referencePath, double timeMinutes, uint32_t warmup = 4) {
+json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfigurator>& graphConfigs, const std::filesystem::path& referencePath, uint32_t frames = 100, uint32_t warmup = 10) {
     json results;
     
     // Load reference once for all graphs
-    auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
+    // auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
     
     for (const auto& config : graphConfigs) {
         auto g = config(app->createRenderGraph());
@@ -552,20 +531,22 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
         
         // Add FLIP and error passes to the graph
         g->createPass("refLoader", "ImageLoader", Properties(json {{"filename", referencePath.string()}, {"outputFormat", "RGBA32Float"}}));
-        g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
-        g->createPass("error", "ErrorMeasurePass", Properties(json {{"ComputeSquaredDifference", true}, {"ComputeAverage", true}}));
+        // g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
+        g->createPass("error", "ErrorMeasurePass", Properties(json {{"ComputeSquaredDifference", true}, {"ComputeAverage", true}, {"SelectedOutputId", "Difference"}}));
         
         // Get the main output
         std::string mainOutput = g->getOutputName(0);
+        logInfo("Main output of graph {} is {}", g->getName(), mainOutput);
         
         // Connect FLIP and error passes
-        g->addEdge("refLoader.dst", "flip.referenceImage");
-        g->addEdge(mainOutput, "flip.testImage");
+        // g->addEdge("refLoader.dst", "flip.referenceImage");
+        // g->addEdge(mainOutput, "flip.testImage");
         g->addEdge("refLoader.dst", "error.Reference");
         g->addEdge(mainOutput, "error.Source");
         
-        g->markOutput("flip.errorMap");
+        // g->markOutput("flip.errorMap");
         g->markOutput("error.Output");
+        // g->markOutput("refLoader.dst");
         
         json graphData;
         graphData["name"] = g->getName();
@@ -575,13 +556,12 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
         app->setRenderGraph(g);
         
         auto startTime = std::chrono::steady_clock::now();
-        double maxSeconds = timeMinutes * 60.0;
         uint32_t frameCount = 0;
         
         while (true) {
             auto elapsed = frameCount < warmup ? 0.0 : std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
 
-            if (elapsed > maxSeconds) {
+            if (frameCount >= frames) {
                 break;
             }
             
@@ -590,26 +570,30 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
             frameCount++;
             
             // Get metrics from passes
-            auto flipJson = g->getPass("flip")->getProperties().toJson();
+            // auto flipJson = g->getPass("flip")->getProperties().toJson();
             auto errorJson = g->getPass("error")->getProperties().toJson();
 
-            double min = flipJson["minFLIP"];
-            double max = flipJson["maxFLIP"];
-            double avg = flipJson["averageFLIP"];
+            // double min = flipJson["minFLIP"];
+            // double max = flipJson["maxFLIP"];
+            // double avg = flipJson["averageFLIP"];
             double mse = errorJson["avgError"];
 
-            logInfo("Frame {}: Time {:.1f}s, FLIP avg {}, min {}, max {}, MSE {}", 
-                    frameCount, elapsed, avg, min, max, mse);
+            logInfo("Error json {}", errorJson.dump(4));
+
+            logInfo("Frame {}: Time {:.1f}s, MSE {}", 
+                    frameCount, elapsed, mse);
 
             measurements.push_back({
                 {"frame", frameCount},
                 {"time", elapsed},
-                {"flip", avg},
-                {"min", min},
-                {"max", max},
+                // {"flip", avg},
+                // {"min", min},
+                // {"max", max},
                 {"mse", mse}
             });
         }
+
+        captureOutputs(app, g);
         
         graphData["measurements"] = measurements;
         graphData["totalFrames"] = frameCount;
@@ -651,16 +635,49 @@ GraphConfigurator configSPPC(const std::string& scene) {
     }
 }
 
+GraphConfigurator setStoch(GraphConfigurator baseConfig, bool stoch, bool reverse, float rej) {
+    return [=](const ref<RenderGraph>& g) {
+        auto result = baseConfig(g);
+        auto accumPh = result->getPass("AccumPh");
+        if (!accumPh) FALCOR_THROW("No AccumPh pass found in graph to set stochastic/reverse properties.");
+        accumPh->setProperties(Properties(json {{"stochEval", stoch}, {"reverseSearch", reverse}}));
+        auto tracePhotons = result->getPass("TracePhotons");
+        if (!tracePhotons) FALCOR_THROW("No TracePhotons pass found in graph to set rejection property.");
+        tracePhotons->setProperties(Properties(json {{"globalRejectionProb", rej}}));
+        return result;
+    };
+}
+
+GraphConfigurator setRadius(GraphConfigurator baseConfig, float globalR, float causticR) {
+    return [=](const ref<RenderGraph>& g) {
+        auto result = baseConfig(g);
+        auto accumPh = result->getPass("AccumPh");
+        if (!accumPh) FALCOR_THROW("No AccumPh pass found in graph to set radius properties.");
+        accumPh->setProperties(Properties(json {{"globalRadius", globalR}, {"causticRadius", causticR}}));
+        return result;
+    };
+}
+
+GraphConfigurator setQuerysubsampling(GraphConfigurator baseConfig, uint32_t sample) {
+    return [=](const ref<RenderGraph>& g) {
+        auto result = baseConfig(g);
+        auto qsamp = result->getPass("qsamp");
+        if (!qsamp) FALCOR_THROW("No QuerySubsampling pass found in graph to set sample property.");
+        qsamp->setProperties(Properties(json {{"sample", sample}}));
+        return result;
+    };
+}
+
 int runMain(int argc, char** argv)
 {
     args::ArgumentParser parser("PhotonNRC Testbed");
-    args::Flag sppmVsRes(parser, "sppm-res", "Run SPPM performance benchmark", {'s', "sppm-res"});
-    args::Flag nrcVsRes(parser, "nrc-res", "Run NRC performance benchmark", {'n', "nrc-res"});
+    args::Flag phnrcVsRes(parser, "phnrc-res", "Run NRC+SPPC vs resolution performance benchmark", {'m', "phnrc-res"});
+    args::Flag phnrcVsN(parser, "phnrc-n", "Run NRC+SPPC vs query count performance benchmark", {'n', "phnrc-n"});
     args::Flag phnrcVsR(parser, "phnrc-r", "Run NRC+SPPC vs radius performance benchmark", {'r', "phnrc-r"});
     args::Flag nrcVariants(parser, "nrc-variants", "Run NRC variants performance benchmark", {'v', "nrc-variants"});
     args::Flag quality(parser, "quality", "Run quality benchmark", {'q', "quality"});
+    args::Flag limitations(parser, "limit", "Run limitations benchmark", {'l', "limit"});
     args::Flag teaser(parser, "teaser", "Run teaser benchmark", {'t', "teaser"});
-    args::Flag limitations(parser, "limit", "Run limitation benchmark", {'l', "limit"});
     args::Flag buildRef(parser, "build-ref", "Build all reference images", {'b', "build-ref"});
     args::Flag convergenceTest(parser, "convergence", "Run convergence test comparing NRC variants", {'c', "convergence"});
     args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
@@ -733,32 +750,58 @@ int runMain(int argc, char** argv)
         return 0;
     }
 
-    if (args::get(sppmVsRes)) {
+    if (args::get(phnrcVsN)) {
         json results = {};
-        auto app = createApp("cornell_box_caustic.pyscene", 512);
-        for (uint2 res : getLinearResolutionLevels(1080, 8)) {
-            app->resizeFrameBuffer(res.x, res.y);
+        auto app = createApp("cornell_box_caustic.pyscene", 1440);
+        auto g = configSPPC("cornell_box_caustic.pyscene");
+        for (uint32_t n : {1<<14, 1<<15, 1<<16, 1<<17, 1<<18, 1<<19}) {
+            logInfo("Running NRC+SPPC vs query count benchmark for N={}", n);
+            auto gn = setQuerysubsampling(g, n);
             results.push_back({
-                {"resolution", {res.x, res.y}},
-                {"MP", res.x * res.y / 1e6},
+                {"queryCount", n},
                 {"runs", benchmarkPerformance(app, {
-                    graphSPPM(false, 0.0f, true, false), // QuerySearch
-                    // graphSPPM(true, 0.0f, true, false),  // PhotonSearch // NOTE: This crashes on Blackwell
-                    graphSPPM(false, 0.0f, true, true), // StochQuerySearch
-                    // graphSPPM(true, 0.0f, true, true),  // StochPhotonSearch // NOTE: This crashes on Blackwell
-                    graphSPPM(false, 0.7f, true, false), // QuerySearch
-                    graphSPPM(true, 0.7f, true, false),  // PhotonSearch
-                    graphSPPM(false, 0.7f, true, true), // StochQuerySearch
-                    graphSPPM(true, 0.7f, true, true),  // StochPhotonSearch
-                }, 32)},
+                    setStoch(gn, false, false, 0.0f), // QuerySearch
+                    setStoch(gn, false, true, 0.0f),  // PhotonSearch // NOTE: This crashes on Blackwell
+                    setStoch(gn, true, false, 0.0f), // StochQuerySearch
+                    setStoch(gn, true, true, 0.0f),  // StochPhotonSearch // NOTE: This crashes on Blackwell
+                    setStoch(gn, true, false, 0.7f), // QuerySearch 70%
+                    setStoch(gn, true, true, 0.7f),  // PhotonSearch 70%
+                    setStoch(gn, false, false, 0.7f), // StochQuerySearch 70%
+                    setStoch(gn, false, true, 0.7f),  // StochPhotonSearch 70%
+                }, 128)},
             });
         }
-        writeJson(results, resultsDir / "sppm_vs_res.json");
+        writeJson(results, resultsDir / "phnrc_vs_N.json");
     }
 
-    if (args::get(nrcVsRes)) {
+    if (args::get(phnrcVsR)) {
         json results = {};
-        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        auto app = createApp("cornell_box_caustic.pyscene", 1440);
+        for (float r : {0.001f, 0.005f, 0.01f, 0.015f, 0.02f, 0.03f}) {
+            logInfo("Running NRC+SPPC vs radius benchmark for r={}", r);
+            auto g = configSPPC("cornell_box_caustic.pyscene");
+            auto gn = setRadius(g, r, r);
+            results.push_back({
+                {"r", r},
+                {"runs", benchmarkPerformance(app, {
+                    setStoch(gn, false, false, 0.0f), // QuerySearch
+                    setStoch(gn, false, true, 0.0f),  // PhotonSearch // NOTE: This crashes on Blackwell
+                    setStoch(gn, true, false, 0.0f), // StochQuerySearch
+                    setStoch(gn, true, true, 0.0f),  // StochPhotonSearch // NOTE: This crashes on Blackwell
+                    setStoch(gn, true, false, 0.7f), // QuerySearch 70%
+                    setStoch(gn, true, true, 0.7f),  // PhotonSearch 70%
+                    setStoch(gn, false, false, 0.7f), // StochQuerySearch 70%
+                    setStoch(gn, false, true, 0.7f),  // StochPhotonSearch 70%
+                }, 128)},
+            });
+        }
+        writeJson(results, resultsDir / "phnrc_vs_r.json");
+    }
+
+    if (args::get(phnrcVsRes)) {
+        json results = {};
+        std::string scene = "cornell_box_caustic.pyscene";
+        auto app = createApp(scene, 1440);
         for (uint2 res : getLinearResolutionLevels(1920, 8)) {
             app->resizeFrameBuffer(res.x, res.y);
             results.push_back({
@@ -766,39 +809,19 @@ int runMain(int argc, char** argv)
                 {"MP", res.x * res.y / 1e6},
                 {"runs", benchmarkPerformance(app, {
                     graphPT(), // PT
-                    graphNRCSPPC(), // NRC+SPPC
-                    graphSPPM(false, 0.7f, true, true), // StochQuerySearch
-                }, 32)},
+                    configSPPC(scene), // NRC+SPPC
+                }, 128)},
             });
         }
-        writeJson(results, resultsDir / "nrc_vs_res.json");
-    }
-
-    if (args::get(phnrcVsR)) {
-        json results = {};
-        auto app = createApp("cornell_box.pyscene", 512);
-        for (float r : {0.001f, 0.005f, 0.01f, 0.015f, 0.02f, 0.03f}) {
-            logInfo("Running NRC+SPPC vs radius benchmark for r={}", r);
-            results.push_back({
-                {"r", r},
-                {"runs", benchmarkPerformance(app, {
-                    graphNRCSPPCSameR(0.0f, true, false, r),
-                    // graphNRCSPPCSameR(0.0f, true, true, r),
-                    graphNRCSPPCSameR(0.7f, true, false, r),
-                    graphNRCSPPCSameR(0.7f, true, true, r),
-                }, 32)},
-            });
-        }
-        writeJson(results, resultsDir / "phnrc_vs_r.json");
+        writeJson(results, resultsDir / "phnrc_vs_res.json");
     }
 
     if (args::get(nrcVariants)) {
-        auto app = createApp("cornell_box_caustic.pyscene", 512);
+        auto app = createApp("cornell_box_caustic.pyscene", 1440);
         auto json = benchmarkPerformance(app, {
-            graphNRCPT(1), // NRC
-            graphNRCPT(32), // NRC+LT
-            graphNRCLT(), // NRC+LT
-            graphNRCSPPC(), // NRC+SPPC
+            graphNRCPT(1), // NRC+PT
+            graphNRCPT(32), // NRC+PT32
+            configSPPC("cornell_box_caustic.pyscene"), // NRC+SPPC
         }, 128);
         writeJson(json, resultsDir / "nrc_variants.json");
     }
@@ -864,17 +887,17 @@ int runMain(int argc, char** argv)
 
     if (args::get(convergenceTest)) {
         const auto& scene = "cornell_box_caustic.pyscene";
-        auto app = createApp(scene, 512);
+        auto app = createApp(scene, 1440);
         auto ref = ensureReference(app);
         
         logInfo("Running convergence test for scene: {}", scene);
         std::vector<GraphConfigurator> graphs = {
             graphNRCPT(1), // NRC
-            graphNRCLT(), // NRC+LT
-            graphNRCSPPC(), // NRC+SPPC
+            graphNRCPT(32), // NRC+PT32
+            configSPPC(scene), // NRC+SPPC
         };
         
-        auto convergenceResults = benchmarkConvergence(app, graphs, ref, 1.0);
+        auto convergenceResults = benchmarkConvergence(app, graphs, ref);
         writeJson(convergenceResults, resultsDir / "convergence.json");
     }
 
