@@ -70,7 +70,7 @@ private:
     uint32_t mTrainSize = 0; ///< Must be multiple of NRC_BATCH_SIZE_GRANULARITY
 
     // Config
-    uint32_t mTrainSteps = 4;
+    uint32_t mTrainSteps = 1; // Note: We use one so we do not have to shuffle
     bool mUseFactorization = true;
     bool mOutputRaw = false;
     bool mJitFusion = true;
