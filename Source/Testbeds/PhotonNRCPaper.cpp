@@ -519,34 +519,31 @@ json benchmarkPerformance(const ref<Testbed>& app, const std::vector<GraphConfig
     return results;
 }
 
-json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfigurator>& graphConfigs, const std::filesystem::path& referencePath, uint32_t frames = 100, uint32_t warmup = 10) {
+json benchmarkConvergence(const ref<Testbed>& app, const std::vector<ref<RenderGraph>>& graphs, const std::filesystem::path& referencePath, double timeMinutes, uint32_t warmup = 4) {
     json results;
     
     // Load reference once for all graphs
     auto refTexture = Texture::createFromFile(app->getDevice(), referencePath, false, false);
     
-    for (const auto& config : graphConfigs) {
-        auto g = config(app->createRenderGraph());
+    for (const auto& g : graphs) {
         logInfo("Running convergence test for: {}", g->getName());
         
         // Add FLIP and error passes to the graph
-        // g->createPass("refLoader", "ImageLoader", Properties(json {{"filename", referencePath.string()}, {"outputFormat", "RGBA32Float"}}));
-        // g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
-        g->createPass("error", "ErrorMeasurePass", Properties(json {{"SelectedOutputId", "Difference"}, {"MeasurementsFilePath", (getResultsDir() / fmt::format("{}.{}.error.csv", g->getName(), getSceneName(app))).string()}, {"ReportRunningError", false}}));
+        g->createPass("refLoader", "ImageLoader", Properties(json {{"filename", referencePath.string()}, {"outputFormat", "RGBA32Float"}}));
+        g->createPass("flip", "FLIPPass", Properties(json {{"isHDR", true}, {"computePooledFLIPValues", true}}));
+        g->createPass("error", "ErrorMeasurePass", Properties(json {{"ComputeSquaredDifference", true}, {"ComputeAverage", true}}));
         
         // Get the main output
         std::string mainOutput = g->getOutputName(0);
-        logInfo("Main output of graph {} is {}", g->getName(), mainOutput);
         
         // Connect FLIP and error passes
-        // g->addEdge("refLoader.dst", "flip.referenceImage");
-        // g->addEdge(mainOutput, "flip.testImage");
-        // g->addEdge("refLoader.dst", "error.Reference");
+        g->addEdge("refLoader.dst", "flip.referenceImage");
+        g->addEdge(mainOutput, "flip.testImage");
+        g->addEdge("refLoader.dst", "error.Reference");
         g->addEdge(mainOutput, "error.Source");
-
-        // g->markOutput("flip.errorMap");
+        
+        g->markOutput("flip.errorMap");
         g->markOutput("error.Output");
-        // g->markOutput("refLoader.dst");
         
         json graphData;
         graphData["name"] = g->getName();
@@ -556,43 +553,41 @@ json benchmarkConvergence(const ref<Testbed>& app, const std::vector<GraphConfig
         app->setRenderGraph(g);
         
         auto startTime = std::chrono::steady_clock::now();
+        double maxSeconds = timeMinutes * 60.0;
         uint32_t frameCount = 0;
         
         while (true) {
             auto elapsed = frameCount < warmup ? 0.0 : std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
 
-            if (frameCount >= frames) {
+            if (elapsed > maxSeconds) {
                 break;
             }
             
             // Render frame (includes FLIP and error computation)
-            g->setInput("error.Reference", refTexture);
             app->frame();
             frameCount++;
-
+            
             // Get metrics from passes
-            // auto flipJson = g->getPass("flip")->getProperties().toJson();
+            auto flipJson = g->getPass("flip")->getProperties().toJson();
             auto errorJson = g->getPass("error")->getProperties().toJson();
-            // logInfo("Error json {}", errorJson.dump(4));
-            // double min = flipJson["minFLIP"];
-            // double max = flipJson["maxFLIP"];
-            // double avg = flipJson["averageFLIP"];
+
+            double min = flipJson["minFLIP"];
+            double max = flipJson["maxFLIP"];
+            double avg = flipJson["averageFLIP"];
             double mse = errorJson["avgError"];
 
-            logInfo("Frame {}: Time {:.1f}s, MSE {}", 
-                    frameCount, elapsed, mse);
+            logInfo("Frame {}: Time {:.1f}s, FLIP avg {}, min {}, max {}, MSE {}", 
+                    frameCount, elapsed, avg, min, max, mse);
 
             measurements.push_back({
                 {"frame", frameCount},
                 {"time", elapsed},
-                // {"flip", avg},
-                // {"min", min},
-                // {"max", max},
+                {"flip", avg},
+                {"min", min},
+                {"max", max},
                 {"mse", mse}
             });
         }
-
-        captureOutputs(app, g);
         
         graphData["measurements"] = measurements;
         graphData["totalFrames"] = frameCount;
@@ -885,18 +880,18 @@ int runMain(int argc, char** argv)
     }
 
     if (args::get(convergenceTest)) {
-        const auto& scene = "cornell_box_caustic.pyscene";
+        const auto& scene = "cornell_box.pyscene";
         auto app = createApp(scene, 1440);
         auto ref = ensureReference(app);
         
         logInfo("Running convergence test for scene: {}", scene);
-        std::vector<GraphConfigurator> graphs = {
-            graphNRCPT(1), // NRC
-            graphNRCPT(32), // NRC+PT32
-            configSPPC(scene), // NRC+SPPC
+        std::vector graphs = {
+            graphNRCPT(1)(app->createRenderGraph()), // NRC
+            graphNRCPT(32)(app->createRenderGraph()), // NRC+PT32
+            configSPPC(scene)(app->createRenderGraph()), // NRC+SPPC
         };
         
-        auto convergenceResults = benchmarkConvergence(app, graphs, ref);
+        auto convergenceResults = benchmarkConvergence(app, graphs, ref, 1.0);
         writeJson(convergenceResults, resultsDir / "convergence.json");
     }
 
