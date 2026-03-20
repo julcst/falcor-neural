@@ -43,6 +43,7 @@ const char kCausticRadius[] = "causticRadius";
 const char kMaxNormalDeviation[] = "maxNormalDeviation";
 const char kUseNormalRejection[] = "useNormalRejection";
 const char kUseInstanceRejection[] = "useInstanceRejection";
+const char kResetOnSceneChange[] = "resetOnSceneChange";
 
 // Ray tracing settings that affect the traversal stack size.
 // These should be set as small as possible.
@@ -72,6 +73,7 @@ void AccumulatePhotonsRTX::setProperties(const Properties& props)
         else if (key == kMaxNormalDeviation) mMaxNormalDeviation = value;
         else if (key == kUseNormalRejection) mUseNormalRejection = value;
         else if (key == kUseInstanceRejection) mUseInstanceRejection = value;
+        else if (key == kResetOnSceneChange) mResetOnSceneChange = value;
         else logWarning("Unrecognized property '{}' in AccumulatePhotonsRTX render pass.", key);
     }
 }
@@ -89,6 +91,7 @@ Properties AccumulatePhotonsRTX::getProperties() const
     props[kMaxNormalDeviation] = mMaxNormalDeviation;
     props[kUseNormalRejection] = mUseNormalRejection;
     props[kUseInstanceRejection] = mUseInstanceRejection;
+    props[kResetOnSceneChange] = mResetOnSceneChange;
     return props;
 }
 
@@ -104,6 +107,7 @@ void AccumulatePhotonsRTX::renderUI(Gui::Widgets& widget) {
     widget.var("Max Normal Deviation (degrees)", mMaxNormalDeviation, 0.0f, 90.0f, 1.0f);
     widget.checkbox("Use Normal Rejection", mUseNormalRejection);
     widget.checkbox("Use Instance Rejection", mUseInstanceRejection);
+    widget.checkbox("Reset on Scene Change", mResetOnSceneChange);
 }
 
 RenderPassReflection AccumulatePhotonsRTX::reflect(const CompileData& compileData)
@@ -183,7 +187,8 @@ void AccumulatePhotonsRTX::execute(RenderContext* pRenderContext, const RenderDa
         FALCOR_THROW("This render pass does not support scene changes that require shader recompilation.");
     }
 
-    auto shouldReset = is_set(mpScene->getUpdates(), IScene::UpdateFlags::AllButCamera); // Reset accumulation on scene change
+    auto shouldReset = false;
+    shouldReset |= mResetOnSceneChange && is_set(mpScene->getUpdates(), IScene::UpdateFlags::AllButCamera); // Reset accumulation on scene change
     shouldReset |= mGlobalPhotonCounter == 0u; // Or in first frame
     
     // Get inputs

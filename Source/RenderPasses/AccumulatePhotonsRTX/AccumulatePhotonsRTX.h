@@ -68,6 +68,7 @@ private:
     float mMaxNormalDeviation = 60.0f; // in degrees
     bool mUseNormalRejection = true;
     bool mUseInstanceRejection = true;
+    bool mResetOnSceneChange = false;
 
     // Internal
     uint32_t mQueryCount = 0; // Automatically derived from input data
