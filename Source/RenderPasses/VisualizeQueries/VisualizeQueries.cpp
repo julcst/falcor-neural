@@ -39,6 +39,13 @@ VisualizeQueries::VisualizeQueries(ref<Device> pDevice, const Properties& props)
     mpDepthStencilState = DepthStencilState::create(dsDesc);
     mpGraphicsState->setDepthStencilState(mpDepthStencilState);
 
+    // Blending
+    BlendState::Desc blendDesc;
+    blendDesc.setRtBlend(0, true);
+    blendDesc.setRtParams(0, BlendState::BlendOp::Add, BlendState::BlendOp::Add, BlendState::BlendFunc::SrcAlpha, BlendState::BlendFunc::OneMinusSrcAlpha, BlendState::BlendFunc::One, BlendState::BlendFunc::One);
+    mpBlendState = BlendState::create(blendDesc);
+    mpGraphicsState->setBlendState(mpBlendState);
+
     // Create program
     ProgramDesc desc;
     desc.addShaderLibrary(kShaderFile).vsEntry("vsMain").psEntry("psMain");

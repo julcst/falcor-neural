@@ -76,7 +76,7 @@ VSOut vsMain(VSIn input, uint instanceID : SV_InstanceID)
 #if USE_QUERY_STATE
     QueryState qs = gQueryStates[instanceID];
     float3 causticFlux = qs.getCausticRadiance(gGlobalPhotonCount);
-    float3 globalFlux = qs.getRadiance(gGlobalPhotonCount);
+    float3 globalFlux = qs.getGlobalRadiance(gGlobalPhotonCount);
     float maxRadius = max(qs.causticRadius, qs.globalRadius);
 #else
     float3 causticFlux = float3(0);
@@ -155,5 +155,5 @@ VSOut vsMain(VSIn input, uint instanceID : SV_InstanceID)
 
 float4 psMain(VSOut input) : SV_TARGET
 {
-    return float4(input.color, 1.0f);
+    return float4(input.color, 0.5f);
 }

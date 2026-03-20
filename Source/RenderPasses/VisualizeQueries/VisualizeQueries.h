@@ -39,6 +39,7 @@ private:
     ref<ProgramVars> mpVars;
     ref<RasterizerState> mpRasterState;
     ref<DepthStencilState> mpDepthStencilState;
+    ref<BlendState> mpBlendState;
     ref<Vao> mpVao;
 
     // Config
