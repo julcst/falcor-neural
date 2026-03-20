@@ -204,9 +204,42 @@ sceneBuilder.addMeshInstance(
     ),
 )
 
+# sceneBuilder.addMeshInstance(
+#     sceneBuilder.addNode("Water", Transform(scaling=0.55)),
+#     sceneBuilder.addTriangleMesh(waterMesh, water),
+# )
+
+# waterTransform = Transform(scaling=0.55)
+# waterNodeID = sceneBuilder.addNode("Water", waterTransform)
+# waterAnimation = Animation("WaterRotateAnim", waterNodeID, 10.0)
+# waterAnimation.preInfinityBehavior = Animation.Behavior.Cycle
+# waterAnimation.postInfinityBehavior = Animation.Behavior.Cycle
+# waterAnimation.interpolationMode = Animation.InterpolationMode.Linear
+# waterAnimation.enableWarping = True
+
+# waterAnimation.addKeyframe(0.0, waterTransform)
+# waterTransform.rotationEulerDeg = float3(0, 180, 0)
+# waterAnimation.addKeyframe(5.0, waterTransform)
+
+waterTransform = Transform(scaling=0.55)
+waterNodeID = sceneBuilder.addNode("Water", waterTransform)
+
+waterAnimation = Animation("WaveFlipAnim", waterNodeID, 10.0)
+waterAnimation.preInfinityBehavior = Animation.Behavior.Cycle
+waterAnimation.postInfinityBehavior = Animation.Behavior.Cycle
+waterAnimation.interpolationMode = Animation.InterpolationMode.Linear
+waterAnimation.addKeyframe(0.0, waterTransform)
+waterTransform.translation.y -= 0.2
+waterAnimation.addKeyframe(4.0, waterTransform)
+waterAnimation.addKeyframe(5.0, waterTransform)
+waterTransform.translation.y += 0.2
+waterAnimation.addKeyframe(9.0, waterTransform)
+waterAnimation.addKeyframe(10.0, waterTransform)
+
+sceneBuilder.addAnimation(waterAnimation)
 sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode("Water", Transform(scaling=0.55)),
-    sceneBuilder.addTriangleMesh(waterMesh, water),
+    waterNodeID,
+    sceneBuilder.addTriangleMesh(waterMesh, water)
 )
 
 sceneBuilder.addMeshInstance(
@@ -220,6 +253,20 @@ sceneBuilder.addMeshInstance(
     ),
     sceneBuilder.addTriangleMesh(quadMesh, light),
 )
+
+##### Light transformation currently broken #####
+# lightTransform = Transform(
+#     scaling=0.02, translation=float3(0, 0.549, 0), rotationEulerDeg=float3(180, 0, 0)
+# )
+# lightNodeID = sceneBuilder.addNode("Light", lightTransform)
+# lightAnimation = Animation("LightAnim", lightNodeID, 10.0)
+# lightAnimation.preInfinityBehavior = Animation.Behavior.Cycle
+# lightAnimation.postInfinityBehavior = Animation.Behavior.Cycle
+# lightAnimation.interpolationMode = Animation.InterpolationMode.Linear
+# lightAnimation.enableWarping = True
+# lightAnimation.addKeyframe(0.0, lightTransform)
+# lightTransform.translation.x = 0.1
+# lightAnimation.addKeyframe(5.0, lightTransform)
 
 # Create camera
 
