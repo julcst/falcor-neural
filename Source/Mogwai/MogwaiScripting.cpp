@@ -202,6 +202,11 @@ namespace Mogwai
         Scripting::getDefaultContext().setObject("tc", findExtension("Timing Capture")); // PYTHONDEPRECATED
 
         renderer.def("getSettings", pybind11::overload_cast<>(&Renderer::getSettings), pybind11::return_value_policy::reference);
+        renderer.def("setPipedOutput", &Renderer::setPipedOutput, "enable"_a, "cmd"_a = std::string{});
+        renderer.def("isPipedOutputEnabled", &Renderer::isPipedOutputEnabled);
+        renderer.def("getPipedOutputCommand", &Renderer::getPipedOutputCommand);
+        renderer.def("setPipedOutputShowFps", &Renderer::setPipedOutputShowFps, "showFps"_a);
+        renderer.def("isPipedOutputShowFpsEnabled", &Renderer::isPipedOutputShowFpsEnabled);
 
         renderer.def("addOptions", [](Renderer* r, pybind11::dict d = {})
         {

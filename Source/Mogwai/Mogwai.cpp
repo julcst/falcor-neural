@@ -36,11 +36,14 @@
 #include "Utils/Scripting/Scripting.h"
 #include "Utils/Timing/TimeReport.h"
 #include "Utils/Settings/Settings.h"
+#include "Utils/UI/TextRenderer.h"
 
 #include <args.hxx>
 
 #include <filesystem>
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 
 FALCOR_EXPORT_D3D12_AGILITY_SDK
 
@@ -88,14 +91,54 @@ namespace Mogwai
         resetEditor();
         getDevice()->wait(); // Need to do that because clearing the graphs will try to release some state objects which might be in use
         mGraphs.clear();
-        if (mPipedOutput)
-        {
+        closePipedOutput();
+    }
+
+    void Renderer::closePipedOutput()
+    {
+        if (!mPipedOutput) return;
 #if FALCOR_WINDOWS
-            _pclose(mPipedOutput);
+        _pclose(mPipedOutput);
 #elif FALCOR_LINUX
-            pclose(mPipedOutput);
+        pclose(mPipedOutput);
 #endif
-        }
+        mPipedOutput = nullptr;
+    }
+
+    void Renderer::setPipedOutput(bool enabled, const std::string& cmd)
+    {
+        nlohmann::json options = {
+            {"PipedOutput", {{"enable", enabled}}}
+        };
+
+        if (!cmd.empty()) options["PipedOutput"]["cmd"] = cmd;
+
+        getSettings().addOptions(options);
+
+        if (!enabled || !cmd.empty()) closePipedOutput();
+    }
+
+    bool Renderer::isPipedOutputEnabled()
+    {
+        return getSettings().getOption("PipedOutput:enable", false);
+    }
+
+    std::string Renderer::getPipedOutputCommand()
+    {
+        return getSettings().getOption("PipedOutput:cmd", std::string{});
+    }
+
+    void Renderer::setPipedOutputShowFps(bool showFps)
+    {
+        nlohmann::json options = {
+            {"PipedOutput", {{"showFps", showFps}}}
+        };
+        getSettings().addOptions(options);
+    }
+
+    bool Renderer::isPipedOutputShowFpsEnabled()
+    {
+        return getSettings().getOption("PipedOutput:showFps", false);
     }
 
     void Renderer::onLoad(RenderContext* pRenderContext)
@@ -723,27 +766,52 @@ namespace Mogwai
             if (getSettings().getOption("PipedOutput:enable", false))
             {
                 // DEMO21 Opera -- this specific string should probably disappear
-                static std::string defaultFFMPEGCmd("ffmpeg -r 30 -f rawvideo -pix_fmt rgba -s 1920x1080 -i - "
-                    "-threads 0 -preset medium -y -pix_fmt yuv420p -crf 20 -vf colorchannelmixer=rr=0:rb=1:br=1:bb=0 output.mp4");
+                std::string defaultFFMPEGCmd = fmt::format(
+                    "ffmpeg -r 30 -f rawvideo -pix_fmt rgba -s {}x{} -i - "
+                    "-threads 0 -preset medium -y -pix_fmt yuv420p -crf 20 -vf colorchannelmixer=rr=0:rb=1:br=1:bb=0 output.mp4",
+                    pTargetFbo->getWidth(),
+                    pTargetFbo->getHeight()
+                );
                 if (!mPipedOutput)
                 {
                     std::string ffmepgCmd = getSettings().getOption("PipedOutput:cmd", defaultFFMPEGCmd);
 #if FALCOR_WINDOWS
                     mPipedOutput = _popen(ffmepgCmd.c_str(), "wb");
 #elif FALCOR_LINUX
-                    mPipedOutput = popen(ffmepgCmd.c_str(), "wb");
+                    mPipedOutput = popen(ffmepgCmd.c_str(), "w");
 #endif
 
                     if (!mPipedOutput)
-                        logError("Failed to create piped output with cmd `{}`. Piped output disabled.", ffmepgCmd);
+                    {
+                        const int pipeErrno = errno;
+                        logError("Failed to create piped output with cmd `{}`. errno={} ({}). Piped output disabled.", ffmepgCmd, pipeErrno, std::strerror(pipeErrno));
+                    }
                 }
 
                 if (mPipedOutput)
                 {
+                    if (getSettings().getOption("PipedOutput:showFps", false))
+                    {
+                        getTextRenderer().render(pRenderContext, getFrameRate().getMsg(), pTargetFbo, {20, 20});
+                    }
+
                     Falcor::ref<Texture> framebufferTexture = pTargetFbo->getColorTexture(0);
                     uint32_t subresource = framebufferTexture->getSubresourceIndex(0, 0);
                     std::vector<uint8_t> framebufferData = pRenderContext->readTextureSubresource(framebufferTexture.get(), subresource);
-                    fwrite(&framebufferData[0], 4 * pTargetFbo->getWidth() * pTargetFbo->getHeight(), 1, mPipedOutput);
+                    const size_t bytesToWrite = framebufferData.size();
+                    const size_t bytesWritten = fwrite(framebufferData.data(), 1, bytesToWrite, mPipedOutput);
+                    if (bytesWritten != bytesToWrite)
+                    {
+                        const int pipeErrno = errno;
+                        logError(
+                            "Failed writing frame to piped output. wrote {}/{} bytes, errno={} ({}). Disabling piped output.",
+                            bytesWritten,
+                            bytesToWrite,
+                            pipeErrno,
+                            std::strerror(pipeErrno)
+                        );
+                        closePipedOutput();
+                    }
                 }
             }
         }

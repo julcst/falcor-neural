@@ -131,6 +131,11 @@ namespace Mogwai
 
         SceneUpdateCallback getSceneUpdateCallback() const { return mSceneUpdateCallback; }
         void setSceneUpdateCallback(SceneUpdateCallback sceneUpdateCallback) { mSceneUpdateCallback = sceneUpdateCallback; }
+        void setPipedOutput(bool enabled, const std::string& cmd = "");
+        bool isPipedOutputEnabled();
+        std::string getPipedOutputCommand();
+        void setPipedOutputShowFps(bool showFps);
+        bool isPipedOutputShowFpsEnabled();
 
 //    private: // MOGWAI
         friend class Extension;
@@ -208,6 +213,7 @@ namespace Mogwai
         KeyCallback mKeyCallback;
         SceneUpdateCallback mSceneUpdateCallback;
         FILE*       mPipedOutput = nullptr;
+        void closePipedOutput();
 
         // Scripting
         void registerScriptBindings(pybind11::module& m);
