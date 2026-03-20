@@ -671,6 +671,7 @@ int runMain(int argc, char** argv)
     args::Flag ltTest(parser, "lt-test", "Run NRC+LT test", {"lt", "lt-test"});
     args::Flag sppmTest(parser, "sppm-test", "Run SPPM test", {"sppm", "sppm-test"});
     args::Flag sppcTest(parser, "sppc-test", "Run NRC+SPPC test", {"sppc", "sppc-test"});
+    args::Flag interactive(parser, "interactive", "Run with interactive window", {'i', "interactive"});
     args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
 
     args::CompletionFlag completionFlag(parser, {"complete"});
@@ -710,6 +711,13 @@ int runMain(int argc, char** argv)
     AssetResolver::getDefaultResolver().addSearchPath(getProjectDirectory() / "scenes", SearchPathPriority::First, AssetCategory::Scene);
 
     std::filesystem::create_directories(resultsDir);
+
+    if (args::get(interactive)) {
+        auto app = createApp("cornell_box_caustic.pyscene", 1440, true);
+        app->setRenderGraph(graphNRCSPPC()(app->createRenderGraph()));
+        app->run();
+        return 0;
+    }
 
     //auto app = createApp("cornell_box_caustic.pyscene", 512);
     // app->setRenderGraph(graphFLIP(app->getDevice(), ensureReference(app)));
