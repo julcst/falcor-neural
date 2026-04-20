@@ -2,16 +2,7 @@
 
 # Falcor
 
-Falcor is a real-time rendering framework supporting DirectX 12 and Vulkan. It aims to improve productivity of research and prototype projects.
-
-Features include:
-* Abstracting many common graphics operations, such as shader compilation, model loading, and scene rendering
-* Raytracing support
-* Python scripting support
-* Render graph system to build modular renderers
-* Common rendering techniques such post-processing effects
-* Unbiased path tracer
-* Integration of various RTX SDKs such as DLSS, RTXDI and NRD
+Falcor with Neural Shading experiments
 
 ## Prerequisites
 - Windows 10 version 20H2 (October 2020 Update) or newer, OS build revision .789 or newer
