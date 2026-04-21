@@ -560,19 +560,29 @@ add_library(rtxdi INTERFACE)
 target_include_directories(rtxdi INTERFACE ${RTXDI_DIR}/rtxdi-sdk/include)
 
 # rtxns
-set(RTXNS_DIR rtxns/src/NeuralShading_Shaders)
-add_library(rtxns INTERFACE)
-target_sources(rtxns PUBLIC
-    ${RTXNS_DIR}/Activation.slang
-    ${RTXNS_DIR}/CooperativeVectorAutoDiff.slang
-    ${RTXNS_DIR}/CooperativeVectorDerivatives.slang
-    ${RTXNS_DIR}/CooperativeVectorFunctions.slang
-    ${RTXNS_DIR}/LinearOps.slang
-    ${RTXNS_DIR}/Loss.slang
-    ${RTXNS_DIR}/MLP.slang
-    ${RTXNS_DIR}/Optimizers.slang
-    ${RTXNS_DIR}/PCG32.slang
-    ${RTXNS_DIR}/Utils.slang
+set(RTXNS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rtxns/src/NeuralShading_Shaders")
+set(RTXNS_OUT_DIR "${FALCOR_SHADER_OUTPUT_DIRECTORY}/RTXNS")
+
+file(GLOB RTXNS_SHADERS
+    CONFIGURE_DEPENDS
+    "${RTXNS_SRC_DIR}/*.slang"
+    "${RTXNS_SRC_DIR}/*.slangh"
+    "${RTXNS_SRC_DIR}/*.hlsli"
 )
 
-target_copy_shaders(rtxns rtxns)
+set(RTXNS_FLAT_OUTPUTS "")
+
+foreach(SRC_PATH ${RTXNS_SHADERS})
+    get_filename_component(FILENAME ${SRC_PATH} NAME)
+    set(DST_PATH "${RTXNS_OUT_DIR}/${FILENAME}")
+
+    add_custom_command(
+        OUTPUT ${DST_PATH}
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SRC_PATH} ${DST_PATH}
+        DEPENDS ${SRC_PATH}
+        COMMENT "Flattening RTXNS shader: ${FILENAME}"
+    )
+    list(APPEND RTXNS_FLAT_OUTPUTS ${DST_PATH})
+endforeach()
+
+add_custom_target(rtxns_shaders ALL DEPENDS ${RTXNS_FLAT_OUTPUTS})
