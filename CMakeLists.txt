@@ -194,39 +194,6 @@ set(FALCOR_SHADER_OUTPUT_DIRECTORY ${FALCOR_OUTPUT_DIRECTORY}/shaders)
 set(FALCOR_PLUGIN_OUTPUT_DIRECTORY ${FALCOR_OUTPUT_DIRECTORY}/plugins)
 
 # -----------------------------------------------------------------------------
-# External dependencies
-# -----------------------------------------------------------------------------
-add_subdirectory(external)
-
-message(STATUS "Feature flags:")
-message(STATUS "FALCOR_HAS_D3D12: ${FALCOR_HAS_D3D12}")
-message(STATUS "FALCOR_HAS_VULKAN: ${FALCOR_HAS_VULKAN}")
-message(STATUS "FALCOR_HAS_AFTERMATH: ${FALCOR_HAS_AFTERMATH}")
-message(STATUS "FALCOR_HAS_NVAPI: ${FALCOR_HAS_NVAPI}")
-message(STATUS "FALCOR_HAS_PIX: ${FALCOR_HAS_PIX}")
-message(STATUS "FALCOR_HAS_CUDA: ${FALCOR_HAS_CUDA}")
-message(STATUS "FALCOR_HAS_OPTIX: ${FALCOR_HAS_OPTIX}")
-message(STATUS "FALCOR_HAS_D3D12_AGILITY_SDK: ${FALCOR_HAS_D3D12_AGILITY_SDK}")
-message(STATUS "FALCOR_HAS_NRD: ${FALCOR_HAS_NRD}")
-message(STATUS "FALCOR_HAS_DLSS: ${FALCOR_HAS_DLSS}")
-message(STATUS "FALCOR_HAS_NV_USD: ${FALCOR_HAS_NV_USD}")
-message(STATUS "FALCOR_HAS_MDL_SDK: ${FALCOR_HAS_MDL_SDK}")
-message(STATUS "FALCOR_ENABLE_USD: ${FALCOR_ENABLE_USD}")
-
-# -----------------------------------------------------------------------------
-# Packman dependencies
-# -----------------------------------------------------------------------------
-add_custom_target(packman_dependencies DEPENDS packman_dependencies_stamp)
-set_target_properties(packman_dependencies PROPERTIES FOLDER "Misc")
-add_custom_command(
-    OUTPUT packman_dependencies_stamp
-    COMMAND ${PACKMAN} pull ${CMAKE_SOURCE_DIR}/dependencies.xml --platform ${PACKMAN_PLATFORM}
-    COMMAND ${CMAKE_COMMAND} -E touch packman_dependencies_stamp
-    MAIN_DEPENDENCY ${CMAKE_SOURCE_DIR}/dependencies.xml
-    COMMENT "Updating packman dependencies"
-)
-
-# -----------------------------------------------------------------------------
 # Shader file handling
 # -----------------------------------------------------------------------------
 
@@ -261,6 +228,39 @@ function(target_copy_shaders target output_dir)
         endif()
     endforeach()
 endfunction()
+
+# -----------------------------------------------------------------------------
+# External dependencies
+# -----------------------------------------------------------------------------
+add_subdirectory(external)
+
+message(STATUS "Feature flags:")
+message(STATUS "FALCOR_HAS_D3D12: ${FALCOR_HAS_D3D12}")
+message(STATUS "FALCOR_HAS_VULKAN: ${FALCOR_HAS_VULKAN}")
+message(STATUS "FALCOR_HAS_AFTERMATH: ${FALCOR_HAS_AFTERMATH}")
+message(STATUS "FALCOR_HAS_NVAPI: ${FALCOR_HAS_NVAPI}")
+message(STATUS "FALCOR_HAS_PIX: ${FALCOR_HAS_PIX}")
+message(STATUS "FALCOR_HAS_CUDA: ${FALCOR_HAS_CUDA}")
+message(STATUS "FALCOR_HAS_OPTIX: ${FALCOR_HAS_OPTIX}")
+message(STATUS "FALCOR_HAS_D3D12_AGILITY_SDK: ${FALCOR_HAS_D3D12_AGILITY_SDK}")
+message(STATUS "FALCOR_HAS_NRD: ${FALCOR_HAS_NRD}")
+message(STATUS "FALCOR_HAS_DLSS: ${FALCOR_HAS_DLSS}")
+message(STATUS "FALCOR_HAS_NV_USD: ${FALCOR_HAS_NV_USD}")
+message(STATUS "FALCOR_HAS_MDL_SDK: ${FALCOR_HAS_MDL_SDK}")
+message(STATUS "FALCOR_ENABLE_USD: ${FALCOR_ENABLE_USD}")
+
+# -----------------------------------------------------------------------------
+# Packman dependencies
+# -----------------------------------------------------------------------------
+add_custom_target(packman_dependencies DEPENDS packman_dependencies_stamp)
+set_target_properties(packman_dependencies PROPERTIES FOLDER "Misc")
+add_custom_command(
+    OUTPUT packman_dependencies_stamp
+    COMMAND ${PACKMAN} pull ${CMAKE_SOURCE_DIR}/dependencies.xml --platform ${PACKMAN_PLATFORM}
+    COMMAND ${CMAKE_COMMAND} -E touch packman_dependencies_stamp
+    MAIN_DEPENDENCY ${CMAKE_SOURCE_DIR}/dependencies.xml
+    COMMENT "Updating packman dependencies"
+)
 
 # -----------------------------------------------------------------------------
 # Data file handling

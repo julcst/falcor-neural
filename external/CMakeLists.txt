@@ -26,8 +26,10 @@ target_include_directories(args INTERFACE args)
 # set(TCNN_EXTERNAL_FMT fmt)
 set(TCNN_HALF_PRECISION ON)
 add_subdirectory(tiny-cuda-nn)
+
 # Ensure it follows Falcor ABI rules
 target_compile_definitions(tiny-cuda-nn PUBLIC _GLIBCXX_USE_CXX11_ABI=0)
+
 # Force C++17 to fix compilation
 set_target_properties(tiny-cuda-nn PROPERTIES
     CXX_STANDARD 17
@@ -88,7 +90,6 @@ target_include_directories(external_includes INTERFACE include)
 # -----------------------------------------------------------------------------
 # Dependencies in packman
 # -----------------------------------------------------------------------------
-
 set(PACKMAN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/packman)
 
 # -----------------------------------------------------------------------------
@@ -105,7 +106,6 @@ set(PACKMAN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/packman)
 # targets for use in CMake (it offers to use FindXXX scripts, but this
 # currently has issues). Instead we generate our own set of imported targets
 # here.
-
 set(FALCOR_DEPS_DIR ${PACKMAN_DIR}/deps)
 
 # OpenEXR
@@ -319,6 +319,7 @@ endif()
 
 # aftermath
 set(AFTERMATH_DIR ${PACKMAN_DIR}/aftermath)
+
 if(EXISTS ${AFTERMATH_DIR}/include/GFSDK_Aftermath.h)
     if(FALCOR_WINDOWS)
         add_library(aftermath SHARED IMPORTED GLOBAL)
@@ -332,8 +333,9 @@ if(EXISTS ${AFTERMATH_DIR}/include/GFSDK_Aftermath.h)
         set_target_properties(aftermath PROPERTIES
             INTERFACE_INCLUDE_DIRECTORIES ${AFTERMATH_DIR}/include
             IMPORTED_LOCATION ${AFTERMATH_DIR}/lib/x64/libGFSDK_Aftermath_Lib.x64.so
-    )
+        )
     endif()
+
     set(FALCOR_HAS_AFTERMATH ON PARENT_SCOPE)
 else()
     set(FALCOR_HAS_AFTERMATH OFF PARENT_SCOPE)
@@ -341,6 +343,7 @@ endif()
 
 # nvapi
 set(NVAPI_DIR ${PACKMAN_DIR}/nvapi)
+
 if(EXISTS ${NVAPI_DIR}/nvapi.h)
     add_library(nvapi STATIC IMPORTED GLOBAL)
     set_target_properties(nvapi PROPERTIES
@@ -353,7 +356,6 @@ else()
 endif()
 
 # slang
-
 set(FALCOR_LOCAL_SLANG OFF CACHE BOOL "Use a local build of slang instead of the binary package.")
 set(FALCOR_LOCAL_SLANG_DIR "${CMAKE_SOURCE_DIR}/../slang" CACHE PATH "Path to a local slang directory.")
 set(FALCOR_LOCAL_SLANG_BUILD_DIR "build/Debug" CACHE PATH "Path to the build directory of slang.")
@@ -365,6 +367,7 @@ else()
     set(SLANG_DIR ${PACKMAN_DIR}/slang)
     set(SLANG_INCLUDE_DIR ${PACKMAN_DIR}/slang/include)
 endif()
+
 set(FALCOR_SLANG_DIR ${SLANG_DIR} PARENT_SCOPE)
 
 if(FALCOR_WINDOWS)
@@ -400,6 +403,7 @@ endif()
 
 # pix
 set(PIX_DIR ${PACKMAN_DIR}/pix)
+
 if(EXISTS ${PIX_DIR}/Include/WinPixEventRuntime/pix3.h)
     add_library(pix SHARED IMPORTED GLOBAL)
     set_target_properties(pix PROPERTIES
@@ -420,7 +424,8 @@ target_include_directories(nanovdb INTERFACE ${NANOVDB_DIR}/include)
 # nv-usd
 set(NV_USD_RELEASE_DIR ${PACKMAN_DIR}/nv-usd-release)
 set(NV_USD_DEBUG_DIR ${PACKMAN_DIR}/nv-usd-debug)
-if((EXISTS ${NV_USD_RELEASE_DIR}) AND (EXISTS ${NV_USD_DEBUG_DIR}))
+
+if((EXISTS ${NV_USD_RELEASE_DIR}) AND(EXISTS ${NV_USD_DEBUG_DIR}))
     if(FALCOR_WINDOWS)
         add_library(nv-usd INTERFACE)
         target_include_directories(nv-usd INTERFACE
@@ -448,6 +453,7 @@ if((EXISTS ${NV_USD_RELEASE_DIR}) AND (EXISTS ${NV_USD_DEBUG_DIR}))
             INTERFACE_LINK_LIBRARIES "tbb"
         )
     endif()
+
     set(FALCOR_HAS_NV_USD ON PARENT_SCOPE)
 else()
     set(FALCOR_HAS_NV_USD OFF PARENT_SCOPE)
@@ -455,6 +461,7 @@ endif()
 
 # mdl-sdk
 set(MDL_SDK_DIR ${PACKMAN_DIR}/mdl-sdk)
+
 if(EXISTS ${MDL_SDK_DIR})
     add_library(mdl-sdk INTERFACE)
     target_include_directories(mdl-sdk INTERFACE ${MDL_SDK_DIR}/include)
@@ -474,6 +481,7 @@ set_target_properties(dxcompiler PROPERTIES
 
 # nrd
 set(NRD_DIR ${PACKMAN_DIR}/nrd)
+
 if(EXISTS ${NRD_DIR}/Include/NRD.h)
     add_library(nrd SHARED IMPORTED GLOBAL)
     set_target_properties(nrd PROPERTIES
@@ -491,6 +499,7 @@ endif()
 # dlss
 set(DLSS_DIR ${PACKMAN_DIR}/dlss)
 set(FALCOR_DLSS_DIR ${DLSS_DIR} PARENT_SCOPE)
+
 if(EXISTS ${DLSS_DIR}/include/nvsdk_ngx.h)
     add_library(dlss STATIC IMPORTED GLOBAL)
     set_target_properties(dlss PROPERTIES
@@ -506,6 +515,7 @@ endif()
 
 # optix
 set(OPTIX_DIR ${PACKMAN_DIR}/optix)
+
 if(EXISTS ${OPTIX_DIR}/include/optix.h)
     add_library(optix INTERFACE)
     target_include_directories(optix INTERFACE ${OPTIX_DIR}/include)
@@ -516,6 +526,7 @@ endif()
 
 # nvtt
 set(NVTT_DIR ${PACKMAN_DIR}/nvtt)
+
 if(FALCOR_WINDOWS)
     add_library(nvtt SHARED IMPORTED GLOBAL)
     set_target_properties(nvtt PROPERTIES
@@ -534,6 +545,7 @@ endif()
 
 # agility-sdk
 set(D3D12_AGILITY_SDK_DIR ${PACKMAN_DIR}/agility-sdk)
+
 if(EXISTS ${D3D12_AGILITY_SDK_DIR}/build/native/include/d3d12.h)
     add_library(agility-sdk INTERFACE)
     target_include_directories(agility-sdk INTERFACE ${D3D12_AGILITY_SDK_DIR}/build/native/include)
@@ -546,3 +558,21 @@ endif()
 set(RTXDI_DIR ${PACKMAN_DIR}/rtxdi)
 add_library(rtxdi INTERFACE)
 target_include_directories(rtxdi INTERFACE ${RTXDI_DIR}/rtxdi-sdk/include)
+
+# rtxns
+set(RTXNS_DIR rtxns/src/NeuralShading_Shaders)
+add_library(rtxns INTERFACE)
+target_sources(rtxns PUBLIC
+    ${RTXNS_DIR}/Activation.slang
+    ${RTXNS_DIR}/CooperativeVectorAutoDiff.slang
+    ${RTXNS_DIR}/CooperativeVectorDerivatives.slang
+    ${RTXNS_DIR}/CooperativeVectorFunctions.slang
+    ${RTXNS_DIR}/LinearOps.slang
+    ${RTXNS_DIR}/Loss.slang
+    ${RTXNS_DIR}/MLP.slang
+    ${RTXNS_DIR}/Optimizers.slang
+    ${RTXNS_DIR}/PCG32.slang
+    ${RTXNS_DIR}/Utils.slang
+)
+
+target_copy_shaders(rtxns rtxns)
