@@ -61,7 +61,7 @@ private:
     ref<ComputePass> mpInferPass;
 
     uint32_t mFrameIndex = 0;
-    uint32_t mTrainSteps = 256;
+    uint32_t mTrainSteps = 1;
     float mLearningRate = 5e-2f;
     bool mReset = true;
 };

@@ -109,9 +109,7 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["gParams"] = pParams;
         var["gOutput"] = pOutput;
         var["CB"]["gFrameDim"] = uint2(pOutput->getWidth(), pOutput->getHeight());
-
-        const uint3 groups = div_round_up(uint3(pOutput->getWidth(), pOutput->getHeight(), 1u), uint3(8u, 8u, 1u));
-        mpInferPass->execute(pRenderContext, groups.x, groups.y, groups.z);
+        mpInferPass->execute(pRenderContext, pOutput->getWidth(), pOutput->getHeight(), 1u);
     }
 
     mReset = false;
