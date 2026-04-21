@@ -138,11 +138,11 @@ float3 evalMLP(NetworkParams p, float2 uv)
 }
 
 [Differentiable]
-float computeLoss(NetworkParams p, float2 uv, no_diff float3 target)
+float computeLoss(NetworkParams p, no_diff float2 uv, no_diff float3 target)
 {
     float3 pred = evalMLP(p, uv);
     float3 err = pred - target;
-    return 0.5 * dot(err, err);
+    return dot(err, err);
 }
 
 void trainStep(uint step)
@@ -155,8 +155,7 @@ void trainStep(uint step)
 
     NetworkParams p = loadNetworkParams();
     DifferentialPair<NetworkParams> dp = diffPair(p, NetworkParams.Differential());
-    DifferentialPair<float2> dpUv = diffPair(uv, float2(0.0));
-    bwd_diff(computeLoss)(dp, dpUv, target, 1.0);
+    bwd_diff(computeLoss)(dp, uv, target, 1.0);
 
     for (uint i = 0; i < kHiddenSize; ++i)
     {
