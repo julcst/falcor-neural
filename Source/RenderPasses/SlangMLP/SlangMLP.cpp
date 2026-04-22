@@ -1,10 +1,12 @@
 #include "SlangMLP.h"
-#include "SlangMLPConfig.slang"
+#include "Config.slang"
 #include "RenderGraph/RenderPassHelpers.h"
 
 namespace
 {
-const char kShaderFile[] = "RenderPasses/SlangMLP/SlangMLP.cs.slang";
+const char kTrainShaderFile[] = "RenderPasses/SlangMLP/Training.cs.slang";
+const char kOptimizeShaderFile[] = "RenderPasses/SlangMLP/Optimization.cs.slang";
+const char kInferShaderFile[] = "RenderPasses/SlangMLP/Inference.cs.slang";
 const char kTrainEntry[] = "trainMain";
 const char kOptimizeEntry[] = "optimizeMain";
 const char kInferEntry[] = "inferMain";
@@ -53,9 +55,8 @@ void SlangMLP::renderUI(Gui::Widgets& widget)
 {
     widget.var("Train steps", mTrainSteps, 1u, 4096u);
     widget.var("Batch size", mBatchSize, 1u, 1u << 20u);
-    widget.var("Learning rate", mLearningRate, 1e-5f, 1.0f, 1e-5f, true);
-    if (widget.button("Reset"))
-        mReset = true;
+    widget.var("Learning rate", mLearningRate, 1e-8f, 1.0f);
+    if (widget.button("Reset")) mReset = true;
 }
 
 Properties SlangMLP::getProperties() const
@@ -74,19 +75,19 @@ RenderPassReflection SlangMLP::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::ShaderResource)
         .texture2D(0, 0);
     reflector.addInternal(kParams, "Persistent MLP parameters")
-        .rawBuffer(SlangMLPConfig::kParamBufferSize)
+        .rawBuffer(MLPConfig::kParamBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kParamGrads, "Persistent MLP parameter gradients")
-        .rawBuffer(SlangMLPConfig::kParamBufferSize)
+        .rawBuffer(MLPConfig::kParamBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kMoments1, "Persistent Adam moment1")
-        .rawBuffer(SlangMLPConfig::kMomentsBufferSize)
+        .rawBuffer(MLPConfig::kMomentsBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kMoments2, "Persistent Adam moment2")
-        .rawBuffer(SlangMLPConfig::kMomentsBufferSize)
+        .rawBuffer(MLPConfig::kMomentsBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kOutput, "MLP approximation")
@@ -116,58 +117,35 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
     {
         auto var = mpTrainPass->getRootVar();
         var["gInput"] = pInput;
-        var["gOutput"] = pOutput;
         var["gParams"] = pParams;
-        var["gParamsRW"] = pParams;
         var["gParamGrads"] = pParamGrads;
-        var["gMoments1"] = pMoments1;
-        var["gMoments2"] = pMoments2;
 
         var["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
         var["CB"]["gFrameIndex"] = mFrameIndex;
-        var["CB"]["gTrainSteps"] = mTrainSteps;
         var["CB"]["gBatchSize"] = mBatchSize;
-        var["CB"]["gLearningRate"] = mLearningRate;
-        var["CB"]["gReset"] = mReset ? 1u : 0u;
         var["CB"]["gCurrentStep"] = mOptimizeStep;
 
         mpTrainPass->execute(pRenderContext, mBatchSize, 1u, 1u);
 
         auto optimizeVar = mpOptimizePass->getRootVar();
-        optimizeVar["gInput"] = pInput;
-        optimizeVar["gOutput"] = pOutput;
         optimizeVar["gParams"] = pParams;
-        optimizeVar["gParamsRW"] = pParams;
         optimizeVar["gParamGrads"] = pParamGrads;
         optimizeVar["gMoments1"] = pMoments1;
         optimizeVar["gMoments2"] = pMoments2;
-        optimizeVar["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
-        optimizeVar["CB"]["gFrameIndex"] = mFrameIndex;
-        optimizeVar["CB"]["gTrainSteps"] = mTrainSteps;
+        optimizeVar["CB"]["gReset"] = mReset;
         optimizeVar["CB"]["gLearningRate"] = mLearningRate;
-        optimizeVar["CB"]["gReset"] = mReset ? 1u : 0u;
-        optimizeVar["CB"]["gCurrentStep"] = mOptimizeStep;
+        optimizeVar["CB"]["gCurrentStep"] = float(mOptimizeStep);
 
-        mpOptimizePass->execute(pRenderContext, SlangMLPConfig::kParamElementCount, 1u, 1u);
+        mpOptimizePass->execute(pRenderContext, MLPConfig::kParamElementCount, 1u, 1u);
         if (!mReset)
             ++mOptimizeStep;
     }
 
     {
         auto var = mpInferPass->getRootVar();
-        var["gInput"] = pInput;
         var["gParams"] = pParams;
-        var["gParamsRW"] = pParams;
-        var["gParamGrads"] = pParamGrads;
-        var["gMoments1"] = pMoments1;
-        var["gMoments2"] = pMoments2;
         var["gOutput"] = pOutput;
         var["CB"]["gFrameDim"] = uint2(pOutput->getWidth(), pOutput->getHeight());
-        var["CB"]["gFrameIndex"] = mFrameIndex;
-        var["CB"]["gTrainSteps"] = mTrainSteps;
-        var["CB"]["gLearningRate"] = mLearningRate;
-        var["CB"]["gReset"] = 0u;
-        var["CB"]["gCurrentStep"] = mOptimizeStep;
 
         mpInferPass->execute(pRenderContext, pOutput->getWidth(), pOutput->getHeight(), 1u);
     }
@@ -185,7 +163,7 @@ void SlangMLP::createPasses()
     if (!mpTrainPass)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary(kShaderFile);
+        desc.addShaderLibrary(kTrainShaderFile);
         desc.csEntry(kTrainEntry);
         mpTrainPass = ComputePass::create(mpDevice, desc);
     }
@@ -193,7 +171,7 @@ void SlangMLP::createPasses()
     if (!mpOptimizePass)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary(kShaderFile);
+        desc.addShaderLibrary(kOptimizeShaderFile);
         desc.csEntry(kOptimizeEntry);
         mpOptimizePass = ComputePass::create(mpDevice, desc);
     }
@@ -201,7 +179,7 @@ void SlangMLP::createPasses()
     if (!mpInferPass)
     {
         ProgramDesc desc;
-        desc.addShaderLibrary(kShaderFile);
+        desc.addShaderLibrary(kInferShaderFile);
         desc.csEntry(kInferEntry);
         mpInferPass = ComputePass::create(mpDevice, desc);
     }

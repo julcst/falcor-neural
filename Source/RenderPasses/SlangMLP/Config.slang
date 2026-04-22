@@ -6,7 +6,7 @@
 import RTXNS.MLP;
 #endif
 
-namespace SlangMLPConfig
+namespace MLPConfig
 {
     constexpr uint align4(uint x)
     {
@@ -18,6 +18,13 @@ namespace SlangMLPConfig
     static constexpr uint kOutputSize = 3u;
     static constexpr uint kHiddenLayers = 4u;
     static constexpr uint kTransitions = kHiddenLayers + 1u;
+
+    static constexpr float kReluLeak = 0.01;
+    static constexpr float kOptimizerLossScale = 1.0;
+
+    static constexpr float kAdamBeta1 = 0.9;
+    static constexpr float kAdamBeta2 = 0.999;
+    static constexpr float kAdamEpsilon = 1e-8;
 
     constexpr uint layerInputSize(uint layerIndex)
     {
@@ -76,20 +83,20 @@ namespace SlangMLPConfig
 
     typedef rtxns::mlp::TrainingMLP<
         half,
-        SlangMLPConfig::kHiddenLayers,
-        SlangMLPConfig::kInputSize,
-        SlangMLPConfig::kHiddenSize,
-        SlangMLPConfig::kOutputSize,
+        kHiddenLayers,
+        kInputSize,
+        kHiddenSize,
+        kOutputSize,
         CoopVecMatrixLayout::TrainingOptimal,
         CoopVecComponentType::Float16
     > TrainingMLP;
 
     typedef rtxns::mlp::InferenceMLP<
         half,
-        SlangMLPConfig::kHiddenLayers,
-        SlangMLPConfig::kInputSize,
-        SlangMLPConfig::kHiddenSize,
-        SlangMLPConfig::kOutputSize,
+        kHiddenLayers,
+        kInputSize,
+        kHiddenSize,
+        kOutputSize,
         CoopVecMatrixLayout::TrainingOptimal,
         CoopVecComponentType::Float16
     > InferenceMLP;

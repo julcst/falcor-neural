@@ -3,8 +3,10 @@ add_plugin(SlangMLP)
 target_sources(SlangMLP PRIVATE
     SlangMLP.cpp
     SlangMLP.h
-    SlangMLP.cs.slang
-    SlangMLPConfig.slang
+    Training.cs.slang
+    Optimization.cs.slang
+    Inference.cs.slang
+    Config.slang
 )
 
 target_copy_shaders(SlangMLP RenderPasses/SlangMLP)
