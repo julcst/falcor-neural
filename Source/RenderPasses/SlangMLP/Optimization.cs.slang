@@ -15,7 +15,7 @@ RWByteAddressBuffer gMoments2;
 cbuffer CB
 {
     bool gReset;
-    uint gLearningRate;
+    float gLearningRate;
     float gCurrentStep;
 }
 
