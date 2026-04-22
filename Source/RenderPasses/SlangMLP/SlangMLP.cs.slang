@@ -149,64 +149,20 @@ void initializeParams()
     clearMoments();
 }
 
-rtxns::mlp::InferenceMLP<
-    half,
-    SlangMLPConfig::kHiddenLayers,
-    SlangMLPConfig::kInputSize,
-    SlangMLPConfig::kHiddenSize,
-    SlangMLPConfig::kOutputSize,
-    CoopVecMatrixLayout::TrainingOptimal,
-    CoopVecComponentType::Float16
-> createInferenceMlp()
-{
-    uint weightOffsets[SlangMLPConfig::kTransitions];
-    uint biasOffsets[SlangMLPConfig::kTransitions];
-    SlangMLPConfig::computeLayerOffsets(weightOffsets, biasOffsets);
-    return rtxns::mlp::InferenceMLP<
-        half,
-        SlangMLPConfig::kHiddenLayers,
-        SlangMLPConfig::kInputSize,
-        SlangMLPConfig::kHiddenSize,
-        SlangMLPConfig::kOutputSize,
-        CoopVecMatrixLayout::TrainingOptimal,
-        CoopVecComponentType::Float16
-    >(gParams, weightOffsets, biasOffsets);
-}
-
-rtxns::mlp::TrainingMLP<
-    half,
-    SlangMLPConfig::kHiddenLayers,
-    SlangMLPConfig::kInputSize,
-    SlangMLPConfig::kHiddenSize,
-    SlangMLPConfig::kOutputSize,
-    CoopVecMatrixLayout::TrainingOptimal,
-    CoopVecComponentType::Float16
-> createTrainingMlp()
-{
-    uint weightOffsets[SlangMLPConfig::kTransitions];
-    uint biasOffsets[SlangMLPConfig::kTransitions];
-    SlangMLPConfig::computeLayerOffsets(weightOffsets, biasOffsets);
-    return rtxns::mlp::TrainingMLP<
-        half,
-        SlangMLPConfig::kHiddenLayers,
-        SlangMLPConfig::kInputSize,
-        SlangMLPConfig::kHiddenSize,
-        SlangMLPConfig::kOutputSize,
-        CoopVecMatrixLayout::TrainingOptimal,
-        CoopVecComponentType::Float16
-    >(gParams, gParamGrads, weightOffsets, biasOffsets);
-}
-
 float3 modelInfer(float2 uv)
 {
-    let mlp = createInferenceMlp();
+    let mlp = SlangMLPConfig::InferenceMLP(
+        gParams, 
+        SlangMLPConfig::weightOffsets, 
+        SlangMLPConfig::biasOffsets
+    );
 
-    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(half(kReluLeak));
+    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(kReluLeak);
     let finalAct = rtxns::mlp::NoneAct<half, SlangMLPConfig::kOutputSize>();
 
     let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
-    return float3(outputPre[0], outputPre[1], outputPre[2]);
+    return rtxns::VectorFromCoopVec(outputPre);
 }
 
 [numthreads(SlangMLPConfig::kTrainThreads, 1, 1)]
@@ -223,9 +179,14 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
         return;
     }
 
-    let mlp = createTrainingMlp();
+    let mlp = SlangMLPConfig::TrainingMLP(
+        gParams, 
+        gParamGrads,
+        SlangMLPConfig::weightOffsets, 
+        SlangMLPConfig::biasOffsets
+    );
 
-    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(half(kReluLeak));
+    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(kReluLeak);
     let finalAct = rtxns::mlp::NoneAct<half, SlangMLPConfig::kOutputSize>();
 
     uint64_t seed = (uint64_t(gFrameIndex + 1u) << 32) ^ uint64_t(gCurrentStep + 1u) ^ uint64_t(sampleIndex + 1u);
@@ -242,7 +203,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
 
-    let targetVec = CoopVec<half, SlangMLPConfig::kOutputSize>(half(target.x), half(target.y), half(target.z));
+    let targetVec = rtxns::CoopVecFromVector<half>(target);
 
     let lossScale = CoopVec<half, SlangMLPConfig::kOutputSize>(half(sampleNormalizedLossScale(gBatchSize)));
     let outputGrad = rtxns::mlp::L2Relative<half, SlangMLPConfig::kOutputSize>::deriv(targetVec, outputPre, lossScale);

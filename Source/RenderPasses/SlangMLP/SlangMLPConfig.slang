@@ -2,6 +2,10 @@
 
 #include "Utils/HostDeviceShared.slangh"
 
+#ifndef HOST_CODE
+import RTXNS.MLP;
+#endif
+
 namespace SlangMLPConfig
 {
     constexpr uint align4(uint x)
@@ -52,8 +56,10 @@ namespace SlangMLPConfig
     static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
 
 #ifndef HOST_CODE
-    void computeLayerOffsets(out uint weightOffsets[kTransitions], out uint biasOffsets[kTransitions])
+    constexpr Tuple<uint[kTransitions], uint[kTransitions]> getLayerOffsets()
     {
+        uint weightOffsets[kTransitions];
+        uint biasOffsets[kTransitions];
         uint byteOffset = 0;
 
         [ForceUnroll]
@@ -65,6 +71,30 @@ namespace SlangMLPConfig
             biasOffsets[layer] = byteOffset;
             byteOffset = align4(byteOffset + 2u * layerBiasCount(layer));
         }
+        return {weightOffsets, biasOffsets};
     }
+
+    static constexpr uint[kTransitions] weightOffsets = getLayerOffsets()._0;
+    static constexpr uint[kTransitions] biasOffsets = getLayerOffsets()._1;
+
+    typedef rtxns::mlp::TrainingMLP<
+        half,
+        SlangMLPConfig::kHiddenLayers,
+        SlangMLPConfig::kInputSize,
+        SlangMLPConfig::kHiddenSize,
+        SlangMLPConfig::kOutputSize,
+        CoopVecMatrixLayout::TrainingOptimal,
+        CoopVecComponentType::Float16
+    > TrainingMLP;
+
+    typedef rtxns::mlp::InferenceMLP<
+        half,
+        SlangMLPConfig::kHiddenLayers,
+        SlangMLPConfig::kInputSize,
+        SlangMLPConfig::kHiddenSize,
+        SlangMLPConfig::kOutputSize,
+        CoopVecMatrixLayout::TrainingOptimal,
+        CoopVecComponentType::Float16
+    > InferenceMLP;
 #endif
 };
