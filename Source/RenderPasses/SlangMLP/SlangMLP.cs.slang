@@ -37,57 +37,7 @@ cbuffer CB
     uint gCurrentStep;
 }
 
-float randomSigned01(inout PCG32 rng)
-{
-    return rng.nextFloat() * 2.0 - 1.0;
-}
-
-uint floatOffset(uint index)
-{
-    return index * 4u;
-}
-
-float loadFloatRaw(RWByteAddressBuffer buffer, uint index)
-{
-    return asfloat(buffer.Load(floatOffset(index)));
-}
-
-void storeFloatRaw(RWByteAddressBuffer buffer, uint index, float value)
-{
-    buffer.Store(floatOffset(index), asuint(value));
-}
-
-float loadHalf(ByteAddressBuffer buffer, uint elementIndex)
-{
-    uint wordAddr = (elementIndex >> 1u) * 4u;
-    uint packed = buffer.Load(wordAddr);
-    uint h = ((elementIndex & 1u) == 0u) ? (packed & 0xffffu) : (packed >> 16u);
-    return f16tof32(h);
-}
-
-float loadHalf(RWByteAddressBuffer buffer, uint elementIndex)
-{
-    uint wordAddr = (elementIndex >> 1u) * 4u;
-    uint packed = buffer.Load(wordAddr);
-    uint h = ((elementIndex & 1u) == 0u) ? (packed & 0xffffu) : (packed >> 16u);
-    return f16tof32(h);
-}
-
-void storeHalf(RWByteAddressBuffer buffer, uint elementIndex, float value)
-{
-    uint wordAddr = (elementIndex >> 1u) * 4u;
-    uint packed = buffer.Load(wordAddr);
-    uint h = f32tof16(value) & 0xffffu;
-
-    if ((elementIndex & 1u) == 0u)
-        packed = (packed & 0xffff0000u) | h;
-    else
-        packed = (packed & 0x0000ffffu) | (h << 16u);
-
-    buffer.Store(wordAddr, packed);
-}
-
-struct ByteAddressMomentsAccessor : optimizers::IBufferAccessor
+struct ByteAddressAccessor : optimizers::IBufferAccessor
 {
     RWByteAddressBuffer mBuffer;
 
@@ -98,12 +48,12 @@ struct ByteAddressMomentsAccessor : optimizers::IBufferAccessor
 
     float get(uint index)
     {
-        return loadFloatRaw(mBuffer, index);
+        return mBuffer.Load<float>(index * sizeof(float));
     }
 
     void set(uint index, float value)
     {
-        storeFloatRaw(mBuffer, index, value);
+        mBuffer.Store<float>(index * sizeof(float), value);
     }
 };
 
@@ -112,72 +62,12 @@ float sampleNormalizedLossScale(uint sampleCount)
     return 1.0 / float(max(1u, sampleCount));
 }
 
-void clearGradientBuffer()
-{
-    for (uint i = 0; i < SlangMLPConfig::kParamElementCount; ++i)
-        storeHalf(gParamGrads, i, 0.0);
-}
-
-void clearMoments()
-{
-    for (uint i = 0; i < SlangMLPConfig::kParamElementCount; ++i)
-    {
-        storeFloatRaw(gMoments1, i, 0.0);
-        storeFloatRaw(gMoments2, i, 0.0);
-    }
-}
-
-void initializeParams()
-{
-    uint idx = 0;
-    PCG32 rng = PCG32(1u, 11u);
-
-    for (uint layer = 0u; layer < SlangMLPConfig::kTransitions; ++layer)
-    {
-        const float scale = sqrt(2.0 / float(SlangMLPConfig::layerInputSize(layer)));
-
-        const uint weightCount = SlangMLPConfig::layerWeightCount(layer);
-        for (uint i = 0u; i < weightCount; ++i)
-            storeHalf(gParamsRW, idx++, scale * randomSigned01(rng));
-
-        const uint biasCount = SlangMLPConfig::layerBiasCount(layer);
-        for (uint i = 0u; i < biasCount; ++i)
-            storeHalf(gParamsRW, idx++, 0.0);
-    }
-
-    clearGradientBuffer();
-    clearMoments();
-}
-
-float3 modelInfer(float2 uv)
-{
-    let mlp = SlangMLPConfig::InferenceMLP(
-        gParams, 
-        SlangMLPConfig::weightOffsets, 
-        SlangMLPConfig::biasOffsets
-    );
-
-    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(kReluLeak);
-    let finalAct = rtxns::mlp::NoneAct<half, SlangMLPConfig::kOutputSize>();
-
-    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
-    let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
-    return rtxns::VectorFromCoopVec(outputPre);
-}
-
 [numthreads(SlangMLPConfig::kTrainThreads, 1, 1)]
 void trainMain(uint3 tid : SV_DispatchThreadID)
 {
     uint sampleIndex = tid.x;
     if (sampleIndex >= gBatchSize)
         return;
-
-    if (gReset != 0)
-    {
-        if (sampleIndex == 0u)
-            initializeParams();
-        return;
-    }
 
     let mlp = SlangMLPConfig::TrainingMLP(
         gParams, 
@@ -211,6 +101,26 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     mlp.backward(inputParams, hiddenAct, finalAct, outputGrad);
 }
 
+half loadHalf(RWByteAddressBuffer buffer, uint elementIndex)
+{
+    return buffer.Load<half>(elementIndex * sizeof(half));
+}
+
+void storeHalf(RWByteAddressBuffer buffer, uint elementIndex, half value)
+{
+    buffer.Store<half>(elementIndex * sizeof(half), value);
+}
+
+void resetParam(uint index, inout PCG32 rng)
+{
+    const float scale = sqrt(2.0 / float(SlangMLPConfig::kHiddenSize));
+    float p = rng.nextFloat() * 2.0f - 1.0f;
+    storeHalf(gParamsRW, index, p * scale);
+    storeHalf(gParamGrads, index, 0.0f);
+    gMoments1.Store<float>(index * sizeof(float), 0.0);
+    gMoments2.Store<float>(index * sizeof(float), 0.0);
+}
+
 [numthreads(SlangMLPConfig::kOptimizeThreads, 1, 1)]
 void optimizeMain(uint3 tid : SV_DispatchThreadID)
 {
@@ -218,14 +128,19 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
     if (i >= SlangMLPConfig::kParamElementCount)
         return;
 
-    float gradient = loadHalf(gParamGrads, i);
-    storeHalf(gParamGrads, i, 0.0);
+    if (gReset != 0)
+    {
+        PCG32 rng = PCG32(i, i ^ 0x9e3779b97f4a7c15ULL);
+        resetParam(i, rng);
+        return;
+    }
 
-    let moments1Accessor = ByteAddressMomentsAccessor(gMoments1);
-    let moments2Accessor = ByteAddressMomentsAccessor(gMoments2);
-    let adam = optimizers::AdamAccessor<ByteAddressMomentsAccessor>(
-        moments1Accessor,
-        moments2Accessor,
+    float gradient = loadHalf(gParamGrads, i);
+    storeHalf(gParamGrads, i, 0.0f);
+
+    let adam = optimizers::AdamAccessor<ByteAddressAccessor>(
+        ByteAddressAccessor(gMoments1),
+        ByteAddressAccessor(gMoments2),
         gLearningRate,
         kOptimizerLossScale,
         kAdamBeta1,
@@ -246,6 +161,17 @@ void inferMain(uint3 tid : SV_DispatchThreadID)
         return;
 
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
-    float3 pred = modelInfer(uv);
+    let mlp = SlangMLPConfig::InferenceMLP(
+        gParams, 
+        SlangMLPConfig::weightOffsets, 
+        SlangMLPConfig::biasOffsets
+    );
+
+    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(kReluLeak);
+    let finalAct = rtxns::mlp::NoneAct<half, SlangMLPConfig::kOutputSize>();
+
+    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
+    let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
+    let pred = rtxns::VectorFromCoopVec(outputPre);
     gOutput[pixel] = float4(saturate(pred), 1.0);
 }

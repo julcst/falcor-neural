@@ -133,26 +133,24 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
         mpTrainPass->execute(pRenderContext, mBatchSize, 1u, 1u);
 
-        if (!mReset)
-        {
-            auto optimizeVar = mpOptimizePass->getRootVar();
-            optimizeVar["gInput"] = pInput;
-            optimizeVar["gOutput"] = pOutput;
-            optimizeVar["gParams"] = pParams;
-            optimizeVar["gParamsRW"] = pParams;
-            optimizeVar["gParamGrads"] = pParamGrads;
-            optimizeVar["gMoments1"] = pMoments1;
-            optimizeVar["gMoments2"] = pMoments2;
-            optimizeVar["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
-            optimizeVar["CB"]["gFrameIndex"] = mFrameIndex;
-            optimizeVar["CB"]["gTrainSteps"] = mTrainSteps;
-            optimizeVar["CB"]["gLearningRate"] = mLearningRate;
-            optimizeVar["CB"]["gReset"] = 0u;
-            optimizeVar["CB"]["gCurrentStep"] = mOptimizeStep;
+        auto optimizeVar = mpOptimizePass->getRootVar();
+        optimizeVar["gInput"] = pInput;
+        optimizeVar["gOutput"] = pOutput;
+        optimizeVar["gParams"] = pParams;
+        optimizeVar["gParamsRW"] = pParams;
+        optimizeVar["gParamGrads"] = pParamGrads;
+        optimizeVar["gMoments1"] = pMoments1;
+        optimizeVar["gMoments2"] = pMoments2;
+        optimizeVar["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
+        optimizeVar["CB"]["gFrameIndex"] = mFrameIndex;
+        optimizeVar["CB"]["gTrainSteps"] = mTrainSteps;
+        optimizeVar["CB"]["gLearningRate"] = mLearningRate;
+        optimizeVar["CB"]["gReset"] = mReset ? 1u : 0u;
+        optimizeVar["CB"]["gCurrentStep"] = mOptimizeStep;
 
-            mpOptimizePass->execute(pRenderContext, SlangMLPConfig::kParamElementCount, 1u, 1u);
+        mpOptimizePass->execute(pRenderContext, SlangMLPConfig::kParamElementCount, 1u, 1u);
+        if (!mReset)
             ++mOptimizeStep;
-        }
     }
 
     {
