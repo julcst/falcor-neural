@@ -10,12 +10,19 @@ const char kInferEntry[] = "inferMain";
 const std::string kInput = "src";
 const std::string kOutput = "dst";
 const std::string kParams = "params";
+const std::string kParamGrads = "paramGrads";
 
 const char kTrainSteps[] = "trainSteps";
 const char kLearningRate[] = "learningRate";
 
-constexpr uint32_t kHiddenSize = 8;
-constexpr uint32_t kParamCount = 2 * kHiddenSize + kHiddenSize + 3 * kHiddenSize + 3;
+constexpr uint32_t kInputSize = 2;
+constexpr uint32_t kHiddenSize = 32;
+constexpr uint32_t kOutputSize = 3;
+constexpr uint32_t kLayer0ParamCount = kHiddenSize * kInputSize + kHiddenSize;
+constexpr uint32_t kLayer1ParamCount = kHiddenSize * kHiddenSize + kHiddenSize;
+constexpr uint32_t kLayer2ParamCount = kOutputSize * kHiddenSize + kOutputSize;
+constexpr uint32_t kParamElementCount = kLayer0ParamCount + kLayer1ParamCount + kLayer2ParamCount;
+constexpr uint32_t kParamBufferSize = ((kParamElementCount * sizeof(uint16_t)) + 3u) & ~3u;
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -66,7 +73,11 @@ RenderPassReflection SlangMLP::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::ShaderResource)
         .texture2D(0, 0);
     reflector.addInternal(kParams, "Persistent MLP parameters")
-        .rawBuffer(kParamCount * sizeof(float))
+        .rawBuffer(kParamBufferSize)
+        .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
+        .flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kParamGrads, "Persistent MLP parameter gradients")
+        .rawBuffer(kParamBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kOutput, "MLP approximation")
@@ -84,7 +95,8 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
     const auto pInput = renderData.getTexture(kInput);
     const auto pOutput = renderData.getTexture(kOutput);
     const auto pParams = renderData.getBuffer(kParams);
-    FALCOR_ASSERT(pInput && pOutput && pParams);
+    const auto pParamGrads = renderData.getBuffer(kParamGrads);
+    FALCOR_ASSERT(pInput && pOutput && pParams && pParamGrads);
 
     createPasses();
 
@@ -93,6 +105,8 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["gInput"] = pInput;
         var["gOutput"] = pOutput;
         var["gParams"] = pParams;
+        var["gParamsRW"] = pParams;
+        var["gParamGrads"] = pParamGrads;
 
         var["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
         var["CB"]["gFrameIndex"] = mFrameIndex;
@@ -107,6 +121,7 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         auto var = mpInferPass->getRootVar();
         var["gInput"] = pInput;
         var["gParams"] = pParams;
+        var["gParamsRW"] = pParams;
         var["gOutput"] = pOutput;
         var["CB"]["gFrameDim"] = uint2(pOutput->getWidth(), pOutput->getHeight());
         mpInferPass->execute(pRenderContext, pOutput->getWidth(), pOutput->getHeight(), 1u);
