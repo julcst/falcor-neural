@@ -27,7 +27,7 @@ mkdir -p ${OUT_DIR}/pythondist
 cp -frp ${EXT_DIR}/python/* ${OUT_DIR}/pythondist
 
 # Copy slang
-cp -f ${SLANG_DIR}/lib/lib*.so ${OUT_DIR}
+cp -f ${SLANG_DIR}/lib/lib*.so* ${OUT_DIR}
 
 # Copy CUDA
 CUDA_DIR=${EXT_DIR}/cuda
