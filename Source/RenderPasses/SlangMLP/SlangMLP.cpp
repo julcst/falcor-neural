@@ -16,6 +16,7 @@ const std::string kMoments1 = "moments1";
 const std::string kMoments2 = "moments2";
 
 const char kTrainSteps[] = "trainSteps";
+const char kBatchSize[] = "batchSize";
 const char kLearningRate[] = "learningRate";
 
 constexpr uint32_t kInputSize = 2;
@@ -27,8 +28,6 @@ constexpr uint32_t kLayer2ParamCount = kOutputSize * kHiddenSize + kOutputSize;
 constexpr uint32_t kParamElementCount = kLayer0ParamCount + kLayer1ParamCount + kLayer2ParamCount;
 constexpr uint32_t kParamBufferSize = ((kParamElementCount * sizeof(uint16_t)) + 3u) & ~3u;
 constexpr uint32_t kMomentsBufferSize = kParamElementCount * sizeof(float);
-constexpr uint32_t kBatchSizeX = 32;
-constexpr uint32_t kBatchSizeY = 32;
 constexpr uint32_t kOptimizeThreads = 64;
 }
 
@@ -47,6 +46,8 @@ void SlangMLP::setProperties(const Properties& props)
     {
         if (key == kTrainSteps)
             mTrainSteps = value;
+        else if (key == kBatchSize)
+            mBatchSize = value;
         else if (key == kLearningRate)
             mLearningRate = value;
         else
@@ -54,12 +55,14 @@ void SlangMLP::setProperties(const Properties& props)
     }
 
     mTrainSteps = std::max(1u, mTrainSteps);
+    mBatchSize = std::max(1u, mBatchSize);
     mLearningRate = std::max(1e-6f, mLearningRate);
 }
 
 void SlangMLP::renderUI(Gui::Widgets& widget)
 {
     widget.var("Train steps", mTrainSteps, 1u, 4096u);
+    widget.var("Batch size", mBatchSize, 1u, 65536u);
     widget.var("Learning rate", mLearningRate, 1e-5f, 1.0f, 1e-4f, true);
     if (widget.button("Reset"))
         mReset = true;
@@ -69,6 +72,7 @@ Properties SlangMLP::getProperties() const
 {
     Properties props;
     props[kTrainSteps] = mTrainSteps;
+    props[kBatchSize] = mBatchSize;
     props[kLearningRate] = mLearningRate;
     return props;
 }
@@ -132,11 +136,12 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
         var["CB"]["gFrameIndex"] = mFrameIndex;
         var["CB"]["gTrainSteps"] = mTrainSteps;
+        var["CB"]["gBatchSize"] = mBatchSize;
         var["CB"]["gLearningRate"] = mLearningRate;
         var["CB"]["gReset"] = mReset ? 1u : 0u;
         var["CB"]["gCurrentStep"] = mOptimizeStep;
 
-        mpTrainPass->execute(pRenderContext, kBatchSizeX, kBatchSizeY, 1u);
+        mpTrainPass->execute(pRenderContext, mBatchSize, 1u, 1u);
 
         if (!mReset)
         {

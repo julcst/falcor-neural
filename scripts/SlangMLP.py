@@ -16,8 +16,9 @@ def render_graph_SlangMLP():
     mlp = createPass(
         "SlangMLP",
         {
-            "trainSteps": 512,
-            "learningRate": 5e-2,
+            "batchSize": 4096,
+            "trainSteps": 128,
+            "learningRate": 1e-3,
         },
     )
     g.addPass(mlp, "SlangMLP")

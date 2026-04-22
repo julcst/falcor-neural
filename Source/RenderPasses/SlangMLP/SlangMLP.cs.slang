@@ -16,12 +16,11 @@ static const uint kOutputSize = 3;
 static const uint kHiddenLayers = 2;
 static const uint kTransitions = kHiddenLayers + 1;
 
-static const uint kBatchSizeX = 32;
-static const uint kBatchSizeY = 32;
+static const uint kTrainThreads = 64;
 static const uint kOptimizeThreads = 64;
 
 static const float kReluLeak = 0.01;
-static const float kLossScale = 1.0;
+static const float kOptimizerLossScale = 1.0;
 
 static const float kAdamBeta1 = 0.9;
 static const float kAdamBeta2 = 0.999;
@@ -51,6 +50,7 @@ cbuffer CB
     uint2 gFrameDim;
     uint gFrameIndex;
     uint gTrainSteps;
+    uint gBatchSize;
     float gLearningRate;
     uint gReset;
     uint gCurrentStep;
@@ -61,19 +61,9 @@ uint align4(uint x)
     return (x + 3u) & ~3u;
 }
 
-uint hash(uint x)
+float randomSigned01(inout PCG32 rng)
 {
-    x ^= x >> 16;
-    x *= 0x7feb352du;
-    x ^= x >> 15;
-    x *= 0x846ca68bu;
-    x ^= x >> 16;
-    return x;
-}
-
-float randomSigned01(uint seed)
-{
-    return (float(hash(seed) & 0x00ffffffu) / float(0x00ffffffu)) * 2.0 - 1.0;
+    return rng.nextFloat() * 2.0 - 1.0;
 }
 
 uint floatOffset(uint index)
@@ -141,6 +131,11 @@ struct ByteAddressMomentsAccessor : optimizers::IBufferAccessor
     }
 };
 
+float sampleNormalizedLossScale(uint sampleCount)
+{
+    return 1.0 / float(max(1u, sampleCount));
+}
+
 void computeLayerOffsets(out uint weightOffsets[kTransitions], out uint biasOffsets[kTransitions])
 {
     uint byteOffset = 0;
@@ -178,22 +173,25 @@ void clearMoments()
 void initializeParams()
 {
     uint idx = 0;
+    PCG32 rng0 = PCG32(1u, 11u);
+    PCG32 rng1 = PCG32(2u, 13u);
+    PCG32 rng2 = PCG32(3u, 17u);
 
     const float scale0 = sqrt(2.0 / float(kInputSize));
     for (uint i = 0; i < kLayer0WeightCount; ++i)
-        storeHalf(gParamsRW, idx++, scale0 * randomSigned01(i + 1u));
+        storeHalf(gParamsRW, idx++, scale0 * randomSigned01(rng0));
     for (uint i = 0; i < kLayer0BiasCount; ++i)
         storeHalf(gParamsRW, idx++, 0.0);
 
     const float scale1 = sqrt(2.0 / float(kHiddenSize));
     for (uint i = 0; i < kLayer1WeightCount; ++i)
-        storeHalf(gParamsRW, idx++, scale1 * randomSigned01(1000u + i));
+        storeHalf(gParamsRW, idx++, scale1 * randomSigned01(rng1));
     for (uint i = 0; i < kLayer1BiasCount; ++i)
         storeHalf(gParamsRW, idx++, 0.0);
 
     const float scale2 = sqrt(2.0 / float(kHiddenSize));
     for (uint i = 0; i < kLayer2WeightCount; ++i)
-        storeHalf(gParamsRW, idx++, scale2 * randomSigned01(2000u + i));
+        storeHalf(gParamsRW, idx++, scale2 * randomSigned01(rng2));
     for (uint i = 0; i < kLayer2BiasCount; ++i)
         storeHalf(gParamsRW, idx++, 0.0);
 
@@ -201,13 +199,20 @@ void initializeParams()
     clearMoments();
 }
 
-float3 modelInfer(float2 uv)
+rtxns::mlp::InferenceMLP<
+    half,
+    kHiddenLayers,
+    kInputSize,
+    kHiddenSize,
+    kOutputSize,
+    CoopVecMatrixLayout::TrainingOptimal,
+    CoopVecComponentType::Float16
+> createInferenceMlp()
 {
     uint weightOffsets[kTransitions];
     uint biasOffsets[kTransitions];
     computeLayerOffsets(weightOffsets, biasOffsets);
-
-    let mlp = rtxns::mlp::InferenceMLP<
+    return rtxns::mlp::InferenceMLP<
         half,
         kHiddenLayers,
         kInputSize,
@@ -216,6 +221,35 @@ float3 modelInfer(float2 uv)
         CoopVecMatrixLayout::TrainingOptimal,
         CoopVecComponentType::Float16
     >(gParams, weightOffsets, biasOffsets);
+}
+
+rtxns::mlp::TrainingMLP<
+    half,
+    kHiddenLayers,
+    kInputSize,
+    kHiddenSize,
+    kOutputSize,
+    CoopVecMatrixLayout::TrainingOptimal,
+    CoopVecComponentType::Float16
+> createTrainingMlp()
+{
+    uint weightOffsets[kTransitions];
+    uint biasOffsets[kTransitions];
+    computeLayerOffsets(weightOffsets, biasOffsets);
+    return rtxns::mlp::TrainingMLP<
+        half,
+        kHiddenLayers,
+        kInputSize,
+        kHiddenSize,
+        kOutputSize,
+        CoopVecMatrixLayout::TrainingOptimal,
+        CoopVecComponentType::Float16
+    >(gParams, gParamGrads, weightOffsets, biasOffsets);
+}
+
+float3 modelInfer(float2 uv)
+{
+    let mlp = createInferenceMlp();
 
     let hiddenAct = rtxns::mlp::LeakyReLUAct<half, kHiddenSize>(half(kReluLeak));
     let finalAct = rtxns::mlp::NoneAct<half, kOutputSize>();
@@ -225,41 +259,31 @@ float3 modelInfer(float2 uv)
     return float3(outputPre[0], outputPre[1], outputPre[2]);
 }
 
-[numthreads(8, 8, 1)]
+[numthreads(kTrainThreads, 1, 1)]
 void trainMain(uint3 tid : SV_DispatchThreadID)
 {
-    uint2 local = tid.xy;
-    if (any(local >= uint2(kBatchSizeX, kBatchSizeY)))
+    uint sampleIndex = tid.x;
+    if (sampleIndex >= gBatchSize)
         return;
 
     if (gReset != 0)
     {
-        if (tid.x == 0 && tid.y == 0 && tid.z == 0)
+        if (sampleIndex == 0u)
             initializeParams();
         return;
     }
 
-    uint weightOffsets[kTransitions];
-    uint biasOffsets[kTransitions];
-    computeLayerOffsets(weightOffsets, biasOffsets);
-
-    let mlp = rtxns::mlp::TrainingMLP<
-        half,
-        kHiddenLayers,
-        kInputSize,
-        kHiddenSize,
-        kOutputSize,
-        CoopVecMatrixLayout::TrainingOptimal,
-        CoopVecComponentType::Float16
-    >(gParams, gParamGrads, weightOffsets, biasOffsets);
+    let mlp = createTrainingMlp();
 
     let hiddenAct = rtxns::mlp::LeakyReLUAct<half, kHiddenSize>(half(kReluLeak));
     let finalAct = rtxns::mlp::NoneAct<half, kOutputSize>();
 
-    uint sampleSeed = hash((gFrameIndex + 1u) * 747796405u + (gCurrentStep + 11u) * 2891336453u + local.y * kBatchSizeX + local.x);
+    uint64_t seed = (uint64_t(gFrameIndex + 1u) << 32) ^ uint64_t(gCurrentStep + 1u) ^ uint64_t(sampleIndex + 1u);
+    PCG32 rng = PCG32(seed, seed ^ 0x9e3779b97f4a7c15ULL);
+
     uint2 pixel = uint2(
-        hash(sampleSeed) % max(1u, gFrameDim.x),
-        hash(sampleSeed ^ 0x9e3779b9u) % max(1u, gFrameDim.y)
+        rng.nextUInt() % max(1u, gFrameDim.x),
+        rng.nextUInt() % max(1u, gFrameDim.y)
     );
 
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
@@ -270,8 +294,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
 
     let targetVec = CoopVec<half, kOutputSize>(half(target.x), half(target.y), half(target.z));
 
-    float invBatch = 1.0 / float(kBatchSizeX * kBatchSizeY);
-    let lossScale = CoopVec<half, kOutputSize>(half(invBatch * kLossScale));
+    let lossScale = CoopVec<half, kOutputSize>(half(sampleNormalizedLossScale(gBatchSize)));
     let outputGrad = rtxns::mlp::L2Relative<half, kOutputSize>::deriv(targetVec, outputPre, lossScale);
 
     mlp.backward(inputParams, hiddenAct, finalAct, outputGrad);
@@ -293,7 +316,7 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
         moments1Accessor,
         moments2Accessor,
         gLearningRate,
-        kLossScale,
+        kOptimizerLossScale,
         kAdamBeta1,
         kAdamBeta2,
         kAdamEpsilon

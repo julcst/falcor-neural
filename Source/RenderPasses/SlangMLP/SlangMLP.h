@@ -64,6 +64,7 @@ private:
     uint32_t mFrameIndex = 0;
     uint32_t mOptimizeStep = 1;
     uint32_t mTrainSteps = 1;
-    float mLearningRate = 5e-2f;
+    uint32_t mBatchSize = 4096;
+    float mLearningRate = 1e-3f;
     bool mReset = true;
 };
