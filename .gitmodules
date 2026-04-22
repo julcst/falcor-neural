@@ -21,4 +21,4 @@
 	url = https://github.com/NVlabs/tiny-cuda-nn.git
 [submodule "external/rtxns"]
 	path = external/rtxns
-	url = https://github.com/NVIDIA-RTX/RTXNS.git
+	url = https://github.com/julcst/RTXNS.git
