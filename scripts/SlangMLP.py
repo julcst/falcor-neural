@@ -7,7 +7,7 @@ def render_graph_SlangMLP():
     image = createPass(
         "ImageLoader",
         {
-            "filename": "media/test_images/monalisa.jpg",
+            "filename": "test_images/monalisa.jpg",
             "outputFormat": "RGBA32Float",
         },
     )
