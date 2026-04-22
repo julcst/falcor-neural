@@ -58,9 +58,11 @@ private:
     void createPasses();
 
     ref<ComputePass> mpTrainPass;
+    ref<ComputePass> mpOptimizePass;
     ref<ComputePass> mpInferPass;
 
     uint32_t mFrameIndex = 0;
+    uint32_t mOptimizeStep = 1;
     uint32_t mTrainSteps = 1;
     float mLearningRate = 5e-2f;
     bool mReset = true;

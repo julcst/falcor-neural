@@ -5,12 +5,15 @@ namespace
 {
 const char kShaderFile[] = "RenderPasses/SlangMLP/SlangMLP.cs.slang";
 const char kTrainEntry[] = "trainMain";
+const char kOptimizeEntry[] = "optimizeMain";
 const char kInferEntry[] = "inferMain";
 
 const std::string kInput = "src";
 const std::string kOutput = "dst";
 const std::string kParams = "params";
 const std::string kParamGrads = "paramGrads";
+const std::string kMoments1 = "moments1";
+const std::string kMoments2 = "moments2";
 
 const char kTrainSteps[] = "trainSteps";
 const char kLearningRate[] = "learningRate";
@@ -23,6 +26,10 @@ constexpr uint32_t kLayer1ParamCount = kHiddenSize * kHiddenSize + kHiddenSize;
 constexpr uint32_t kLayer2ParamCount = kOutputSize * kHiddenSize + kOutputSize;
 constexpr uint32_t kParamElementCount = kLayer0ParamCount + kLayer1ParamCount + kLayer2ParamCount;
 constexpr uint32_t kParamBufferSize = ((kParamElementCount * sizeof(uint16_t)) + 3u) & ~3u;
+constexpr uint32_t kMomentsBufferSize = kParamElementCount * sizeof(float);
+constexpr uint32_t kBatchSizeX = 32;
+constexpr uint32_t kBatchSizeY = 32;
+constexpr uint32_t kOptimizeThreads = 64;
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -80,6 +87,14 @@ RenderPassReflection SlangMLP::reflect(const CompileData& compileData)
         .rawBuffer(kParamBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kMoments1, "Persistent Adam moment1")
+        .rawBuffer(kMomentsBufferSize)
+        .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
+        .flags(RenderPassReflection::Field::Flags::Persistent);
+    reflector.addInternal(kMoments2, "Persistent Adam moment2")
+        .rawBuffer(kMomentsBufferSize)
+        .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
+        .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kOutput, "MLP approximation")
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::RGBA32Float)
@@ -96,10 +111,14 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
     const auto pOutput = renderData.getTexture(kOutput);
     const auto pParams = renderData.getBuffer(kParams);
     const auto pParamGrads = renderData.getBuffer(kParamGrads);
-    FALCOR_ASSERT(pInput && pOutput && pParams && pParamGrads);
+    const auto pMoments1 = renderData.getBuffer(kMoments1);
+    const auto pMoments2 = renderData.getBuffer(kMoments2);
+    FALCOR_ASSERT(pInput && pOutput && pParams && pParamGrads && pMoments1 && pMoments2);
 
     createPasses();
 
+    const uint32_t trainIterations = mReset ? 1u : mTrainSteps;
+    for (uint32_t i = 0; i < trainIterations; ++i)
     {
         auto var = mpTrainPass->getRootVar();
         var["gInput"] = pInput;
@@ -107,14 +126,38 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["gParams"] = pParams;
         var["gParamsRW"] = pParams;
         var["gParamGrads"] = pParamGrads;
+        var["gMoments1"] = pMoments1;
+        var["gMoments2"] = pMoments2;
 
         var["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
         var["CB"]["gFrameIndex"] = mFrameIndex;
         var["CB"]["gTrainSteps"] = mTrainSteps;
         var["CB"]["gLearningRate"] = mLearningRate;
         var["CB"]["gReset"] = mReset ? 1u : 0u;
+        var["CB"]["gCurrentStep"] = mOptimizeStep;
 
-        mpTrainPass->execute(pRenderContext, 1u, 1u, 1u);
+        mpTrainPass->execute(pRenderContext, kBatchSizeX, kBatchSizeY, 1u);
+
+        if (!mReset)
+        {
+            auto optimizeVar = mpOptimizePass->getRootVar();
+            optimizeVar["gInput"] = pInput;
+            optimizeVar["gOutput"] = pOutput;
+            optimizeVar["gParams"] = pParams;
+            optimizeVar["gParamsRW"] = pParams;
+            optimizeVar["gParamGrads"] = pParamGrads;
+            optimizeVar["gMoments1"] = pMoments1;
+            optimizeVar["gMoments2"] = pMoments2;
+            optimizeVar["CB"]["gFrameDim"] = uint2(pInput->getWidth(), pInput->getHeight());
+            optimizeVar["CB"]["gFrameIndex"] = mFrameIndex;
+            optimizeVar["CB"]["gTrainSteps"] = mTrainSteps;
+            optimizeVar["CB"]["gLearningRate"] = mLearningRate;
+            optimizeVar["CB"]["gReset"] = 0u;
+            optimizeVar["CB"]["gCurrentStep"] = mOptimizeStep;
+
+            mpOptimizePass->execute(pRenderContext, kParamElementCount, 1u, 1u);
+            ++mOptimizeStep;
+        }
     }
 
     {
@@ -122,12 +165,25 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["gInput"] = pInput;
         var["gParams"] = pParams;
         var["gParamsRW"] = pParams;
+        var["gParamGrads"] = pParamGrads;
+        var["gMoments1"] = pMoments1;
+        var["gMoments2"] = pMoments2;
         var["gOutput"] = pOutput;
         var["CB"]["gFrameDim"] = uint2(pOutput->getWidth(), pOutput->getHeight());
+        var["CB"]["gFrameIndex"] = mFrameIndex;
+        var["CB"]["gTrainSteps"] = mTrainSteps;
+        var["CB"]["gLearningRate"] = mLearningRate;
+        var["CB"]["gReset"] = 0u;
+        var["CB"]["gCurrentStep"] = mOptimizeStep;
+
         mpInferPass->execute(pRenderContext, pOutput->getWidth(), pOutput->getHeight(), 1u);
     }
 
-    mReset = false;
+    if (mReset)
+    {
+        mReset = false;
+        mOptimizeStep = 1;
+    }
     ++mFrameIndex;
 }
 
@@ -139,6 +195,14 @@ void SlangMLP::createPasses()
         desc.addShaderLibrary(kShaderFile);
         desc.csEntry(kTrainEntry);
         mpTrainPass = ComputePass::create(mpDevice, desc);
+    }
+
+    if (!mpOptimizePass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kShaderFile);
+        desc.csEntry(kOptimizeEntry);
+        mpOptimizePass = ComputePass::create(mpDevice, desc);
     }
 
     if (!mpInferPass)
