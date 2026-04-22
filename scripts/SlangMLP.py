@@ -16,8 +16,8 @@ def render_graph_SlangMLP():
     mlp = createPass(
         "SlangMLP",
         {
-            "batchSize": 2**19,
-            "trainSteps": 32,
+            "batchSize": 2048,
+            "trainSteps": 1,
             "learningRate": 1e-3,
         },
     )

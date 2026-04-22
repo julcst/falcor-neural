@@ -204,7 +204,7 @@ float3 modelInfer(float2 uv)
     let hiddenAct = rtxns::mlp::LeakyReLUAct<half, SlangMLPConfig::kHiddenSize>(half(kReluLeak));
     let finalAct = rtxns::mlp::NoneAct<half, SlangMLPConfig::kOutputSize>();
 
-    let inputParams = CoopVec<half, SlangMLPConfig::kInputSize>(half(uv.x), half(uv.y));
+    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
     return float3(outputPre[0], outputPre[1], outputPre[2]);
 }
@@ -239,7 +239,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
     float3 target = gInput.Load(int3(pixel, 0)).xyz;
 
-    let inputParams = CoopVec<half, SlangMLPConfig::kInputSize>(half(uv.x), half(uv.y));
+    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
 
     let targetVec = CoopVec<half, SlangMLPConfig::kOutputSize>(half(target.x), half(target.y), half(target.z));

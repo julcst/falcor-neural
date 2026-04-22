@@ -9,7 +9,7 @@ namespace SlangMLPConfig
         return (x + 3u) & ~3u;
     }
 
-    static constexpr uint kInputSize = 2u;
+    static constexpr uint kInputSize = 32u;
     static constexpr uint kHiddenSize = 64u;
     static constexpr uint kOutputSize = 3u;
     static constexpr uint kHiddenLayers = 4u;
