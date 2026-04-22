@@ -1,4 +1,5 @@
 #include "SlangMLP.h"
+#include "SlangMLPConfig.slang"
 #include "RenderGraph/RenderPassHelpers.h"
 
 namespace
@@ -18,17 +19,6 @@ const std::string kMoments2 = "moments2";
 const char kTrainSteps[] = "trainSteps";
 const char kBatchSize[] = "batchSize";
 const char kLearningRate[] = "learningRate";
-
-constexpr uint32_t kInputSize = 2;
-constexpr uint32_t kHiddenSize = 32;
-constexpr uint32_t kOutputSize = 3;
-constexpr uint32_t kLayer0ParamCount = kHiddenSize * kInputSize + kHiddenSize;
-constexpr uint32_t kLayer1ParamCount = kHiddenSize * kHiddenSize + kHiddenSize;
-constexpr uint32_t kLayer2ParamCount = kOutputSize * kHiddenSize + kOutputSize;
-constexpr uint32_t kParamElementCount = kLayer0ParamCount + kLayer1ParamCount + kLayer2ParamCount;
-constexpr uint32_t kParamBufferSize = ((kParamElementCount * sizeof(uint16_t)) + 3u) & ~3u;
-constexpr uint32_t kMomentsBufferSize = kParamElementCount * sizeof(float);
-constexpr uint32_t kOptimizeThreads = 64;
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -62,8 +52,8 @@ void SlangMLP::setProperties(const Properties& props)
 void SlangMLP::renderUI(Gui::Widgets& widget)
 {
     widget.var("Train steps", mTrainSteps, 1u, 4096u);
-    widget.var("Batch size", mBatchSize, 1u, 65536u);
-    widget.var("Learning rate", mLearningRate, 1e-5f, 1.0f, 1e-4f, true);
+    widget.var("Batch size", mBatchSize, 1u, 1u << 20u);
+    widget.var("Learning rate", mLearningRate, 1e-5f, 1.0f, 1e-5f, true);
     if (widget.button("Reset"))
         mReset = true;
 }
@@ -84,19 +74,19 @@ RenderPassReflection SlangMLP::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::ShaderResource)
         .texture2D(0, 0);
     reflector.addInternal(kParams, "Persistent MLP parameters")
-        .rawBuffer(kParamBufferSize)
+        .rawBuffer(SlangMLPConfig::kParamBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kParamGrads, "Persistent MLP parameter gradients")
-        .rawBuffer(kParamBufferSize)
+        .rawBuffer(SlangMLPConfig::kParamBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kMoments1, "Persistent Adam moment1")
-        .rawBuffer(kMomentsBufferSize)
+        .rawBuffer(SlangMLPConfig::kMomentsBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addInternal(kMoments2, "Persistent Adam moment2")
-        .rawBuffer(kMomentsBufferSize)
+        .rawBuffer(SlangMLPConfig::kMomentsBufferSize)
         .bindFlags(ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess)
         .flags(RenderPassReflection::Field::Flags::Persistent);
     reflector.addOutput(kOutput, "MLP approximation")
@@ -160,7 +150,7 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
             optimizeVar["CB"]["gReset"] = 0u;
             optimizeVar["CB"]["gCurrentStep"] = mOptimizeStep;
 
-            mpOptimizePass->execute(pRenderContext, kParamElementCount, 1u, 1u);
+            mpOptimizePass->execute(pRenderContext, SlangMLPConfig::kParamElementCount, 1u, 1u);
             ++mOptimizeStep;
         }
     }

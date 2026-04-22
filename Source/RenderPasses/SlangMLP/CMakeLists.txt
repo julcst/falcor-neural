@@ -4,6 +4,7 @@ target_sources(SlangMLP PRIVATE
     SlangMLP.cpp
     SlangMLP.h
     SlangMLP.cs.slang
+    SlangMLPConfig.slang
 )
 
 target_copy_shaders(SlangMLP RenderPasses/SlangMLP)
