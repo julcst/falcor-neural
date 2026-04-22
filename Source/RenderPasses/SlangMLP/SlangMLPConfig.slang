@@ -19,9 +19,6 @@ namespace SlangMLPConfig
     static constexpr uint kHiddenLayers = 4u;
     static constexpr uint kTransitions = kHiddenLayers + 1u;
 
-    static constexpr uint kTrainThreads = 64u;
-    static constexpr uint kOptimizeThreads = 64u;
-
     constexpr uint layerInputSize(uint layerIndex)
     {
         return (layerIndex == 0u) ? kInputSize : kHiddenSize;
