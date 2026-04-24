@@ -13,7 +13,19 @@ namespace MLPConfig
         return (x + 3u) & ~3u;
     }
 
-    static constexpr uint kInputSize = 32u;
+    constexpr uint maxu(uint a, uint b)
+    {
+        return (a > b) ? a : b;
+    }
+
+    static constexpr uint kHashLevels = 16u;
+    static constexpr uint kHashFeaturesPerLevel = 2u;
+    static constexpr uint kHashLog2TableSize = 12u;
+    static constexpr uint kHashTableSize = 1u << kHashLog2TableSize;
+    static constexpr uint kHashBaseResolution = 16u;
+    static constexpr float kHashPerLevelScale = 1.5;
+
+    static constexpr uint kInputSize = kHashLevels * kHashFeaturesPerLevel;
     static constexpr uint kHiddenSize = 64u;
     static constexpr uint kOutputSize = 3u;
     static constexpr uint kHiddenLayers = 4u;
@@ -55,9 +67,14 @@ namespace MLPConfig
     }
 
     static constexpr uint kParamElementCount = getParamCount();
+    static constexpr uint kEncodingParamElementCount = kHashLevels * kHashTableSize * kHashFeaturesPerLevel;
+    static constexpr uint kOptimizeElementCount = maxu(kParamElementCount, kEncodingParamElementCount);
 
     static constexpr uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
     static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
+    static constexpr uint kEncodingParamBufferSize = align4(kEncodingParamElementCount * sizeof(float16_t));
+    static constexpr uint kEncodingGradBufferSize = align4(kEncodingParamElementCount * sizeof(float));
+    static constexpr uint kEncodingMomentsBufferSize = align4(kEncodingParamElementCount * sizeof(float));
 
 #ifndef HOST_CODE
     constexpr Tuple<uint[kTransitions], uint[kTransitions]> getLayerOffsets()

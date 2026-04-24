@@ -5,13 +5,17 @@ import RTXNS.Activation;
 import RTXNS.PCG32;
 import RTXNS.Utils;
 import RTXNS.Loss;
+import RTXNS.CooperativeVectorAutoDiff;
 import Config;
+import Encodings;
 
 using MLPConfig;
 
 Texture2D<float4> gInput;
 ByteAddressBuffer gParams;
 RWByteAddressBuffer gParamGrads;
+ByteAddressBuffer gEncodingParams;
+RWByteAddressBuffer gEncodingParamGrads;
 
 cbuffer CB
 {
@@ -54,7 +58,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
     float3 target = gInput.Load(int3(pixel, 0)).xyz;
 
-    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
+    let inputParams = encodeHashGrid(gEncodingParams, uv);
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
 
     let targetVec = rtxns::CoopVecFromVector<half>(target);
@@ -62,5 +66,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     let lossScale = CoopVec<half, kOutputSize>(half(sampleNormalizedLossScale(gBatchSize)));
     let outputGrad = rtxns::mlp::L2Relative<half, kOutputSize>::deriv(targetVec, outputPre, lossScale);
 
-    mlp.backward(inputParams, hiddenAct, finalAct, outputGrad);
+    var dInputParams = diffPair(inputParams);
+    mlp.backward(dInputParams, hiddenAct, finalAct, outputGrad);
+    accumulateHashGridGrads(gEncodingParamGrads, uv, dInputParams.d);
 }

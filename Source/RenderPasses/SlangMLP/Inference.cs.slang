@@ -4,11 +4,13 @@ import RTXNS.MLP;
 import RTXNS.Activation;
 import RTXNS.Utils;
 import Config;
+import Encodings;
 
 using MLPConfig;
 
 RWTexture2D<float4> gOutput;
 ByteAddressBuffer gParams;
+ByteAddressBuffer gEncodingParams;
 
 cbuffer CB
 {
@@ -33,7 +35,7 @@ void inferMain(uint3 tid : SV_DispatchThreadID)
     let hiddenAct = rtxns::mlp::LeakyReLUAct<half, kHiddenSize>(kReluLeak);
     let finalAct = rtxns::mlp::NoneAct<half, kOutputSize>();
 
-    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
+    let inputParams = encodeHashGrid(gEncodingParams, uv);
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
     let pred = rtxns::VectorFromCoopVec(outputPre);
     gOutput[pixel] = float4(saturate(pred), 1.0);
