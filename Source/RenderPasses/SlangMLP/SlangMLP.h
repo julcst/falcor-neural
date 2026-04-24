@@ -57,6 +57,7 @@ public:
 private:
     void createPasses();
 
+    ref<ComputePass> mpResetPass;
     ref<ComputePass> mpTrainPass;
     ref<ComputePass> mpOptimizePass;
     ref<ComputePass> mpInferPass;

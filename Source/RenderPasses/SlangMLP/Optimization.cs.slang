@@ -14,7 +14,6 @@ RWByteAddressBuffer gMoments2;
 
 cbuffer CB
 {
-    bool gReset;
     float gLearningRate;
     float gCurrentStep;
 }
@@ -59,14 +58,18 @@ struct ByteAddressAccessor : optimizers::IBufferAccessor
     }
 };
 
-void resetParam(uint index, inout PCG32 rng)
+[numthreads(64, 1, 1)]
+void resetMain(uint3 tid : SV_DispatchThreadID)
 {
+    uint i = tid.x;
+    if (i >= kParamElementCount)
+        return;
+    PCG32 rng = PCG32(i, i ^ 0x9e3779b97f4a7c15ULL);
     const float scale = sqrt(2.0 / float(kHiddenSize));
     float p = rng.nextFloat() * 2.0 - 1.0;
-    StoreHalf(gParams, index, p * scale);
-    StoreHalf(gParamGrads, index, 0.0);
-    StoreFloat(gMoments1, index, 0.0);
-    StoreFloat(gMoments2, index, 0.0);
+    StoreHalf(gParams, i, p * scale);
+    StoreFloat(gMoments1, i, 0.0);
+    StoreFloat(gMoments2, i, 0.0);
 }
 
 [numthreads(64, 1, 1)]
@@ -75,13 +78,6 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
     uint i = tid.x;
     if (i >= kParamElementCount)
         return;
-
-    if (gReset != 0)
-    {
-        PCG32 rng = PCG32(i, i ^ 0x9e3779b97f4a7c15ULL);
-        resetParam(i, rng);
-        return;
-    }
 
     float gradient = LoadHalf(gParamGrads, i);
     StoreHalf(gParamGrads, i, 0.0);

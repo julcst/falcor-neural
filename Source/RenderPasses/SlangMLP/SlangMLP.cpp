@@ -4,12 +4,13 @@
 
 namespace
 {
-const char kTrainShaderFile[] = "RenderPasses/SlangMLP/Training.cs.slang";
-const char kOptimizeShaderFile[] = "RenderPasses/SlangMLP/Optimization.cs.slang";
-const char kInferShaderFile[] = "RenderPasses/SlangMLP/Inference.cs.slang";
-const char kTrainEntry[] = "trainMain";
-const char kOptimizeEntry[] = "optimizeMain";
-const char kInferEntry[] = "inferMain";
+const std::string kTrainShaderFile = "RenderPasses/SlangMLP/Training.cs.slang";
+const std::string kOptimizeShaderFile = "RenderPasses/SlangMLP/Optimization.cs.slang";
+const std::string kInferShaderFile = "RenderPasses/SlangMLP/Inference.cs.slang";
+const std::string kTrainEntry = "trainMain";
+const std::string kOptimizeEntry = "optimizeMain";
+const std::string kResetEntry = "resetMain";
+const std::string kInferEntry = "inferMain";
 
 const std::string kInput = "src";
 const std::string kOutput = "dst";
@@ -18,9 +19,9 @@ const std::string kParamGrads = "paramGrads";
 const std::string kMoments1 = "moments1";
 const std::string kMoments2 = "moments2";
 
-const char kTrainSteps[] = "trainSteps";
-const char kBatchSize[] = "batchSize";
-const char kLearningRate[] = "learningRate";
+const std::string kTrainSteps = "trainSteps";
+const std::string kBatchSize = "batchSize";
+const std::string kLearningRate = "learningRate";
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -53,9 +54,9 @@ void SlangMLP::setProperties(const Properties& props)
 
 void SlangMLP::renderUI(Gui::Widgets& widget)
 {
-    widget.var("Train steps", mTrainSteps, 1u, 4096u);
-    widget.var("Batch size", mBatchSize, 1u, 1u << 20u);
-    widget.var("Learning rate", mLearningRate, 1e-8f, 1.0f);
+    widget.var("Train steps", mTrainSteps, 0u, 4096u);
+    widget.var("Batch size", mBatchSize, 1u, 1u << 20u, 128u);
+    widget.var("Learning rate", mLearningRate, 0.0f, 1e-2f);
     if (widget.button("Reset")) mReset = true;
 }
 
@@ -112,8 +113,17 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
     createPasses();
 
-    const uint32_t trainIterations = mReset ? 1u : mTrainSteps;
-    for (uint32_t i = 0; i < trainIterations; ++i)
+    if (mReset) {
+        auto var = mpResetPass->getRootVar();
+        var["gParams"] = pParams;
+        var["gMoments1"] = pMoments1;
+        var["gMoments2"] = pMoments2;
+
+        mpResetPass->execute(pRenderContext, MLPConfig::kParamElementCount, 1u, 1u);
+        mReset = false;
+    }
+
+    for (uint32_t i = 0; i < mTrainSteps; ++i)
     {
         auto var = mpTrainPass->getRootVar();
         var["gInput"] = pInput;
@@ -132,13 +142,11 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         optimizeVar["gParamGrads"] = pParamGrads;
         optimizeVar["gMoments1"] = pMoments1;
         optimizeVar["gMoments2"] = pMoments2;
-        optimizeVar["CB"]["gReset"] = mReset;
         optimizeVar["CB"]["gLearningRate"] = mLearningRate;
         optimizeVar["CB"]["gCurrentStep"] = float(mOptimizeStep);
 
         mpOptimizePass->execute(pRenderContext, MLPConfig::kParamElementCount, 1u, 1u);
-        if (!mReset)
-            ++mOptimizeStep;
+        ++mOptimizeStep;
     }
 
     {
@@ -149,17 +157,19 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
         mpInferPass->execute(pRenderContext, pOutput->getWidth(), pOutput->getHeight(), 1u);
     }
-
-    if (mReset)
-    {
-        mReset = false;
-        mOptimizeStep = 1;
-    }
     ++mFrameIndex;
 }
 
 void SlangMLP::createPasses()
 {
+    if (!mpResetPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kOptimizeShaderFile);
+        desc.csEntry(kResetEntry);
+        mpResetPass = ComputePass::create(mpDevice, desc);
+    }
+
     if (!mpTrainPass)
     {
         ProgramDesc desc;

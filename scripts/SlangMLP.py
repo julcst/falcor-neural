@@ -35,3 +35,16 @@ try:
     m.addGraph(SlangMLPGraph)
 except NameError:
     None
+
+# m.clock.exitFrame = 1001
+# m.frameCapture.baseFilename = "Mogwai"
+# m.frameCapture.addFrames(m.activeGraph, [20, 50, 100, 400, 700, 1000])
+
+# m.profiler.enabled = True
+# m.profiler.start_capture()
+# for frame in range(256):
+#     m.renderFrame()
+# capture = m.profiler.end_capture()
+# m.profiler.enabled = False
+
+# print(f"Mean frame time: {capture['events']['/onFrameRender/RenderGraphExe::execute()/SlangMLP/SlangMLP/gpu_time']['stats']['mean']} ms")
