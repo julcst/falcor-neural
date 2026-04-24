@@ -35,7 +35,13 @@ void inferMain(uint3 tid : SV_DispatchThreadID)
     let hiddenAct = rtxns::mlp::LeakyReLUAct<half, kHiddenSize>(kReluLeak);
     let finalAct = rtxns::mlp::NoneAct<half, kOutputSize>();
 
-    let inputParams = encodeHashGrid(gEncodingParams, uv);
+    let inputParams = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
+        FeatureBuffer(gEncodingParams),
+        uv,
+        kHashTableSize,
+        float(kHashBaseResolution),
+        kHashPerLevelScale
+    );
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
     let pred = rtxns::VectorFromCoopVec(outputPre);
     gOutput[pixel] = float4(saturate(pred), 1.0);

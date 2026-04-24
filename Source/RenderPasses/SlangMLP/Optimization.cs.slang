@@ -85,7 +85,6 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
         const float scale = 1e-3;
         float p = rng.nextFloat() * 2.0 - 1.0;
         StoreHalf(gEncodingParams, i, half(p * scale));
-        StoreFloat(gEncodingParamGrads, i, 0.0);
         StoreFloat(gEncodingMoments1, i, 0.0);
         StoreFloat(gEncodingMoments2, i, 0.0);
     }
@@ -120,8 +119,8 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
 
     if (i < kEncodingParamElementCount)
     {
-        float gradient = LoadFloat(gEncodingParamGrads, i);
-        StoreFloat(gEncodingParamGrads, i, 0.0);
+        float gradient = LoadHalf(gEncodingParamGrads, i);
+        StoreHalf(gEncodingParamGrads, i, 0.0);
 
         let adamEnc = optimizers::AdamAccessor<ByteAddressAccessor>(
             ByteAddressAccessor(gEncodingMoments1),

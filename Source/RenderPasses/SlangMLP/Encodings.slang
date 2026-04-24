@@ -1,130 +1,109 @@
 import RTXNS.Utils;
+import RTXNS.CooperativeVectorAutoDiff;
 import Config;
 
 using MLPConfig;
 
-uint hashGridIndex(int2 cell, uint level)
+struct FeatureBufferDifferential : IDifferentiablePtrType
 {
-	uint x = uint(cell.x);
-	uint y = uint(cell.y);
-	uint h = x * 0x8da6b343u;
-	h ^= y * 0xd8163841u;
-	h ^= level * 0xcb1ab31fu;
-	return h & (kHashTableSize - 1u);
+    typealias Differential = FeatureBufferDifferential;
+
+    __init(RWByteAddressBuffer buf)
+    {
+        buffer = buf;
+    }
+
+    RWByteAddressBuffer buffer;
+};
+
+struct FeatureBuffer : IDifferentiablePtrType
+{
+    typealias Differential = FeatureBufferDifferential;
+
+    __init(ByteAddressBuffer buf)
+    {
+        buffer = buf;
+    }
+
+    ByteAddressBuffer buffer;
+};
+
+constexpr T align<T: __BuiltinIntegerType>(T x, T alignment)
+{
+    return (x + alignment - T(1)) & ~(alignment - T(1));
 }
 
-uint levelResolution(uint level)
+[BackwardDerivative(load_bwd)]
+CoopVec<T, N> load<T : __BuiltinFloatingPointType, int N>(FeatureBuffer b, int index)
 {
-	float scale = pow(kHashPerLevelScale, float(level));
-	float resolution = float(kHashBaseResolution) * scale;
-	return max(2u, uint(resolution + 0.5));
+    return coopVecLoad<N, T>(b.buffer, index * align(sizeof(CoopVec<T, N>), 16));
 }
 
-float loadEncodingParam(ByteAddressBuffer params, uint elementIndex)
+void load_bwd<T : __BuiltinFloatingPointType, int N>(DifferentialPtrPair<FeatureBuffer> b, int index, CoopVec<T, N> dOut)
 {
-	return float(params.Load<half>(elementIndex * sizeof(half)));
+    coopVecReduceSumAccumulate(dOut, b.d.buffer, index * align(sizeof(CoopVec<T, N>), 16));
 }
 
-void addEncodingGrad(RWByteAddressBuffer grads, uint elementIndex, float value)
+uint hashGridIndex(uint2 cell, uint level, uint size)
 {
-	grads.InterlockedAddF32(elementIndex * sizeof(float), value);
+    uint h = cell.x * 0x8da6b343u;
+    h ^= cell.y * 0xd8163841u;
+    h ^= level * 0xcb1ab31fu;
+    return h & (size - 1u);
 }
 
-CoopVec<half, kInputSize> encodeHashGrid(ByteAddressBuffer params, float2 uv)
+uint levelResolution(uint level, float base, float scale)
 {
-	CoopVec<half, kInputSize> encoded = CoopVec<half, kInputSize>(half(0.0));
-
-	float2 uvClamped = saturate(uv);
-
-	[ForceUnroll]
-	for (uint level = 0u; level < kHashLevels; ++level)
-	{
-		uint resolution = levelResolution(level);
-		float2 scaled = uvClamped * float(resolution - 1u);
-
-		int2 p0 = int2(floor(scaled));
-		int2 p1 = p0 + int2(1, 0);
-		int2 p2 = p0 + int2(0, 1);
-		int2 p3 = p0 + int2(1, 1);
-
-		float2 fracCoord = frac(scaled);
-		float w00 = (1.0 - fracCoord.x) * (1.0 - fracCoord.y);
-		float w10 = fracCoord.x * (1.0 - fracCoord.y);
-		float w01 = (1.0 - fracCoord.x) * fracCoord.y;
-		float w11 = fracCoord.x * fracCoord.y;
-
-		uint h00 = hashGridIndex(p0, level);
-		uint h10 = hashGridIndex(p1, level);
-		uint h01 = hashGridIndex(p2, level);
-		uint h11 = hashGridIndex(p3, level);
-
-		uint levelBase = level * kHashTableSize * kHashFeaturesPerLevel;
-		uint outputBase = level * kHashFeaturesPerLevel;
-
-		[ForceUnroll]
-		for (uint f = 0u; f < kHashFeaturesPerLevel; ++f)
-		{
-			uint idx00 = levelBase + h00 * kHashFeaturesPerLevel + f;
-			uint idx10 = levelBase + h10 * kHashFeaturesPerLevel + f;
-			uint idx01 = levelBase + h01 * kHashFeaturesPerLevel + f;
-			uint idx11 = levelBase + h11 * kHashFeaturesPerLevel + f;
-
-			float v =
-				w00 * loadEncodingParam(params, idx00) +
-				w10 * loadEncodingParam(params, idx10) +
-				w01 * loadEncodingParam(params, idx01) +
-				w11 * loadEncodingParam(params, idx11);
-
-			encoded[outputBase + f] = half(v);
-		}
-	}
-
-	return encoded;
+    float resolution = base * pow(scale, float(level));
+    return max(2u, uint(resolution + 0.5));
 }
 
-void accumulateHashGridGrads(RWByteAddressBuffer grads, float2 uv, CoopVec<half, kInputSize> dEncoded)
+[Differentiable]
+CoopVec<T, LEVELS * FEATURES> encodeHashGrid<T : __BuiltinFloatingPointType, uint LEVELS, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint hashTableSize, no_diff float baseResolution, no_diff float scale)
 {
-	float2 uvClamped = saturate(uv);
+    var encoded = CoopVec<T, LEVELS * FEATURES>(0);
 
-	[ForceUnroll]
-	for (uint level = 0u; level < kHashLevels; ++level)
-	{
-		uint resolution = levelResolution(level);
-		float2 scaled = uvClamped * float(resolution - 1u);
+    [ForceUnroll]
+    for (uint level = 0u; level < LEVELS; ++level)
+    {
+        let resolution = levelResolution(level, baseResolution, scale);
+        let scaled = uv * float(resolution - 1u);
 
-		int2 p0 = int2(floor(scaled));
-		int2 p1 = p0 + int2(1, 0);
-		int2 p2 = p0 + int2(0, 1);
-		int2 p3 = p0 + int2(1, 1);
+        let p0 = uint2(floor(scaled));
+        let p1 = p0 + uint2(1, 0);
+        let p2 = p0 + uint2(0, 1);
+        let p3 = p0 + uint2(1, 1);
 
-		float2 fracCoord = frac(scaled);
-		float w00 = (1.0 - fracCoord.x) * (1.0 - fracCoord.y);
-		float w10 = fracCoord.x * (1.0 - fracCoord.y);
-		float w01 = (1.0 - fracCoord.x) * fracCoord.y;
-		float w11 = fracCoord.x * fracCoord.y;
+        float2 fracCoord = frac(scaled);
+        let w00 = (1.0 - fracCoord.x) * (1.0 - fracCoord.y);
+        let w10 = fracCoord.x * (1.0 - fracCoord.y);
+        let w01 = (1.0 - fracCoord.x) * fracCoord.y;
+        let w11 = fracCoord.x * fracCoord.y;
 
-		uint h00 = hashGridIndex(p0, level);
-		uint h10 = hashGridIndex(p1, level);
-		uint h01 = hashGridIndex(p2, level);
-		uint h11 = hashGridIndex(p3, level);
+        uint h00 = hashGridIndex(p0, level, hashTableSize);
+        uint h10 = hashGridIndex(p1, level, hashTableSize);
+        uint h01 = hashGridIndex(p2, level, hashTableSize);
+        uint h11 = hashGridIndex(p3, level, hashTableSize);
 
-		uint levelBase = level * kHashTableSize * kHashFeaturesPerLevel;
-		uint outputBase = level * kHashFeaturesPerLevel;
+        uint levelBase = level * hashTableSize;
+        uint outputBase = level * FEATURES;
 
-		[ForceUnroll]
-		for (uint f = 0u; f < kHashFeaturesPerLevel; ++f)
-		{
-			float g = dEncoded[outputBase + f].toFloat();
+        uint idx00 = (levelBase + h00) * FEATURES;
+        uint idx10 = (levelBase + h10) * FEATURES;
+        uint idx01 = (levelBase + h01) * FEATURES;
+        uint idx11 = (levelBase + h11) * FEATURES;
 
-			uint idx00 = levelBase + h00 * kHashFeaturesPerLevel + f;
-			uint idx10 = levelBase + h10 * kHashFeaturesPerLevel + f;
-			uint idx01 = levelBase + h01 * kHashFeaturesPerLevel + f;
-			uint idx11 = levelBase + h11 * kHashFeaturesPerLevel + f;
+        let f00 = load<T, FEATURES>(features, idx00);
+        let f10 = load<T, FEATURES>(features, idx10);
+        let f01 = load<T, FEATURES>(features, idx01);
+        let f11 = load<T, FEATURES>(features, idx11);
 
-			addEncodingGrad(grads, idx00, g * w00);
-			addEncodingGrad(grads, idx10, g * w10);
-			addEncodingGrad(grads, idx01, g * w01);
-			addEncodingGrad(grads, idx11, g * w11);
-		}
-	}
+        [ForceUnroll]
+        for (uint f = 0u; f < FEATURES; ++f)
+        {
+            encoded[outputBase + f] = f00[f] * T(w00) + f10[f] * T(w10) + f01[f] * T(w01) + f11[f] * T(w11);
+        }
+    }
+
+    return encoded;
 }

@@ -1,6 +1,7 @@
 #include "Utils/Math/MathConstants.slangh"
 
 import RTXNS.MLP;
+import RTXNS.LinearOps;
 import RTXNS.Activation;
 import RTXNS.PCG32;
 import RTXNS.Utils;
@@ -30,6 +31,25 @@ float sampleNormalizedLossScale(uint sampleCount)
     return 1.0 / float(max(1u, sampleCount));
 }
 
+// float3 forward(FeatureBuffer features, rtxns::mlp::MatrixBiasBuffer weights, no_diff float2 uv) {
+//     let input = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
+//         features,
+//         uv,
+//         kHashTableSize,
+//         float(kHashBaseResolution),
+//         kHashPerLevelScale
+//     );
+
+//     let act = rtxns::mlp::LeakyReLUAct<half, kHiddenSize>(kReluLeak);
+//     var params = act.eval(rtxns::LinearOp<half, kHiddenSize, INPUTS>(input, weights, layerOffsets[0], matrixLayout, componentType));
+//     [ForceUnroll]
+//     for(int i = 1; i < kHiddenLayers; ++i)
+//         params = act.eval(rtxns::LinearOp<half, kHiddenSize, kHiddenSize>(params, weights, layerOffsets[i], matrixLayout, componentType));
+
+//     let target = rtxns::LinearOp<half, kOutputSize, kHiddenSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
+//     return rtxns::VectorFromCoopVec(target);
+// }
+
 [numthreads(64, 1, 1)]
 void trainMain(uint3 tid : SV_DispatchThreadID)
 {
@@ -58,7 +78,13 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
     float3 target = gInput.Load(int3(pixel, 0)).xyz;
 
-    let inputParams = encodeHashGrid(gEncodingParams, uv);
+    let inputParams = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
+        FeatureBuffer(gEncodingParams),
+        uv,
+        kHashTableSize,
+        float(kHashBaseResolution),
+        kHashPerLevelScale
+    );
     let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
 
     let targetVec = rtxns::CoopVecFromVector<half>(target);
@@ -68,5 +94,14 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
 
     var dInputParams = diffPair(inputParams);
     mlp.backward(dInputParams, hiddenAct, finalAct, outputGrad);
-    accumulateHashGridGrads(gEncodingParamGrads, uv, dInputParams.d);
+
+    // FIXME: This crashes the linker
+    bwd_diff(encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>)(
+        DifferentialPtrPair<FeatureBuffer>(FeatureBuffer(gEncodingParams), FeatureBufferDifferential(gEncodingParamGrads)),
+        uv,
+        kHashTableSize,
+        float(kHashBaseResolution),
+        kHashPerLevelScale,
+        dInputParams.d
+    );
 }
