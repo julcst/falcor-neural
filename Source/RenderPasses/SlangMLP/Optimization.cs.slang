@@ -65,9 +65,9 @@ struct ByteAddressAccessor : optimizers::IBufferAccessor
 [numthreads(64, 1, 1)]
 void resetMain(uint3 tid : SV_DispatchThreadID)
 {
-    uint i = tid.x;
-    if (i < kParamElementCount)
+    if (tid.x < kParamElementCount)
     {
+        let i = tid.x;
         PCG32 rng = PCG32(i, i ^ 0x9e3779b97f4a7c15ULL);
         const float scale = sqrt(2.0 / float(kHiddenSize));
         float p = rng.nextFloat() * 2.0 - 1.0;
@@ -75,8 +75,9 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
         StoreFloat(gMoments1, i, 0.0);
         StoreFloat(gMoments2, i, 0.0);
     }
-    else if (i < kParamElementCount + kEncodingParamElementCount)
+    else if (tid.x < kParamElementCount + kEncodingParamElementCount)
     {
+        let i = tid.x - kParamElementCount;
         PCG32 rng = PCG32(i ^ 0x7f4a7c15ULL, i ^ 0x9e3779b9ULL);
         const float scale = 1e-3;
         float p = rng.nextFloat() * 2.0 - 1.0;
@@ -89,10 +90,9 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void optimizeMain(uint3 tid : SV_DispatchThreadID)
 {
-    uint i = tid.x;
-
-    if (i < kParamElementCount)
+    if (tid.x < kParamElementCount)
     {
+        let i = tid.x;
         float gradient = LoadHalf(gParamGrads, i);
         StoreHalf(gParamGrads, i, 0.0);
 
@@ -110,8 +110,9 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
         p = adam.step(p, i, gradient, gCurrentStep);
         StoreHalf(gParams, i, p);
     }
-    else if (i < kParamElementCount + kEncodingParamElementCount)
+    else if (tid.x < kParamElementCount + kEncodingParamElementCount)
     {
+        let i = tid.x - kParamElementCount;
         float gradient = LoadFloat(gEncodingParamGrads, i);
         StoreFloat(gEncodingParamGrads, i, 0.0);
 
