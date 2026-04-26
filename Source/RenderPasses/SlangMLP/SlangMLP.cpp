@@ -143,7 +143,6 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["gMoments1"] = pMoments1;
         var["gMoments2"] = pMoments2;
         var["gEncodingParams"] = pEncodingParams;
-        var["gEncodingParamGrads"] = pEncodingParamGrads;
         var["gEncodingMoments1"] = pEncodingMoments1;
         var["gEncodingMoments2"] = pEncodingMoments2;
 
