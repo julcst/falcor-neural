@@ -31,19 +31,6 @@ constexpr T align<T: __BuiltinIntegerType>(T x, T alignment)
     return (x + alignment - T(1)) & ~(alignment - T(1));
 }
 
-[BackwardDerivative(loadHalf2_bwd)]
-half2 loadHalf2(FeatureBuffer b, int index)
-{
-    return b.buffer.Load<half2>(index * sizeof(half2));
-}
-
-void loadHalf2_bwd(DifferentialPtrPair<FeatureBuffer> b, int index, half2 dOut)
-{
-    float o;
-    // NOTE: InterlockedAddF16 is not available on all platforms
-    b.d.buffer.InterlockedAddF32(index * sizeof(half2), dOut.x, o);
-}
-
 [BackwardDerivative(loadVec_bwd)]
 vector<T, N> loadVec<T : __BuiltinFloatingPointType, int N>(FeatureBuffer b, int index)
 {
@@ -56,6 +43,7 @@ void loadVec_bwd<T : __BuiltinFloatingPointType, int N>(DifferentialPtrPair<Feat
     // NOTE: InterlockedAdd is only well supported for F32
     [ForceUnroll]
     for (int i = 0; i < N; ++i) b.d.buffer.InterlockedAddF32((index * N + i) * sizeof(float), dOut[i].toFloat(), o);
+    // TODO: Use faster _NvInterlockedAddF16x2 when available
 }
 
 [BackwardDerivative(load_bwd)]
@@ -74,12 +62,14 @@ void load_bwd<T : __BuiltinFloatingPointType, int N>(DifferentialPtrPair<Feature
 [BackwardDerivative(setRange_bwd)]
 void setRange<T : __BuiltinFloatingPointType, int N, int M>(inout CoopVec<T, N> dst, no_diff uint startIndex, CoopVec<T, M> value)
 {
+    // NOTE: This does not really work as CoopVec is warp level
     [ForceUnroll]
     for (int i = 0; i < M; ++i) dst[startIndex + i] = value[i];
 }
 
 void setRange_bwd<T : __BuiltinFloatingPointType, int N, int M>(inout DifferentialPair<CoopVec<T, N>> dDst, no_diff uint startIndex, inout DifferentialPair<CoopVec<T, M>> value)
 {
+    // NOTE: This does not really work as CoopVec is warp level
     var dValue = value.d;
     [ForceUnroll]
     for (int i = 0; i < M; ++i) dValue[i] += dDst.d[startIndex + i];
@@ -94,7 +84,7 @@ uint hashGridIndex(uint2 cell, uint level, uint size)
 }
 
 [Differentiable]
-CoopVec<T, FEATURES> encodeHashGridSingle<T : __BuiltinFloatingPointType, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint level, no_diff float resolution, no_diff uint hashTableSize)
+CoopVec<T, FEATURES> encodeHashGridSingleCoop<T : __BuiltinFloatingPointType, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint level, no_diff float resolution, no_diff uint hashTableSize)
 {
     float2 scaled = uv * float(resolution - 1u);
     let p0 = uint2(floor(scaled));
@@ -123,40 +113,28 @@ CoopVec<T, FEATURES> encodeHashGridSingle<T : __BuiltinFloatingPointType, uint F
 }
 
 [Differentiable]
-CoopVec<T, LEVELS * FEATURES> encodeHashGrid<T : __BuiltinFloatingPointType, uint LEVELS, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint hashTableSize, no_diff float baseResolution, no_diff float scale)
+CoopVec<T, LEVELS * FEATURES> encodeHashGridCoop<T : __BuiltinFloatingPointType, uint LEVELS, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint hashTableSize, no_diff float baseResolution, no_diff float scale)
 {
-    var encoded = CoopVec<T, LEVELS * FEATURES>(0);
+    float encoded[LEVELS * FEATURES];
 
     float levelResolution = baseResolution;
     [ForceUnroll]
     for (uint level = 0u; level < LEVELS; ++level)
     {
-        let levelFeatures = encodeHashGridSingle<T, FEATURES>(features, uv, level, levelResolution, hashTableSize);
-        setRange(encoded, level * FEATURES, levelFeatures);
+        let levelFeatures = encodeHashGridSingleCoop<T, FEATURES>(features, uv, level, levelResolution, hashTableSize);
+        [ForceUnroll]
+        for (uint i = 0u; i < FEATURES; ++i) encoded[level * FEATURES + i] = levelFeatures[i].toFloat();
         levelResolution *= scale;
     }
 
-    return encoded;
+    return rtxns::CoopVecFromArray<T, LEVELS * FEATURES>(encoded);
 }
 
-[BackwardDerivative(setRange_bwd)]
-void setRange<T : __BuiltinFloatingPointType, int N, int M>(inout T[N] dst, no_diff uint startIndex, T[M] value)
-{
-    [ForceUnroll]
-    for (int i = 0; i < M; ++i) dst[startIndex + i] = value[i];
-}
-
-void setRange_bwd<T : __BuiltinFloatingPointType, int N, int M>(inout DifferentialPair<T[N]> dDst, no_diff uint startIndex, inout DifferentialPair<T[M]> value)
-{
-    var dValue = value.d;
-    [ForceUnroll]
-    for (int i = 0; i < M; ++i) dValue[i] = T.dadd(dValue[i], dDst.d[startIndex + i]);
-    value = diffPair(value.p, dValue);
-}
-
+// NOTE: This uses vector<T, N> so only avaliable for N <= 4 (but larger is generally not required for encoding)
 [Differentiable]
-half2 encodeHashGridSingleHalf2(FeatureBuffer features, no_diff float2 uv, no_diff uint level, no_diff float resolution, no_diff uint hashTableSize)
+vector<T, FEATURES> encodeHashGridSingle<T : __BuiltinFloatingPointType, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint level, no_diff float resolution, no_diff uint hashTableSize)
 {
+    static_assert(FEATURES <= 4, "encodeHashGridSingle only supports up to 4 features due to using vector<T, N> for loading");
     float2 scaled = uv * float(resolution - 1u);
     let p0 = uint2(floor(scaled));
     let p1 = p0 + uint2(1, 0);
@@ -175,28 +153,29 @@ half2 encodeHashGridSingleHalf2(FeatureBuffer features, no_diff float2 uv, no_di
     uint i01 = hashGridIndex(p2, level, hashTableSize) + base;
     uint i11 = hashGridIndex(p3, level, hashTableSize) + base;
 
-    let f00 = loadVec<half, 2>(features, i00) * half(w00);
-    let f10 = loadVec<half, 2>(features, i10) * half(w10);
-    let f01 = loadVec<half, 2>(features, i01) * half(w01);
-    let f11 = loadVec<half, 2>(features, i11) * half(w11);
+    let f00 = loadVec<T, FEATURES>(features, i00) * T(w00);
+    let f10 = loadVec<T, FEATURES>(features, i10) * T(w10);
+    let f01 = loadVec<T, FEATURES>(features, i01) * T(w01);
+    let f11 = loadVec<T, FEATURES>(features, i11) * T(w11);
 
     return f00 + f01 + f10 + f11;
 }
 
 [Differentiable]
-CoopVec<half, LEVELS * 2> encodeHashGridHalf2<uint LEVELS>(FeatureBuffer features, no_diff float2 uv, no_diff uint hashTableSize, no_diff float baseResolution, no_diff float scale)
+CoopVec<T, LEVELS * FEATURES> encodeHashGrid<T : __BuiltinFloatingPointType, uint LEVELS, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint hashTableSize, no_diff float baseResolution, no_diff float scale)
 {
-    float encoded[LEVELS * 2];
+    // TODO: Make this T
+    float encoded[LEVELS * FEATURES];
 
     float levelResolution = baseResolution;
     [ForceUnroll]
     for (uint level = 0u; level < LEVELS; ++level)
     {
-        let levelFeatures = encodeHashGridSingleHalf2(features, uv, level, levelResolution, hashTableSize);
-        encoded[level * 2] = levelFeatures.x;
-        encoded[level * 2 + 1] = levelFeatures.y;
+        let levelFeatures = encodeHashGridSingle<T, FEATURES>(features, uv, level, levelResolution, hashTableSize);
+        [ForceUnroll]
+        for (uint i = 0u; i < FEATURES; ++i) encoded[level * FEATURES + i] = levelFeatures[i].toFloat();
         levelResolution *= scale;
     }
 
-    return rtxns::CoopVecFromArray<half, LEVELS * 2>(encoded);
+    return rtxns::CoopVecFromArray<T, LEVELS * FEATURES>(encoded);
 }
