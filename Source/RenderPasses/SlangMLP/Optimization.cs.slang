@@ -66,9 +66,6 @@ struct ByteAddressAccessor : optimizers::IBufferAccessor
 void resetMain(uint3 tid : SV_DispatchThreadID)
 {
     uint i = tid.x;
-    if (i >= kOptimizeElementCount)
-        return;
-
     if (i < kParamElementCount)
     {
         PCG32 rng = PCG32(i, i ^ 0x9e3779b97f4a7c15ULL);
@@ -78,8 +75,7 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
         StoreFloat(gMoments1, i, 0.0);
         StoreFloat(gMoments2, i, 0.0);
     }
-
-    if (i < kEncodingParamElementCount)
+    else if (i < kParamElementCount + kEncodingParamElementCount)
     {
         PCG32 rng = PCG32(i ^ 0x7f4a7c15ULL, i ^ 0x9e3779b9ULL);
         const float scale = 1e-3;
@@ -94,8 +90,6 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
 void optimizeMain(uint3 tid : SV_DispatchThreadID)
 {
     uint i = tid.x;
-    if (i >= kOptimizeElementCount)
-        return;
 
     if (i < kParamElementCount)
     {
@@ -116,8 +110,7 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
         p = adam.step(p, i, gradient, gCurrentStep);
         StoreHalf(gParams, i, p);
     }
-
-    if (i < kEncodingParamElementCount)
+    else if (i < kParamElementCount + kEncodingParamElementCount)
     {
         float gradient = LoadFloat(gEncodingParamGrads, i);
         StoreFloat(gEncodingParamGrads, i, 0.0);

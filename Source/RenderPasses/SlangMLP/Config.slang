@@ -29,11 +29,6 @@ namespace MLPConfig
     static constexpr const uint kHiddenLayers = 4u;
     static constexpr const uint kTransitions = kHiddenLayers + 1u;
 
-    constexpr uint maxu(uint a, uint b)
-    {
-        return (a > b) ? a : b;
-    }
-
     static constexpr const uint kHashLevels = 16u;
     static constexpr const uint kHashFeaturesPerLevel = 2u;
     static constexpr const uint kHashLog2TableSize = 14u;
@@ -77,7 +72,7 @@ namespace MLPConfig
 
     static constexpr const uint kParamElementCount = getParamCount();
     static constexpr uint kEncodingParamElementCount = kHashLevels * kHashTableSize * kHashFeaturesPerLevel;
-    static constexpr uint kOptimizeElementCount = maxu(kParamElementCount, kEncodingParamElementCount);
+    static constexpr uint kOptimizeElementCount = kParamElementCount + kEncodingParamElementCount;
 
     static constexpr uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
     static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
