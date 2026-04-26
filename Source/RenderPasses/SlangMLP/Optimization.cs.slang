@@ -119,8 +119,8 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
 
     if (i < kEncodingParamElementCount)
     {
-        float gradient = LoadHalf(gEncodingParamGrads, i);
-        StoreHalf(gEncodingParamGrads, i, 0.0);
+        float gradient = LoadFloat(gEncodingParamGrads, i);
+        StoreFloat(gEncodingParamGrads, i, 0.0);
 
         let adamEnc = optimizers::AdamAccessor<ByteAddressAccessor>(
             ByteAddressAccessor(gEncodingMoments1),

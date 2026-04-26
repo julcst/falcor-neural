@@ -36,9 +36,9 @@ namespace MLPConfig
 
     static constexpr const uint kHashLevels = 16u;
     static constexpr const uint kHashFeaturesPerLevel = 2u;
-    static constexpr const uint kHashLog2TableSize = 12u;
+    static constexpr const uint kHashLog2TableSize = 14u;
     static constexpr const uint kHashTableSize = 1u << kHashLog2TableSize;
-    static constexpr const uint kHashBaseResolution = 64u;
+    static constexpr const uint kHashBaseResolution = 16u;
     static constexpr const float kHashPerLevelScale = 1.5;
 
     static constexpr const float kOptimizerLossScale = 1.0;
@@ -82,7 +82,7 @@ namespace MLPConfig
     static constexpr uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
     static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
     static constexpr uint kEncodingParamBufferSize = align4(kEncodingParamElementCount * sizeof(float16_t));
-    static constexpr uint kEncodingGradBufferSize = align4(kEncodingParamElementCount * sizeof(float16_t));
+    static constexpr uint kEncodingGradBufferSize = align4(kEncodingParamElementCount * sizeof(float));
     static constexpr uint kEncodingMomentsBufferSize = align4(kEncodingParamElementCount * sizeof(float));
 
 #ifndef HOST_CODE
@@ -111,27 +111,35 @@ namespace MLPConfig
     [Differentiable]
     CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float2 uv) {
         // let input = EncodeFrequencyN<half, 2, 8>(CoopVecFromVector<half>(uv));
-        // let input = encodeHashGrid<half, 1, kHashFeaturesPerLevel>(
-        //     features,
-        //     uv,
-        //     kHashTableSize,
-        //     float(kHashBaseResolution),
-        //     kHashPerLevelScale
-        // );
-
-        // var params = leakyReLU(LinearOp<half, kHiddenSize>(input, weights, layerOffsets[0], matrixLayout, componentType), kReluLeak);
-        // [ForceUnroll]
-        // for(int i = 1; i < kHiddenLayers; ++i)
-        //     params = leakyReLU(LinearOp<half, kHiddenSize>(params, weights, layerOffsets[i], matrixLayout, componentType), kReluLeak);
-
-        // return LinearOp<half, kOutputSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
-        return encodeHashGridSingle<half, 3>(
+        let input = encodeHashGridHalf2<kHashLevels>(
             features,
             uv,
-            0u,
-            float(kHashBaseResolution),
             kHashTableSize,
+            float(kHashBaseResolution),
+            kHashPerLevelScale
         );
+        // let input = CoopVecFromVector<half, 2>(encodeHashGridSingleHalf2(
+        //     features,
+        //     uv,
+        //     0u,
+        //     float(kHashBaseResolution),
+        //     kHashTableSize
+        // ));
+
+        var params = leakyReLU(LinearOp<half, kHiddenSize>(input, weights, layerOffsets[0], matrixLayout, componentType), kReluLeak);
+        [ForceUnroll]
+        for(int i = 1; i < kHiddenLayers; ++i)
+            params = leakyReLU(LinearOp<half, kHiddenSize>(params, weights, layerOffsets[i], matrixLayout, componentType), kReluLeak);
+
+        return LinearOp<half, kOutputSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
+
+        // return encodeHashGridSingle<half, 3>(
+        //     features,
+        //     uv,
+        //     0u,
+        //     float(kHashBaseResolution),
+        //     kHashTableSize,
+        // );
     }
 
     CoopVec<half, kOutputSize> forward(ByteAddressBuffer features, ByteAddressBuffer weights, no_diff float2 uv) {
