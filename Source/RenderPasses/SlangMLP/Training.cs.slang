@@ -1,6 +1,7 @@
 #include "Utils/Math/MathConstants.slangh"
 
 import RTXNS.MLP;
+import RTXNS.LinearOps;
 import RTXNS.Activation;
 import RTXNS.PCG32;
 import RTXNS.Utils;
@@ -10,12 +11,15 @@ import RTXNS.CooperativeVectorAutoDiff;
 import RTXNS.CooperativeVectorFunctions;
 import RTXNS.CooperativeVectorDerivatives;
 import Config;
+import Encodings;
 
 using MLPConfig;
 
 Texture2D<float4> gInput;
 ByteAddressBuffer gParams;
 RWByteAddressBuffer gParamGrads;
+ByteAddressBuffer gEncodingParams;
+RWByteAddressBuffer gEncodingParamGrads;
 
 cbuffer CB
 {
@@ -49,12 +53,14 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     let target = gInput.Load(int3(pixel, 0)).xyz;
     let targetVec = rtxns::CoopVecFromVector<half>(target);
 
-    let pred = forward(gParams, uv);
+    let pred = forward(gEncodingParams, gParams, uv);
 
     let lossScale = CoopVec<half, kOutputSize>(half(sampleNormalizedLossScale(gBatchSize)));
     let outputGrad = rtxns::mlp::L2Relative<half, kOutputSize>::deriv(targetVec, pred, lossScale);
 
+    var features = FeatureBuffer(gEncodingParams);
+    var featureGrads = FeatureBufferDifferential(gEncodingParamGrads);
     var weights = rtxns::mlp::MatrixBiasBuffer(gParams);
     var weightsGrads = rtxns::mlp::MatrixBiasBufferDifferential(gParamGrads);
-    bwd_diff(forward)(DifferentialPtrPair<rtxns::mlp::MatrixBiasBuffer>(weights, weightsGrads), uv, outputGrad);
+    bwd_diff(forward)(DifferentialPtrPair<FeatureBuffer>(features, featureGrads), DifferentialPtrPair<rtxns::mlp::MatrixBiasBuffer>(weights, weightsGrads), uv, outputGrad);
 }

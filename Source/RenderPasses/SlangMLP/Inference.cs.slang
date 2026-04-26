@@ -4,11 +4,13 @@ import RTXNS.MLP;
 import RTXNS.Activation;
 import RTXNS.Utils;
 import Config;
+import Encodings;
 
 using MLPConfig;
 
 RWTexture2D<float4> gOutput;
 ByteAddressBuffer gParams;
+ByteAddressBuffer gEncodingParams;
 
 cbuffer CB
 {
@@ -25,7 +27,7 @@ void inferMain(uint3 tid : SV_DispatchThreadID)
 
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
 
-    let predVec = forward(gParams, uv);
+    let predVec = forward(gEncodingParams, gParams, uv);
     let pred = rtxns::VectorFromCoopVec(predVec);
     gOutput[pixel] = float4(saturate(pred), 1.0);
 }

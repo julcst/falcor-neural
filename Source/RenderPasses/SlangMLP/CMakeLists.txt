@@ -6,6 +6,7 @@ target_sources(SlangMLP PRIVATE
     Training.cs.slang
     Optimization.cs.slang
     Inference.cs.slang
+    Encodings.slang
     Config.slang
 )
 

@@ -10,6 +10,7 @@ import RTXNS.Activation;
 import RTXNS.CooperativeVectorAutoDiff;
 import RTXNS.CooperativeVectorFunctions;
 import RTXNS.CooperativeVectorDerivatives;
+import Encodings;
 
 using rtxns;
 using mlp;
@@ -27,6 +28,18 @@ namespace MLPConfig
     static constexpr const uint kOutputSize = 3u;
     static constexpr const uint kHiddenLayers = 4u;
     static constexpr const uint kTransitions = kHiddenLayers + 1u;
+
+    constexpr uint maxu(uint a, uint b)
+    {
+        return (a > b) ? a : b;
+    }
+
+    static constexpr const uint kHashLevels = 16u;
+    static constexpr const uint kHashFeaturesPerLevel = 2u;
+    static constexpr const uint kHashLog2TableSize = 12u;
+    static constexpr const uint kHashTableSize = 1u << kHashLog2TableSize;
+    static constexpr const uint kHashBaseResolution = 16u;
+    static constexpr const float kHashPerLevelScale = 1.5;
 
     static constexpr const float kOptimizerLossScale = 1.0;
 
@@ -63,9 +76,14 @@ namespace MLPConfig
     }
 
     static constexpr const uint kParamElementCount = getParamCount();
+    static constexpr uint kEncodingParamElementCount = kHashLevels * kHashFeaturesPerLevel;
+    static constexpr uint kOptimizeElementCount = maxu(kParamElementCount, kEncodingParamElementCount);
 
-    static constexpr const uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
-    static constexpr const uint kMomentsBufferSize = kParamElementCount * sizeof(float);
+    static constexpr uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
+    static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
+    static constexpr uint kEncodingParamBufferSize = align4(kEncodingParamElementCount * sizeof(float16_t));
+    static constexpr uint kEncodingGradBufferSize = align4(kEncodingParamElementCount * sizeof(float));
+    static constexpr uint kEncodingMomentsBufferSize = align4(kEncodingParamElementCount * sizeof(float));
 
 #ifndef HOST_CODE
     constexpr uint2[kTransitions] getLayerOffsetsUint2()
@@ -91,8 +109,15 @@ namespace MLPConfig
     static constexpr const half kReluLeak = 0.01;
 
     [Differentiable]
-    CoopVec<half, kOutputSize> forward(mlp::MatrixBiasBuffer weights, no_diff float2 uv) {
+    CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float2 uv) {
         let input = EncodeFrequencyN<half, 2, 8>(CoopVecFromVector<half>(uv));
+        // let input = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
+        //     features,
+        //     uv,
+        //     kHashTableSize,
+        //     float(kHashBaseResolution),
+        //     kHashPerLevelScale
+        // );
 
         var params = leakyReLU(LinearOp<half, kHiddenSize>(input, weights, layerOffsets[0], matrixLayout, componentType), kReluLeak);
         [ForceUnroll]
@@ -102,8 +127,8 @@ namespace MLPConfig
         return LinearOp<half, kOutputSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
     }
 
-    CoopVec<half, kOutputSize> forward(ByteAddressBuffer weights, no_diff float2 uv) {
-        return forward(mlp::MatrixBiasBuffer(weights), uv);
+    CoopVec<half, kOutputSize> forward(ByteAddressBuffer features, ByteAddressBuffer weights, no_diff float2 uv) {
+        return forward(FeatureBuffer(features), MatrixBiasBuffer(weights), uv);
     }
 #endif
 };
