@@ -24,17 +24,8 @@ void inferMain(uint3 tid : SV_DispatchThreadID)
         return;
 
     float2 uv = (float2(pixel) + 0.5) / float2(gFrameDim);
-    let mlp = InferenceMLP(
-        gParams, 
-        weightOffsets, 
-        biasOffsets
-    );
 
-    let hiddenAct = rtxns::mlp::LeakyReLUAct<half, kHiddenSize>(kReluLeak);
-    let finalAct = rtxns::mlp::NoneAct<half, kOutputSize>();
-
-    let inputParams = rtxns::EncodeFrequencyN<half, 2, 8>(rtxns::CoopVecFromVector<half>(uv));
-    let outputPre = mlp.forward(inputParams, hiddenAct, finalAct);
-    let pred = rtxns::VectorFromCoopVec(outputPre);
+    let predVec = forward(gParams, uv);
+    let pred = rtxns::VectorFromCoopVec(predVec);
     gOutput[pixel] = float4(saturate(pred), 1.0);
 }

@@ -1,9 +1,18 @@
 #pragma once
 
-#include "Utils/HostDeviceShared.slangh"
+// #include "Utils/HostDeviceShared.slangh"
 
 #ifndef HOST_CODE
 import RTXNS.MLP;
+import RTXNS.LinearOps;
+import RTXNS.Utils;
+import RTXNS.Activation;
+import RTXNS.CooperativeVectorAutoDiff;
+import RTXNS.CooperativeVectorFunctions;
+import RTXNS.CooperativeVectorDerivatives;
+
+using rtxns;
+using mlp;
 #endif
 
 namespace MLPConfig
@@ -13,18 +22,17 @@ namespace MLPConfig
         return (x + 3u) & ~3u;
     }
 
-    static constexpr uint kInputSize = 32u;
-    static constexpr uint kHiddenSize = 64u;
-    static constexpr uint kOutputSize = 3u;
-    static constexpr uint kHiddenLayers = 4u;
-    static constexpr uint kTransitions = kHiddenLayers + 1u;
+    static constexpr const uint kInputSize = 32u;
+    static constexpr const uint kHiddenSize = 64u;
+    static constexpr const uint kOutputSize = 3u;
+    static constexpr const uint kHiddenLayers = 4u;
+    static constexpr const uint kTransitions = kHiddenLayers + 1u;
 
-    static constexpr float kReluLeak = 0.01;
-    static constexpr float kOptimizerLossScale = 1.0;
+    static constexpr const float kOptimizerLossScale = 1.0;
 
-    static constexpr float kAdamBeta1 = 0.9;
-    static constexpr float kAdamBeta2 = 0.999;
-    static constexpr float kAdamEpsilon = 1e-8;
+    static constexpr const float kAdamBeta1 = 0.9;
+    static constexpr const float kAdamBeta2 = 0.999;
+    static constexpr const float kAdamEpsilon = 1e-8;
 
     constexpr uint layerInputSize(uint layerIndex)
     {
@@ -54,51 +62,48 @@ namespace MLPConfig
         return count;
     }
 
-    static constexpr uint kParamElementCount = getParamCount();
+    static constexpr const uint kParamElementCount = getParamCount();
 
-    static constexpr uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
-    static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
+    static constexpr const uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
+    static constexpr const uint kMomentsBufferSize = kParamElementCount * sizeof(float);
 
 #ifndef HOST_CODE
-    constexpr Tuple<uint[kTransitions], uint[kTransitions]> getLayerOffsets()
+    constexpr uint2[kTransitions] getLayerOffsetsUint2()
     {
-        uint weightOffsets[kTransitions];
-        uint biasOffsets[kTransitions];
+        uint2 layerOffsets[kTransitions];
         uint byteOffset = 0;
 
         [ForceUnroll]
         for (uint layer = 0u; layer < kTransitions; ++layer)
         {
-            weightOffsets[layer] = byteOffset;
+            let weightOffset = byteOffset;
             byteOffset = align4(byteOffset + 2u * layerWeightCount(layer));
-
-            biasOffsets[layer] = byteOffset;
+            let biasOffset = byteOffset;
             byteOffset = align4(byteOffset + 2u * layerBiasCount(layer));
+            layerOffsets[layer] = uint2(weightOffset, biasOffset);
         }
-        return {weightOffsets, biasOffsets};
+        return layerOffsets;
     }
 
-    static constexpr uint[kTransitions] weightOffsets = getLayerOffsets()._0;
-    static constexpr uint[kTransitions] biasOffsets = getLayerOffsets()._1;
+    static constexpr const uint2 layerOffsets[kTransitions] = getLayerOffsetsUint2();
+    static constexpr const CoopVecMatrixLayout matrixLayout = CoopVecMatrixLayout::TrainingOptimal;
+    static constexpr const CoopVecComponentType componentType = CoopVecComponentType::Float16;
+    static constexpr const half kReluLeak = 0.01;
 
-    typedef rtxns::mlp::TrainingMLP<
-        half,
-        kHiddenLayers,
-        kInputSize,
-        kHiddenSize,
-        kOutputSize,
-        CoopVecMatrixLayout::TrainingOptimal,
-        CoopVecComponentType::Float16
-    > TrainingMLP;
+    [Differentiable]
+    CoopVec<half, kOutputSize> forward(mlp::MatrixBiasBuffer weights, no_diff float2 uv) {
+        let input = EncodeFrequencyN<half, 2, 8>(CoopVecFromVector<half>(uv));
 
-    typedef rtxns::mlp::InferenceMLP<
-        half,
-        kHiddenLayers,
-        kInputSize,
-        kHiddenSize,
-        kOutputSize,
-        CoopVecMatrixLayout::TrainingOptimal,
-        CoopVecComponentType::Float16
-    > InferenceMLP;
+        var params = leakyReLU(LinearOp<half, kHiddenSize>(input, weights, layerOffsets[0], matrixLayout, componentType), kReluLeak);
+        [ForceUnroll]
+        for(int i = 1; i < kHiddenLayers; ++i)
+            params = leakyReLU(LinearOp<half, kHiddenSize>(params, weights, layerOffsets[i], matrixLayout, componentType), kReluLeak);
+
+        return LinearOp<half, kOutputSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
+    }
+
+    CoopVec<half, kOutputSize> forward(ByteAddressBuffer weights, no_diff float2 uv) {
+        return forward(mlp::MatrixBiasBuffer(weights), uv);
+    }
 #endif
 };
