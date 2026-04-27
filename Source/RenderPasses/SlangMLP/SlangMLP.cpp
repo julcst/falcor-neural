@@ -26,6 +26,9 @@ const std::string kEncodingMoments2 = "encodingMoments2";
 const std::string kTrainSteps = "trainSteps";
 const std::string kBatchSize = "batchSize";
 const std::string kLearningRate = "learningRate";
+
+// Keep enough groups to saturate the GPU while avoiding very large dispatch overhead.
+constexpr uint32_t kOptimizeDispatchThreads = (std::min(MLPConfig::kParamElementCount, MLPConfig::kEncodingParamElementCount) + 255u) / 256u * 256u;
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -145,8 +148,9 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         var["gEncodingParams"] = pEncodingParams;
         var["gEncodingMoments1"] = pEncodingMoments1;
         var["gEncodingMoments2"] = pEncodingMoments2;
+        var["CB"]["gDispatchThreadCount"] = kOptimizeDispatchThreads;
 
-        mpResetPass->execute(pRenderContext, MLPConfig::kOptimizeElementCount, 1u, 1u);
+        mpResetPass->execute(pRenderContext, kOptimizeDispatchThreads, 1u, 1u);
         mReset = false;
     }
 
@@ -177,8 +181,9 @@ void SlangMLP::execute(RenderContext* pRenderContext, const RenderData& renderDa
         optimizeVar["gEncodingMoments2"] = pEncodingMoments2;
         optimizeVar["CB"]["gLearningRate"] = mLearningRate;
         optimizeVar["CB"]["gCurrentStep"] = float(mOptimizeStep);
+        optimizeVar["CB"]["gDispatchThreadCount"] = kOptimizeDispatchThreads;
 
-        mpOptimizePass->execute(pRenderContext, MLPConfig::kOptimizeElementCount, 1u, 1u);
+        mpOptimizePass->execute(pRenderContext, kOptimizeDispatchThreads, 1u, 1u);
         ++mOptimizeStep;
     }
 

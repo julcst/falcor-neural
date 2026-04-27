@@ -20,6 +20,7 @@ cbuffer CB
 {
     float gLearningRate;
     float gCurrentStep;
+    uint gDispatchThreadCount;
 }
 
 void StoreFloat(RWByteAddressBuffer buffer, uint elementIndex, float value)
@@ -62,23 +63,20 @@ struct ByteAddressAccessor : optimizers::IBufferAccessor
     }
 };
 
-[numthreads(64, 1, 1)]
+[numthreads(256, 1, 1)]
 void resetMain(uint3 tid : SV_DispatchThreadID)
 {
-    if (tid.x < kParamElementCount)
+    PCG32 rng = PCG32(tid.x, tid.x ^ 0x9e3779b97f4a7c15ULL);
+    for (uint i = tid.x; i < kParamElementCount; i += gDispatchThreadCount)
     {
-        let i = tid.x;
-        PCG32 rng = PCG32(i, i ^ 0x9e3779b97f4a7c15ULL);
         const float scale = sqrt(2.0 / float(kHiddenSize));
         float p = rng.nextFloat() * 2.0 - 1.0;
         StoreHalf(gParams, i, half(p * scale));
         StoreFloat(gMoments1, i, 0.0);
         StoreFloat(gMoments2, i, 0.0);
     }
-    else if (tid.x < kParamElementCount + kEncodingParamElementCount)
+    for (uint i = tid.x; i < kEncodingParamElementCount; i += gDispatchThreadCount)
     {
-        let i = tid.x - kParamElementCount;
-        PCG32 rng = PCG32(i ^ 0x7f4a7c15ULL, i ^ 0x9e3779b9ULL);
         const float scale = 1e-3;
         float p = rng.nextFloat() * 2.0 - 1.0;
         StoreHalf(gEncodingParams, i, half(p * scale));
@@ -87,44 +85,43 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
     }
 }
 
-[numthreads(64, 1, 1)]
+[numthreads(256, 1, 1)]
 void optimizeMain(uint3 tid : SV_DispatchThreadID)
 {
-    if (tid.x < kParamElementCount)
+    let adam = optimizers::AdamAccessor<ByteAddressAccessor>(
+        ByteAddressAccessor(gMoments1),
+        ByteAddressAccessor(gMoments2),
+        gLearningRate,
+        kOptimizerLossScale,
+        kAdamBeta1,
+        kAdamBeta2,
+        kAdamEpsilon
+    );
+
+    for (uint i = tid.x; i < kParamElementCount; i += gDispatchThreadCount)
     {
-        let i = tid.x;
         float gradient = LoadHalf(gParamGrads, i);
         StoreHalf(gParamGrads, i, 0.0);
-
-        let adam = optimizers::AdamAccessor<ByteAddressAccessor>(
-            ByteAddressAccessor(gMoments1),
-            ByteAddressAccessor(gMoments2),
-            gLearningRate,
-            kOptimizerLossScale,
-            kAdamBeta1,
-            kAdamBeta2,
-            kAdamEpsilon
-        );
 
         float p = LoadHalf(gParams, i);
         p = adam.step(p, i, gradient, gCurrentStep);
         StoreHalf(gParams, i, p);
     }
-    else if (tid.x < kParamElementCount + kEncodingParamElementCount)
+
+    let adamEnc = optimizers::AdamAccessor<ByteAddressAccessor>(
+        ByteAddressAccessor(gEncodingMoments1),
+        ByteAddressAccessor(gEncodingMoments2),
+        gLearningRate,
+        kOptimizerLossScale,
+        kAdamBeta1,
+        kAdamBeta2,
+        kAdamEpsilon
+    );
+
+    for (uint i = tid.x; i < kEncodingParamElementCount; i += gDispatchThreadCount)
     {
-        let i = tid.x - kParamElementCount;
         float gradient = LoadFloat(gEncodingParamGrads, i);
         StoreFloat(gEncodingParamGrads, i, 0.0);
-
-        let adamEnc = optimizers::AdamAccessor<ByteAddressAccessor>(
-            ByteAddressAccessor(gEncodingMoments1),
-            ByteAddressAccessor(gEncodingMoments2),
-            gLearningRate,
-            kOptimizerLossScale,
-            kAdamBeta1,
-            kAdamBeta2,
-            kAdamEpsilon
-        );
 
         float p = LoadHalf(gEncodingParams, i);
         p = adamEnc.step(p, i, gradient, gCurrentStep);

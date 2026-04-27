@@ -71,8 +71,7 @@ namespace MLPConfig
     }
 
     static constexpr const uint kParamElementCount = getParamCount();
-    static constexpr uint kEncodingParamElementCount = kHashLevels * kHashTableSize * kHashFeaturesPerLevel;
-    static constexpr uint kOptimizeElementCount = kParamElementCount + kEncodingParamElementCount;
+    static constexpr const uint kEncodingParamElementCount = kHashLevels * kHashTableSize * kHashFeaturesPerLevel;
 
     static constexpr uint kParamBufferSize = align4(kParamElementCount * sizeof(float16_t));
     static constexpr uint kMomentsBufferSize = kParamElementCount * sizeof(float);
