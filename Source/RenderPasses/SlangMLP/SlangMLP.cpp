@@ -28,7 +28,7 @@ const std::string kBatchSize = "batchSize";
 const std::string kLearningRate = "learningRate";
 
 // Keep enough groups to saturate the GPU while avoiding very large dispatch overhead.
-constexpr uint32_t kOptimizeDispatchThreads = (std::min(MLPConfig::kParamElementCount, MLPConfig::kEncodingParamElementCount) + 255u) / 256u * 256u;
+constexpr uint32_t kOptimizeDispatchThreads = (std::max(MLPConfig::kParamElementCount, MLPConfig::kEncodingParamElementCount) + 255u) / 256u * 256u;
 }
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
