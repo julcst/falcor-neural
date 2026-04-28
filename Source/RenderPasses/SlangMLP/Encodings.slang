@@ -83,6 +83,32 @@ uint hashGridIndex(uint2 cell, uint level, uint size)
     return h.x & (size - 1u);
 }
 
+// Helper: Spreads 16 bits so that there is a 1-bit gap between each bit
+// Input:  0000 0000 0000 0000 fedc ba98 7654 3210
+// Output: 0f0e 0d0c 0b0a 0908 0706 0504 0302 0100
+uint part1by1(uint x)
+{
+    x &= 0x0000ffff;                  // x = ---- ---- ---- ---- fedc ba98 7654 3210
+    x = (x ^ (x << 8)) & 0x00ff00ff; // x = ---- ---- fedc ba98 ---- ---- 7654 3210
+    x = (x ^ (x << 4)) & 0x0f0f0f0f; // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
+    x = (x ^ (x << 2)) & 0x33333333; // x = --fe --dc --ba --98 --76 --54 --32 --10
+    x = (x ^ (x << 1)) & 0x55555555; // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
+    return x;
+}
+
+// Interleaves the bits of x and y
+uint encodeMorton2D(uint2 coord)
+{
+    return part1by1(coord.x) | (part1by1(coord.y) << 1);
+}
+
+/// This is better for memory access pattern
+uint mortonIndex(uint2 cell, uint level, uint size)
+{
+    uint morton = encodeMorton2D(cell);
+    return morton & (size - 1u);
+}
+
 [Differentiable]
 CoopVec<T, FEATURES> encodeHashGridSingleCoop<T : __BuiltinFloatingPointType, uint FEATURES>(FeatureBuffer features, no_diff float2 uv, no_diff uint level, no_diff float resolution, no_diff uint hashTableSize)
 {
@@ -148,10 +174,10 @@ vector<T, FEATURES> encodeHashGridSingle<T : __BuiltinFloatingPointType, uint FE
     let w11 = fracCoord.x * fracCoord.y;
 
     uint base = level * hashTableSize;
-    uint i00 = hashGridIndex(p0, level, hashTableSize) + base;
-    uint i10 = hashGridIndex(p1, level, hashTableSize) + base;
-    uint i01 = hashGridIndex(p2, level, hashTableSize) + base;
-    uint i11 = hashGridIndex(p3, level, hashTableSize) + base;
+    uint i00 = mortonIndex(p0, level, hashTableSize) + base;
+    uint i10 = mortonIndex(p1, level, hashTableSize) + base;
+    uint i01 = mortonIndex(p2, level, hashTableSize) + base;
+    uint i11 = mortonIndex(p3, level, hashTableSize) + base;
 
     let f00 = loadVec<T, FEATURES>(features, i00) * T(w00);
     let f10 = loadVec<T, FEATURES>(features, i10) * T(w10);
