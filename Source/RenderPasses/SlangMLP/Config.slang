@@ -31,7 +31,7 @@ namespace MLPConfig
 
     static constexpr const uint kHashLevels = 16u;
     static constexpr const uint kHashFeaturesPerLevel = 2u;
-    static constexpr const uint kHashLog2TableSize = 14u;
+    static constexpr const uint kHashLog2TableSize = 19u;
     static constexpr const uint kHashTableSize = 1u << kHashLog2TableSize;
     static constexpr const uint kHashBaseResolution = 16u;
     static constexpr const float kHashPerLevelScale = 1.5;

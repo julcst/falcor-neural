@@ -123,6 +123,10 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
         float gradient = LoadFloat(gEncodingParamGrads, i);
         StoreFloat(gEncodingParamGrads, i, 0.0);
 
+        // Skipping small gradients reduces bandwidth and improves performance (-0.2ms)
+        if (abs(gradient) < 1e-6)
+            continue;
+
         float p = LoadHalf(gEncodingParams, i);
         p = adamEnc.step(p, i, gradient, gCurrentStep);
         StoreHalf(gEncodingParams, i, p);
