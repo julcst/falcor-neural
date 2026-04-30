@@ -275,10 +275,10 @@ float2 unpackSnorm2x16(uint packed)
  * Pack two floats into 16-bit snorm values in the lo/hi bits of a dword.
  * @return Two 16-bit snorm in low/high bits.
  */
-uint packSnorm2x16(precise float2 v)
-{
-    return (floatToSnorm16(v.x) & 0x0000ffff) | (floatToSnorm16(v.y) << 16);
-}
+// uint packSnorm2x16(precise float2 v)
+// {
+//     return (floatToSnorm16(v.x) & 0x0000ffff) | (floatToSnorm16(v.y) << 16);
+// }
 
 ///////////////////////////////////////////////////////////////////////////////
 //                              16-bit unorm

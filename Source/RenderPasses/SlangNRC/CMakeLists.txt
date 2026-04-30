@@ -3,6 +3,7 @@ add_plugin(SlangNRC)
 target_sources(SlangNRC PRIVATE
     SlangNRC.cpp
     SlangNRC.h
+    NRCCompat.slang
     Training.cs.slang
     Optimization.cs.slang
     Inference.cs.slang

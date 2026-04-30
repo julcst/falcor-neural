@@ -103,11 +103,10 @@ namespace MLPConfig
     static constexpr const half kReluLeak = 0.01;
 
     [Differentiable]
-    CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float2 uv) {
-        // let input = EncodeFrequencyN<half, 2, 8>(CoopVecFromVector<half>(uv));
+    CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float3 position) {
         let input = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
             features,
-            uv,
+            position,
             kHashTableSize,
             float(kHashBaseResolution),
             kHashPerLevelScale
@@ -121,8 +120,8 @@ namespace MLPConfig
         return LinearOp<half, kOutputSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
     }
 
-    CoopVec<half, kOutputSize> forward(ByteAddressBuffer features, ByteAddressBuffer weights, no_diff float2 uv) {
-        return forward(FeatureBuffer(features), MatrixBiasBuffer(weights), uv);
+    CoopVec<half, kOutputSize> forward(ByteAddressBuffer features, ByteAddressBuffer weights, no_diff float3 position) {
+        return forward(FeatureBuffer(features), MatrixBiasBuffer(weights), position);
     }
 #endif
 };
