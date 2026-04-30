@@ -84,12 +84,39 @@ struct PixelData
 #ifndef HOST_CODE
     __init()
     {
-        this = {};
+        posW = float3(0.f, 0.f, 0.f);
+        normal = float3(0.f, 0.f, 0.f);
+        tangent = float3(0.f, 0.f, 0.f);
+        bitangent = float3(0.f, 0.f, 0.f);
+        faceNormal = float3(0.f, 0.f, 0.f);
+        view = float3(0.f, 0.f, 0.f);
+        texCoord = float2(0.f, 0.f);
+        frontFacing = 0;
+
+        materialID = 0u;
+        doubleSided = 0;
+        opacity = 0.f;
+        IoR = 0.f;
+
+        emission = float3(0.f, 0.f, 0.f);
+        roughness = 0.f;
+        guideNormal = float3(0.f, 0.f, 0.f);
+        diffuseReflectionAlbedo = float3(0.f, 0.f, 0.f);
+        diffuseTransmissionAlbedo = float3(0.f, 0.f, 0.f);
+        specularReflectionAlbedo = float3(0.f, 0.f, 0.f);
+        specularTransmissionAlbedo = float3(0.f, 0.f, 0.f);
+        specularReflectance = float3(0.f, 0.f, 0.f);
+        isTransmissive = 0;
+
+        linearColor = float4(0.f, 0.f, 0.f, 0.f);
+        outputColor = float4(0.f, 0.f, 0.f, 0.f);
+        luminance = 0.f;
 
         // V-buffer data.
         hitType = (uint)HitType::Triangle;
         instanceID = kInvalidIndex;
         primitiveIndex = kInvalidIndex;
+        barycentrics = float2(0.f, 0.f);
     }
 #endif
 };

@@ -102,7 +102,9 @@ struct TriangleHit : GeometryHit
         barycentrics.y = asfloat(packed[3]);
 #endif
 #else
-        this = {};
+    instanceID.index = 0u;
+    primitiveIndex = 0u;
+    barycentrics = float2(0.f, 0.f);
 #endif
     }
 
@@ -141,7 +143,10 @@ struct DisplacedTriangleHit : GeometryHit
         barycentrics = float2(ux, uy) * (1.f / 16777215);
         displacement = f16tof32(packed[3]);
 #else
-        this = {};
+    instanceID.index = 0u;
+    primitiveIndex = 0u;
+    barycentrics = float2(0.f, 0.f);
+    displacement = 0.f;
 #endif
     }
 
@@ -173,7 +178,9 @@ struct CurveHit : GeometryHit
         barycentrics.x = asfloat(packed[2]);
         barycentrics.y = asfloat(packed[3]);
 #else
-        this = {};
+    instanceID.index = 0u;
+    primitiveIndex = 0u;
+    barycentrics = float2(0.f, 0.f);
 #endif
     }
 
@@ -221,7 +228,8 @@ struct SDFGridHit
 
 
 #else
-        this = {};
+        hitData = {};
+        instanceID = {};
 #endif // SCENE_HAS_GEOMETRY_TYPE(GEOMETRY_TYPE_SDF_GRID)
     }
 

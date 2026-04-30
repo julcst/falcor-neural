@@ -47,6 +47,22 @@ struct EmissiveTriangle
     uint    materialID;         ///< Material ID.
     uint    lightIdx;           ///< Index into global mesh lights array.
 
+#ifndef HOST_CODE
+    __init()
+    {
+        posW[0] = float3(0.f, 0.f, 0.f);
+        posW[1] = float3(0.f, 0.f, 0.f);
+        posW[2] = float3(0.f, 0.f, 0.f);
+        texCoords[0] = float2(0.f, 0.f);
+        texCoords[1] = float2(0.f, 0.f);
+        texCoords[2] = float2(0.f, 0.f);
+        normal = float3(0.f, 0.f, 0.f);
+        area = 0.f;
+        materialID = 0u;
+        lightIdx = 0u;
+    }
+#endif
+
     /** Returns the interpolated position.
         \param[in] barycentrics Barycentric coordinates.
         \return Interpolated position in world space.

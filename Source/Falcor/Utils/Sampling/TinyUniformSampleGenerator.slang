@@ -44,6 +44,8 @@ export struct TinyUniformSampleGenerator : ISampleGenerator
         uint3 _pad;
     };
 
+    __init() { this.rng = {}; }
+
     /**
      * Initializes the sample generator.
      * @param[in] seed Seed value.

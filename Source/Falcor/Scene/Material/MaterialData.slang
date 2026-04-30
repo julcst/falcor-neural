@@ -44,6 +44,11 @@ struct MaterialHeader
 {
     uint4 packedData = {};
 
+    __init()
+    {
+        packedData = uint4(0u, 0u, 0u, 0u);
+    }
+
     static constexpr uint kMaterialTypeBits = 16;
     static constexpr uint kNestedPriorityBits = 4;
     static constexpr uint kLobeTypeBits = 8; // Only 6 bits needed if packing LobeType

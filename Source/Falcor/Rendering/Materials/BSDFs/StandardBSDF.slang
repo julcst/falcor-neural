@@ -58,6 +58,21 @@ static const float kMinGGXAlpha = 0.0064f;
  */
 struct StandardBSDFData : IDifferentiable
 {
+    __init()
+    {
+        diffuse = float3(0.f, 0.f, 0.f);
+        specular = float3(0.f, 0.f, 0.f);
+        roughness = 0.f;
+        metallic = 0.f;
+        eta = 1.f;
+        transmission = float3(1.f, 1.f, 1.f);
+        diffuseTransmission = 0.f;
+        specularTransmission = 0.f;
+        volumeScattering = float3(0.f, 0.f, 0.f);
+        volumeAnsiotropy = 0.f;
+        hasEntryPointVolumeProperties = false;
+        hasSigmaSGreaterZero = false;
+    }
     float3 diffuse;                     ///< Diffuse albedo.
     float3 specular;                    ///< Specular albedo.
     float roughness;                    ///< This is the original roughness, before remapping.

@@ -45,6 +45,24 @@ import Utils.Math.ShadingFrame;
 */
 struct ShadingData : IDifferentiable
 {
+    __init()
+    {
+        posW = float3(0.f, 0.f, 0.f);
+        V = float3(0.f, 0.f, 0.f);
+        uv = float2(0.f, 0.f);
+        frame = ShadingFrame::createIdentity();
+        faceN = float3(0.f, 0.f, 1.f);
+        tangentW = float4(1.f, 0.f, 0.f, 1.f);
+        frontFacing = false;
+        curveRadius = 0.f;
+        mtl = MaterialHeader();
+        materialID = 0u;
+        IoR = 1.f;
+        materialGradOffset = 0u;
+        geometryGradOffset = 0u;
+        threadID = 0u;
+    }
+
     // Geometry data
     float3  posW;                       ///< Shading hit position in world space.
     float3  V;                          ///< View direction, -incident direction (-ray.dir)

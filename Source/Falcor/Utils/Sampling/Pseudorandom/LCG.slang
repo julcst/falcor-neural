@@ -42,6 +42,8 @@
 struct LCG
 {
     uint state;
+
+    __init() { this.state = 0u; }
 };
 
 /**
