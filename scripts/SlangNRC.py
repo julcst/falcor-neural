@@ -45,6 +45,36 @@ def render_graph_NRCPT(spp=1):
     return g
 
 
+def render_graph_CudaNRCPT(spp=1):
+    g = RenderGraph("CudaNRC+PT" if spp == 1 else f"CudaNRC+PT{spp}")
+    g.createPass("TraceQueries", "TraceQueries", {})
+    g.createPass("qsamp", "QuerySubsampling", {})
+    g.createPass("nrc", "NRC", {"jitFusion": True})
+    g.createPass(
+        "PTQuery",
+        "PathTracerQuery",
+        {
+            "maxDiffuseBounces": 8,
+            "maxSpecularBounces": 8,
+            "samplesPerPixel": spp,
+            "parallelMultiSampling": True,
+        },
+    )
+
+    g.addEdge("TraceQueries.queries", "qsamp.queries")
+    g.addEdge("TraceQueries.nrcInput", "qsamp.nrcInput")
+
+    g.addEdge("qsamp.sample", "PTQuery.queries")
+
+    g.addEdge("qsamp.nrcOutput", "nrc.trainInput")
+    g.addEdge("PTQuery.radiance", "nrc.trainTarget")
+    g.addEdge("TraceQueries.nrcInput", "nrc.inferenceInput")
+    g.addEdge("TraceQueries.queries", "nrc.inferenceQueries")
+
+    g.markOutput("nrc.output")
+    return g
+
+
 def _register(g):
     try:
         m.addGraph(g)
@@ -52,8 +82,9 @@ def _register(g):
         pass
 
 
-m.loadScene("../scenes/cornell_box_caustic_animated.pyscene")
-_register(render_graph_PT())
+m.loadScene("../scenes/cornell_box_bunny.pyscene")
 _register(render_graph_NRCPT(32))
+_register(render_graph_CudaNRCPT(32))
+_register(render_graph_PT())
 
 # m.frameCapture.addFrames(m.activeGraph, range(0, 1000, 30))

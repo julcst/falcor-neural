@@ -26,7 +26,7 @@ namespace MLPConfig
     static constexpr const uint kInputSize = 32u;
     static constexpr const uint kHiddenSize = 64u;
     static constexpr const uint kOutputSize = 3u;
-    static constexpr const uint kHiddenLayers = 4u;
+    static constexpr const uint kHiddenLayers = 2u;
     static constexpr const uint kTransitions = kHiddenLayers + 1u;
 
     static constexpr const uint kHashLevels = 16u;
@@ -34,7 +34,7 @@ namespace MLPConfig
     static constexpr const uint kHashLog2TableSize = 19u;
     static constexpr const uint kHashTableSize = 1u << kHashLog2TableSize;
     static constexpr const uint kHashBaseResolution = 16u;
-    static constexpr const float kHashPerLevelScale = 1.5;
+    static constexpr const float kHashPerLevelScale = 2.0;
 
     static constexpr const float kOptimizerLossScale = 1.0;
 
@@ -100,7 +100,7 @@ namespace MLPConfig
     static constexpr const uint2 layerOffsets[kTransitions] = getLayerOffsetsUint2();
     static constexpr const CoopVecMatrixLayout matrixLayout = CoopVecMatrixLayout::TrainingOptimal;
     static constexpr const CoopVecComponentType componentType = CoopVecComponentType::Float16;
-    static constexpr const half kReluLeak = 0.01;
+    static constexpr const half kReluLeak = 0.01h;
 
     [Differentiable]
     CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float3 position) {
