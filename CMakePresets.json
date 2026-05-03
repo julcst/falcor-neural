@@ -163,6 +163,17 @@
                 "linux-gcc-base",
                 "ci"
             ]
+        },
+        {
+            "name": "linux-gcc-14",
+            "description": "Linux/GCC14 configuration.",
+            "displayName": "Linux/GCC14",
+            "inherits": "linux-base",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc-14",
+                "CMAKE_CXX_COMPILER": "g++-14",
+                "CMAKE_CUDA_HOST_COMPILER": "g++-14"
+            }
         }
     ],
     "buildPresets": [
