@@ -206,6 +206,10 @@ void SlangNRC::execute(RenderContext* pRenderContext, const RenderData& renderDa
             const uint32_t currentBatchSize = std::min(batchSize, mTrainSize - batchOffset);
             if (currentBatchSize == 0u) break;
 
+            // Clear gradient buffers up front to avoid per-element reset stores in the optimizer shader.
+            pRenderContext->clearUAV(pParamGrads->getUAV().get(), uint4(0));
+            pRenderContext->clearUAV(pEncodingParamGrads->getUAV().get(), uint4(0));
+
             // Ensure training shader knows whether to apply factorization inline.
             mpTrainPass->addDefine("USE_FACTORISATION", mUseFactorization ? "1" : "0");
             auto var = mpTrainPass->getRootVar();

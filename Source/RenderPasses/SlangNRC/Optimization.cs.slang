@@ -2,7 +2,6 @@
 
 import RTXNS.PCG32;
 import RTXNS.Utils;
-import RTXNS.Optimizers;
 import Config;
 
 using MLPConfig;
@@ -43,25 +42,10 @@ half LoadHalf(RWByteAddressBuffer buffer, uint elementIndex)
     return buffer.LoadAligned<half>(elementIndex * sizeof(half));
 }
 
-struct ByteAddressAccessor : optimizers::IBufferAccessor
+float sanitize(float x, float fallback = 0.0f)
 {
-    RWByteAddressBuffer mBuffer;
-
-    __init(RWByteAddressBuffer buffer)
-    {
-        mBuffer = buffer;
-    }
-
-    float get(uint index)
-    {
-        return LoadFloat(mBuffer, index);
-    }
-
-    void set(uint index, float value)
-    {
-        StoreFloat(mBuffer, index, value);
-    }
-};
+    return (isnan(x) || isinf(x)) ? fallback : x;
+}
 
 [numthreads(256, 1, 1)]
 void resetMain(uint3 tid : SV_DispatchThreadID)
@@ -88,47 +72,45 @@ void resetMain(uint3 tid : SV_DispatchThreadID)
 [numthreads(256, 1, 1)]
 void optimizeMain(uint3 tid : SV_DispatchThreadID)
 {
-    let adam = optimizers::AdamAccessor<ByteAddressAccessor>(
-        ByteAddressAccessor(gMoments1),
-        ByteAddressAccessor(gMoments2),
-        gLearningRate,
-        kOptimizerLossScale,
-        kAdamBeta1,
-        kAdamBeta2,
-        kAdamEpsilon
-    );
+    const float oneMinusBeta1 = 1.0 - kAdamBeta1;
+    const float oneMinusBeta2 = 1.0 - kAdamBeta2;
+    const float invLossScale = 1.0 / kOptimizerLossScale;
+
+    // These are uniform for the whole dispatch; compute once per thread instead of once per parameter.
+    const float biasCorrection1 = max(1.0 - pow(kAdamBeta1, gCurrentStep), 1e-20);
+    const float invSqrtBiasCorrection2 = rsqrt(max(1.0 - pow(kAdamBeta2, gCurrentStep), 1e-20));
+    const float stepSize = gLearningRate / biasCorrection1;
 
     for (uint i = tid.x; i < kParamElementCount; i += gDispatchThreadCount)
     {
         float gradient = LoadHalf(gParamGrads, i);
-        StoreHalf(gParamGrads, i, 0.0);
+        gradient = sanitize(gradient * invLossScale);
 
         float p = LoadHalf(gParams, i);
-        p = adam.step(p, i, gradient, gCurrentStep);
+        float moment1 = LoadFloat(gMoments1, i) * kAdamBeta1 + gradient * oneMinusBeta1;
+        float moment2 = LoadFloat(gMoments2, i) * kAdamBeta2 + (gradient * gradient) * oneMinusBeta2;
+        float denom = sqrt(moment2) * invSqrtBiasCorrection2 + kAdamEpsilon;
+        p -= (moment1 / denom) * stepSize;
+
+        StoreFloat(gMoments1, i, moment1);
+        StoreFloat(gMoments2, i, moment2);
         StoreHalf(gParams, i, p);
     }
-
-    let adamEnc = optimizers::AdamAccessor<ByteAddressAccessor>(
-        ByteAddressAccessor(gEncodingMoments1),
-        ByteAddressAccessor(gEncodingMoments2),
-        gLearningRate,
-        kOptimizerLossScale,
-        kAdamBeta1,
-        kAdamBeta2,
-        kAdamEpsilon
-    );
 
     for (uint i = tid.x; i < kEncodingParamElementCount; i += gDispatchThreadCount)
     {
         float gradient = LoadFloat(gEncodingParamGrads, i);
-        StoreFloat(gEncodingParamGrads, i, 0.0);
 
-        // Skipping small gradients reduces bandwidth and improves performance (-0.2ms)
-        if (abs(gradient) < 1e-6)
-            continue;
+        gradient = sanitize(gradient * invLossScale);
 
         float p = LoadHalf(gEncodingParams, i);
-        p = adamEnc.step(p, i, gradient, gCurrentStep);
+        float moment1 = LoadFloat(gEncodingMoments1, i) * kAdamBeta1 + gradient * oneMinusBeta1;
+        float moment2 = LoadFloat(gEncodingMoments2, i) * kAdamBeta2 + (gradient * gradient) * oneMinusBeta2;
+        float denom = sqrt(moment2) * invSqrtBiasCorrection2 + kAdamEpsilon;
+        p -= (moment1 / denom) * stepSize;
+
+        StoreFloat(gEncodingMoments1, i, moment1);
+        StoreFloat(gEncodingMoments2, i, moment2);
         StoreHalf(gEncodingParams, i, p);
     }
 }
