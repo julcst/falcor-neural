@@ -90,6 +90,7 @@ for frame in range(32):
     m.renderFrame()
 capture = m.profiler.end_capture()
 
-print(f"Mean frame time: {capture['events']['/onFrameRender/gpu_time']['stats']['mean']} ms")
+for event in capture["events"]:
+    print(f"{event}: {capture['events'][event]['stats']['mean']} ms")
 
 exit()

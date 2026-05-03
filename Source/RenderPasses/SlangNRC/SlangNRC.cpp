@@ -181,6 +181,7 @@ void SlangNRC::execute(RenderContext* pRenderContext, const RenderData& renderDa
 
     if (mReset)
     {
+        FALCOR_PROFILE(pRenderContext, "Reset");
         auto var = mpResetPass->getRootVar();
         var["gParams"] = pParams;
         var["gMoments1"] = pMoments1;
@@ -199,45 +200,51 @@ void SlangNRC::execute(RenderContext* pRenderContext, const RenderData& renderDa
     const uint32_t batchSize = std::max(1u, (mTrainSize + mTrainSteps - 1u) / mTrainSteps);
     for (uint32_t step = 0; step < mTrainSteps; ++step)
     {
-        const uint32_t batchOffset = std::min(step * batchSize, mTrainSize);
-        const uint32_t currentBatchSize = std::min(batchSize, mTrainSize - batchOffset);
-        if (currentBatchSize == 0u) break;
+        {
+            FALCOR_PROFILE(pRenderContext, "Training");
+            const uint32_t batchOffset = std::min(step * batchSize, mTrainSize);
+            const uint32_t currentBatchSize = std::min(batchSize, mTrainSize - batchOffset);
+            if (currentBatchSize == 0u) break;
 
-        // Ensure training shader knows whether to apply factorization inline.
-        mpTrainPass->addDefine("USE_FACTORISATION", mUseFactorization ? "1" : "0");
-        auto var = mpTrainPass->getRootVar();
-        var["gTrainInput"] = pTrainInput;
-        var["gTrainTarget"] = pTrainTarget;
-        var["gParams"] = pParams;
-        var["gParamGrads"] = pParamGrads;
-        var["gEncodingParams"] = pEncodingParams;
-        var["gEncodingParamGrads"] = pEncodingParamGrads;
+            // Ensure training shader knows whether to apply factorization inline.
+            mpTrainPass->addDefine("USE_FACTORISATION", mUseFactorization ? "1" : "0");
+            auto var = mpTrainPass->getRootVar();
+            var["gTrainInput"] = pTrainInput;
+            var["gTrainTarget"] = pTrainTarget;
+            var["gParams"] = pParams;
+            var["gParamGrads"] = pParamGrads;
+            var["gEncodingParams"] = pEncodingParams;
+            var["gEncodingParamGrads"] = pEncodingParamGrads;
 
-        var["CB"]["gBatchOffset"] = batchOffset;
-        var["CB"]["gBatchSize"] = currentBatchSize;
-        var["CB"]["gCurrentStep"] = mOptimizeStep;
+            var["CB"]["gBatchOffset"] = batchOffset;
+            var["CB"]["gBatchSize"] = currentBatchSize;
+            var["CB"]["gCurrentStep"] = mOptimizeStep;
 
-        mpTrainPass->execute(pRenderContext, currentBatchSize, 1u, 1u);
+            mpTrainPass->execute(pRenderContext, currentBatchSize, 1u, 1u);
+        }
 
-        auto optimizeVar = mpOptimizePass->getRootVar();
-        optimizeVar["gParams"] = pParams;
-        optimizeVar["gParamGrads"] = pParamGrads;
-        optimizeVar["gMoments1"] = pMoments1;
-        optimizeVar["gMoments2"] = pMoments2;
-        optimizeVar["gEncodingParams"] = pEncodingParams;
-        optimizeVar["gEncodingParamGrads"] = pEncodingParamGrads;
-        optimizeVar["gEncodingMoments1"] = pEncodingMoments1;
-        optimizeVar["gEncodingMoments2"] = pEncodingMoments2;
-        optimizeVar["CB"]["gLearningRate"] = mLearningRate;
-        optimizeVar["CB"]["gCurrentStep"] = float(mOptimizeStep);
-        optimizeVar["CB"]["gDispatchThreadCount"] = kOptimizeDispatchThreads;
+        {
+            FALCOR_PROFILE(pRenderContext, "Optimization");
+            auto optimizeVar = mpOptimizePass->getRootVar();
+            optimizeVar["gParams"] = pParams;
+            optimizeVar["gParamGrads"] = pParamGrads;
+            optimizeVar["gMoments1"] = pMoments1;
+            optimizeVar["gMoments2"] = pMoments2;
+            optimizeVar["gEncodingParams"] = pEncodingParams;
+            optimizeVar["gEncodingParamGrads"] = pEncodingParamGrads;
+            optimizeVar["gEncodingMoments1"] = pEncodingMoments1;
+            optimizeVar["gEncodingMoments2"] = pEncodingMoments2;
+            optimizeVar["CB"]["gLearningRate"] = mLearningRate;
+            optimizeVar["CB"]["gCurrentStep"] = float(mOptimizeStep);
+            optimizeVar["CB"]["gDispatchThreadCount"] = kOptimizeDispatchThreads;
 
-        mpOptimizePass->execute(pRenderContext, kOptimizeDispatchThreads, 1u, 1u);
-        ++mOptimizeStep;
+            mpOptimizePass->execute(pRenderContext, kOptimizeDispatchThreads, 1u, 1u);
+            ++mOptimizeStep;
+        }
     }
 
     {
-        FALCOR_PROFILE(pRenderContext, "InferAndBlit");
+        FALCOR_PROFILE(pRenderContext, "Inference");
         // Make the infer pass write the final texture directly. Pass factorization define as before.
         mpInferPass->addDefine("USE_FACTORISATION", (!mOutputRaw && mUseFactorization) ? "1" : "0");
 
