@@ -13,6 +13,7 @@ import RTXNS.CooperativeVectorDerivatives;
 import NRCCompat;
 import Config;
 import Encodings;
+import Utils.Color.ColorHelpers;
 
 using MLPConfig;
 
@@ -34,6 +35,23 @@ float sampleNormalizedLossScale(uint sampleCount)
 {
     return 1.0 / float(max(1u, sampleCount));
 }
+
+struct RelativeL2Luminance<T : __BuiltinFloatingPointType> : rtxns::mlp::ILoss<T, 3>
+{
+    static CoopVec<T, 3> value(CoopVec<T, 3> target, CoopVec<T, 3> predicted, CoopVec<T, 3> scale)
+    {
+        let lum = luminance(rtxns::VectorFromCoopVec(predicted));
+        let denom = lum * lum + 1e-2;
+        return scale * (predicted - target) * (predicted - target) * T(1 / denom);
+    }
+
+    static CoopVec<T, 3> deriv(CoopVec<T, 3> target, CoopVec<T, 3> predicted, CoopVec<T, 3> scale)
+    {
+        let lum = luminance(rtxns::VectorFromCoopVec(predicted));
+        let denom = lum * lum + 1e-2;
+        return scale * (predicted - target) * T(2.f / denom);
+    }
+};
 
 [numthreads(64, 1, 1)]
 void trainMain(uint3 tid : SV_DispatchThreadID)
