@@ -66,7 +66,7 @@ uint hashGridIndex(uint3 cell, uint level, uint size)
     return h.x & (size - 1u);
 }
 
-// NOTE: This uses vector<T, N> so only avaliable for N <= 4 (but larger is generally not required for encoding)
+// NOTE: This uses vector<T, N> so only available for N <= 4 (but larger is generally not required for encoding)
 [Differentiable]
 vector<T, FEATURES> encodeHashGridSingle<T : __BuiltinFloatingPointType, uint FEATURES>(FeatureBuffer features, no_diff float3 position, no_diff uint level, no_diff float resolution, no_diff uint hashTableSize)
 {
@@ -108,16 +108,17 @@ vector<T, FEATURES> encodeHashGridSingle<T : __BuiltinFloatingPointType, uint FE
     uint i011 = hashGridIndex(p011, level, hashTableSize) + base;
     uint i111 = hashGridIndex(p111, level, hashTableSize) + base;
 
-    let f000 = loadVec<T, FEATURES>(features, i000) * T(w000);
-    let f100 = loadVec<T, FEATURES>(features, i100) * T(w100);
-    let f010 = loadVec<T, FEATURES>(features, i010) * T(w010);
-    let f110 = loadVec<T, FEATURES>(features, i110) * T(w110);
-    let f001 = loadVec<T, FEATURES>(features, i001) * T(w001);
-    let f101 = loadVec<T, FEATURES>(features, i101) * T(w101);
-    let f011 = loadVec<T, FEATURES>(features, i011) * T(w011);
-    let f111 = loadVec<T, FEATURES>(features, i111) * T(w111);
+    // Accumulate weighted features in single pass to reduce intermediate allocations
+    var result = loadVec<T, FEATURES>(features, i000) * T(w000);
+    result += loadVec<T, FEATURES>(features, i100) * T(w100);
+    result += loadVec<T, FEATURES>(features, i010) * T(w010);
+    result += loadVec<T, FEATURES>(features, i110) * T(w110);
+    result += loadVec<T, FEATURES>(features, i001) * T(w001);
+    result += loadVec<T, FEATURES>(features, i101) * T(w101);
+    result += loadVec<T, FEATURES>(features, i011) * T(w011);
+    result += loadVec<T, FEATURES>(features, i111) * T(w111);
 
-    return f000 + f100 + f010 + f110 + f001 + f101 + f011 + f111;
+    return result;
 }
 
 [Differentiable]
