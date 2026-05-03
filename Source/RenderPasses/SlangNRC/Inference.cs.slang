@@ -29,7 +29,7 @@ void inferMain(uint3 tid : SV_DispatchThreadID)
     if (idx >= gCount) return;
 
     let input = gInferenceInput[idx];
-    let predVec = forward(gEncodingParams, gParams, input.position);
+    let predVec = forward(gEncodingParams, gParams, input);
     let pred = rtxns::VectorFromCoopVec(predVec);
 
     // Apply factorization inline when configured (matches previous OutputsToTexture behavior)

@@ -54,7 +54,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
 #endif
     let targetVec = rtxns::CoopVecFromVector<half>(target);
 
-    let pred = forward(gEncodingParams, gParams, input.position);
+    let pred = forward(gEncodingParams, gParams, input);
 
     let lossScale = CoopVec<half, kOutputSize>(half(sampleNormalizedLossScale(gBatchSize)));
     let outputGrad = rtxns::mlp::L2Relative<half, kOutputSize>::deriv(targetVec, pred, lossScale);
@@ -63,5 +63,5 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     var featureGrads = FeatureBufferDifferential(gEncodingParamGrads);
     var weights = rtxns::mlp::MatrixBiasBuffer(gParams);
     var weightsGrads = rtxns::mlp::MatrixBiasBufferDifferential(gParamGrads);
-    bwd_diff(forward)(DifferentialPtrPair<FeatureBuffer>(features, featureGrads), DifferentialPtrPair<rtxns::mlp::MatrixBiasBuffer>(weights, weightsGrads), input.position, outputGrad);
+    bwd_diff(forward)(DifferentialPtrPair<FeatureBuffer>(features, featureGrads), DifferentialPtrPair<rtxns::mlp::MatrixBiasBuffer>(weights, weightsGrads), input, outputGrad);
 }

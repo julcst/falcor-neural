@@ -11,6 +11,7 @@ import RTXNS.CooperativeVectorAutoDiff;
 import RTXNS.CooperativeVectorFunctions;
 import RTXNS.CooperativeVectorDerivatives;
 import Encodings;
+import NRCCompat;
 
 using rtxns;
 using mlp;
@@ -23,7 +24,7 @@ namespace MLPConfig
         return (x + 3u) & ~3u;
     }
 
-    static constexpr const uint kInputSize = 32u;
+    static constexpr const uint kInputSize = 40u;
     static constexpr const uint kHiddenSize = 64u;
     static constexpr const uint kOutputSize = 3u;
     static constexpr const uint kHiddenLayers = 2u;
@@ -103,22 +104,23 @@ namespace MLPConfig
     static constexpr const half kReluLeak = 0.01h;
 
     [Differentiable]
-    CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float3 position) {
+    CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff NRCInput in) {
         half encoding[kInputSize];
 
         encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
             features,
-            position,
+            in.position,
             kHashTableSize,
             float(kHashBaseResolution),
             kHashPerLevelScale,
             encoding
         );
 
-        // encodeSphericalHarmonics<half, 3>(
-        //     wo,
-        //     Slice(encoding, 0, 4)
-        // );
+        encodeSphericalHarmonics<half, 3>(
+            in.wo,
+            encoding,
+            kHashLevels * kHashFeaturesPerLevel
+        );
 
         let input = CoopVecFromArray<half, kInputSize>(encoding);
 
@@ -130,8 +132,8 @@ namespace MLPConfig
         return LinearOp<half, kOutputSize>(params, weights, layerOffsets[kHiddenLayers], matrixLayout, componentType);
     }
 
-    CoopVec<half, kOutputSize> forward(ByteAddressBuffer features, ByteAddressBuffer weights, no_diff float3 position) {
-        return forward(FeatureBuffer(features), MatrixBiasBuffer(weights), position);
+    CoopVec<half, kOutputSize> forward(ByteAddressBuffer features, ByteAddressBuffer weights, no_diff NRCInput in) {
+        return forward(FeatureBuffer(features), MatrixBiasBuffer(weights), in);
     }
 #endif
 };

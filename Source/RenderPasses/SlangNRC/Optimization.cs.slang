@@ -63,7 +63,6 @@ void StoreHalf4(RWByteAddressBuffer buffer, uint elementIndex, float4 v)
     buffer.StoreAligned<half4>(elementIndex * sizeof(half), half4(v));
 }
 
-
 [numthreads(256, 1, 1)]
 void resetMain(uint3 tid : SV_DispatchThreadID)
 {
