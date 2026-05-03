@@ -104,13 +104,23 @@ namespace MLPConfig
 
     [Differentiable]
     CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff float3 position) {
-        let input = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
+        half encoding[kInputSize];
+
+        encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
             features,
             position,
             kHashTableSize,
             float(kHashBaseResolution),
-            kHashPerLevelScale
+            kHashPerLevelScale,
+            encoding
         );
+
+        // encodeSphericalHarmonics<half, 3>(
+        //     wo,
+        //     Slice(encoding, 0, 4)
+        // );
+
+        let input = CoopVecFromArray<half, kInputSize>(encoding);
 
         var params = leakyReLU(LinearOp<half, kHiddenSize>(input, weights, layerOffsets[0], matrixLayout, componentType), kReluLeak);
         [ForceUnroll]
