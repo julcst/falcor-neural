@@ -195,9 +195,9 @@ void ComposeCoop_bwd<let N : int, let M : int>(inout DifferentialPair<half[N]> a
 }
 
 [Differentiable]
-T[2 << DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGREE>(no_diff float3 dir)
+T[DEGREE * DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGREE>(no_diff float3 dir)
 {
-    T encoding[2 << DEGREE];
+    T encoding[DEGREE * DEGREE];
     let x = dir.x; let y = dir.y; let z = dir.z;
     // Let compiler figure out how to sequence/reorder these calculations w.r.t. branches
     float xy=x*y, xz=x*z, yz=y*z, x2=x*x, y2=y*y, z2=z*z;
@@ -206,17 +206,17 @@ T[2 << DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGR
 
     // SH polynomials generated using scripts/gen_sh.py based on the recurrence relations in appendix A1 of https://www.ppsloan.org/publications/StupidSH36.pdf
     encoding[0] = (T)(0.28209479177387814f);                          // 1/(2*sqrt(pi))
-    if (DEGREE <= 0) { return encoding; }
+    if (DEGREE <= 1) { return encoding; }
     encoding[1] = (T)(-0.48860251190291987f*y);                               // -sqrt(3)*y/(2*sqrt(pi))
     encoding[2] = (T)(0.48860251190291987f*z);                                // sqrt(3)*z/(2*sqrt(pi))
     encoding[3] = (T)(-0.48860251190291987f*x);                               // -sqrt(3)*x/(2*sqrt(pi))
-    if (DEGREE <= 1) { return encoding; }
+    if (DEGREE <= 2) { return encoding; }
     encoding[4] = (T)(1.0925484305920792f*xy);                                // sqrt(15)*xy/(2*sqrt(pi))
     encoding[5] = (T)(-1.0925484305920792f*yz);                               // -sqrt(15)*yz/(2*sqrt(pi))
     encoding[6] = (T)(0.94617469575755997f*z2 - 0.31539156525251999f);                         // sqrt(5)*(3*z2 - 1)/(4*sqrt(pi))
     encoding[7] = (T)(-1.0925484305920792f*xz);                               // -sqrt(15)*xz/(2*sqrt(pi))
     encoding[8] = (T)(0.54627421529603959f*x2 - 0.54627421529603959f*y2);                              // sqrt(15)*(x2 - y2)/(4*sqrt(pi))
-    if (DEGREE <= 2) { return encoding; }
+    if (DEGREE <= 3) { return encoding; }
     encoding[9] = (T)(0.59004358992664352f*y*(-3.0f*x2 + y2));                         // sqrt(70)*y*(-3*x2 + y2)/(8*sqrt(pi))
     encoding[10] = (T)(2.8906114426405538f*xy*z);                             // sqrt(105)*xy*z/(2*sqrt(pi))
     encoding[11] = (T)(0.45704579946446572f*y*(1.0f - 5.0f*z2));                                // sqrt(42)*y*(1 - 5*z2)/(8*sqrt(pi))
@@ -224,7 +224,7 @@ T[2 << DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGR
     encoding[13] = (T)(0.45704579946446572f*x*(1.0f - 5.0f*z2));                                // sqrt(42)*x*(1 - 5*z2)/(8*sqrt(pi))
     encoding[14] = (T)(1.4453057213202769f*z*(x2 - y2));                              // sqrt(105)*z*(x2 - y2)/(4*sqrt(pi))
     encoding[15] = (T)(0.59004358992664352f*x*(-x2 + 3.0f*y2));                                // sqrt(70)*x*(-x2 + 3*y２)/(8*sqrt(pi))
-    if (DEGREE <= 3) { return encoding; }
+    if (DEGREE <= 4) { return encoding; }
     encoding[16] = (T)(2.5033429417967046f*xy*(x2 - y2));                             // 3*sqrt(35)*xy*(x2 - y2)/(4*sqrt(pi))
     encoding[17] = (T)(1.7701307697799304f*yz*(-3.0f*x2 + y2));                                // 3*sqrt(70)*yz*(-3*x2 + y2)/(8*sqrt(pi))
     encoding[18] = (T)(0.94617469575756008f*xy*(7.0f*z2 - 1.0f));                               // 3*sqrt(5)*xy*(7*z2 - 1)/(4*sqrt(pi))
@@ -234,7 +234,7 @@ T[2 << DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGR
     encoding[22] = (T)(0.47308734787878004f*(x2 - y2)*(7.0f*z2 - 1.0f));                                // 3*sqrt(5)*(x2 - y2)*(7*z2 - 1)/(8*sqrt(pi))
     encoding[23] = (T)(1.7701307697799304f*xz*(-x2 + 3.0f*y2));                                // 3*sqrt(70)*xz*(-x2 + 3*y2)/(8*sqrt(pi))
     encoding[24] = (T)(-3.7550144126950569f*x2*y2 + 0.62583573544917614f*x4 + 0.62583573544917614f*y4);                         // 3*sqrt(35)*(-6*x2*y2 + x4 + y4)/(16*sqrt(pi))
-    if (DEGREE <= 4) { return encoding; }
+    if (DEGREE <= 5) { return encoding; }
     encoding[25] = (T)(0.65638205684017015f*y*(10.0f*x2*y2 - 5.0f*x4 - y4));                            // 3*sqrt(154)*y*(10*x2*y2 - 5*x4 - y4)/(32*sqrt(pi))
     encoding[26] = (T)(8.3026492595241645f*xy*z*(x2 - y2));                           // 3*sqrt(385)*xy*z*(x2 - y2)/(4*sqrt(pi))
     encoding[27] = (T)(-0.48923829943525038f*y*(3.0f*x2 - y2)*(9.0f*z2 - 1.0f));                         // -sqrt(770)*y*(3*x2 - y2)*(9*z2 - 1)/(32*sqrt(pi))
@@ -246,7 +246,7 @@ T[2 << DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGR
     encoding[33] = (T)(-0.48923829943525038f*x*(x2 - 3.0f*y2)*(9.0f*z2 - 1.0f));                         // -sqrt(770)*x*(x2 - 3*y2)*(9*z2 - 1)/(32*sqrt(pi))
     encoding[34] = (T)(2.0756623148810411f*z*(-6.0f*x2*y2 + x4 + y4));                         // 3*sqrt(385)*z*(-6*x2*y2 + x4 + y4)/(16*sqrt(pi))
     encoding[35] = (T)(0.65638205684017015f*x*(10.0f*x2*y2 - x4 - 5.0f*y4));                            // 3*sqrt(154)*x*(10*x2*y2 - x4 - 5*y4)/(32*sqrt(pi))
-    if (DEGREE <= 5) { return encoding; }
+    if (DEGREE <= 6) { return encoding; }
     encoding[36] = (T)(1.3663682103838286f*xy*(-10.0f*x2*y2 + 3.0f*x4 + 3.0f*y4));                               // sqrt(6006)*xy*(-10*x2*y2 + 3*x4 + 3*y4)/(32*sqrt(pi))
     encoding[37] = (T)(2.3666191622317521f*yz*(10.0f*x2*y2 - 5.0f*x4 - y4));                            // 3*sqrt(2002)*yz*(10*x2*y2 - 5*x4 - y4)/(32*sqrt(pi))
     encoding[38] = (T)(2.0182596029148963f*xy*(x2 - y2)*(11.0f*z2 - 1.0f));                             // 3*sqrt(91)*xy*(x2 - y2)*(11*z2 - 1)/(8*sqrt(pi))
@@ -260,7 +260,7 @@ T[2 << DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGR
     encoding[46] = (T)(0.50456490072872406f*(11.0f*z2 - 1.0f)*(-6.0f*x2*y2 + x4 + y4));                          // 3*sqrt(91)*(11*z2 - 1)*(-6*x2*y2 + x4 + y4)/(32*sqrt(pi))
     encoding[47] = (T)(2.3666191622317521f*xz*(10.0f*x2*y2 - x4 - 5.0f*y4));                            // 3*sqrt(2002)*xz*(10*x2*y2 - x4 - 5*y4)/(32*sqrt(pi))
     encoding[48] = (T)(10.247761577878714f*x2*y4 - 10.247761577878714f*x4*y2 + 0.6831841051919143f*x6 - 0.6831841051919143f*y6);                         // sqrt(6006)*(15*x2*y4 - 15*x4*y2 + x6 - y6)/(64*sqrt(pi))
-    if (DEGREE <= 6) { return encoding; }
+    if (DEGREE <= 7) { return encoding; }
     encoding[49] = (T)(0.70716273252459627f*y*(-21.0f*x2*y4 + 35.0f*x4*y2 - 7.0f*x6 + y6));                              // 3*sqrt(715)*y*(-21*x2*y4 + 35*x4*y2 - 7*x6 + y6)/(64*sqrt(pi))
     encoding[50] = (T)(5.2919213236038001f*xy*z*(-10.0f*x2*y2 + 3.0f*x4 + 3.0f*y4));                             // 3*sqrt(10010)*xy*z*(-10*x2*y2 + 3*x4 + 3*y4)/(32*sqrt(pi))
     encoding[51] = (T)(-0.51891557872026028f*y*(13.0f*z2 - 1.0f)*(-10.0f*x2*y2 + 5.0f*x4 + y4));                          // -3*sqrt(385)*y*(13*z2 - 1)*(-10*x2*y2 + 5*x4 + y4)/(64*sqrt(pi))
