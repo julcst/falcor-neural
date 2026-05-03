@@ -34,7 +34,7 @@ constexpr T align<T: __BuiltinIntegerType>(T x, T alignment)
 [BackwardDerivative(loadVec_bwd)]
 vector<T, N> loadVec<T : __BuiltinFloatingPointType, int N>(FeatureBuffer b, int index)
 {
-    return b.buffer.Load<vector<T,N>>(index * N * sizeof(T));
+    return b.buffer.LoadAligned<vector<T,N>>(index * N * sizeof(T));
 }
 
 void loadVec_bwd<T : __BuiltinFloatingPointType, int N>(DifferentialPtrPair<FeatureBuffer> b, int index, vector<T, N> dOut)

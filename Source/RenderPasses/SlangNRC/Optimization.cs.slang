@@ -25,22 +25,22 @@ cbuffer CB
 
 void StoreFloat(RWByteAddressBuffer buffer, uint elementIndex, float value)
 {
-    buffer.Store<float>(elementIndex * sizeof(float), value);
+    buffer.StoreAligned<float>(elementIndex * sizeof(float), value);
 }
 
 float LoadFloat(RWByteAddressBuffer buffer, uint elementIndex)
 {
-    return buffer.Load<float>(elementIndex * sizeof(float));
+    return buffer.LoadAligned<float>(elementIndex * sizeof(float));
 }
 
 void StoreHalf(RWByteAddressBuffer buffer, uint elementIndex, half value)
 {
-    buffer.Store<half>(elementIndex * sizeof(half), value);
+    buffer.StoreAligned<half>(elementIndex * sizeof(half), value);
 }
 
 half LoadHalf(RWByteAddressBuffer buffer, uint elementIndex)
 {
-    return buffer.Load<half>(elementIndex * sizeof(half));
+    return buffer.LoadAligned<half>(elementIndex * sizeof(half));
 }
 
 struct ByteAddressAccessor : optimizers::IBufferAccessor
