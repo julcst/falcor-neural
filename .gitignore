@@ -40,3 +40,5 @@ out/**
 out_**
 
 results/
+
+timings.csv
