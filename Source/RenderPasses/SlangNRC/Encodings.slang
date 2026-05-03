@@ -59,10 +59,31 @@ void load_bwd<T : __BuiltinFloatingPointType, int N>(DifferentialPtrPair<Feature
     coopVecReduceSumAccumulate(dOut, b.d.buffer, index * stride);
 }
 
+
+// Expands a 10-bit integer into 30 bits
+// by inserting 2 zeros after each bit.
+uint32_t expand_bits(uint32_t v) {
+	v = (v * 0x00010001u) & 0xFF0000FFu;
+	v = (v * 0x00000101u) & 0x0F00F00Fu;
+	v = (v * 0x00000011u) & 0xC30C30C3u;
+	v = (v * 0x00000005u) & 0x49249249u;
+	return v;
+}
+
+// Calculates a 30-bit Morton code for the
+// given 3D point located within the unit cube [0,1].
+uint32_t morton3D(uint3 v) {
+	let xx = expand_bits(v.x);
+	let yy = expand_bits(v.y);
+	let zz = expand_bits(v.z);
+	return xx | (yy << 1) | (zz << 2);
+}
+
 uint hashGridIndex(uint3 cell, uint level, uint size)
 {
-    // TODO: Use faster hash function if necessary
-    let h = pcg3d(cell ^ uint3(level, level * 1664525u, level * 1013904223u));
+    // Using morton code as hash function significantly improves coherence (+1.5ms) but has stripe artifacts
+    // let h = morton3D(cell ^ uint3(level, level * 1664525u, level * 1013904223u));
+    let h = pcg3d(cell^ uint3(level, level * 1664525u, level * 1013904223u) );
     return h.x & (size - 1u);
 }
 
