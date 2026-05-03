@@ -7,11 +7,11 @@ import Config;
 using MLPConfig;
 
 RWByteAddressBuffer gParams;
-RWByteAddressBuffer gParamGrads;
+RWByteAddressBuffer gParamGrads; // This is read-only
 RWByteAddressBuffer gMoments1;
 RWByteAddressBuffer gMoments2;
 RWByteAddressBuffer gEncodingParams;
-RWByteAddressBuffer gEncodingParamGrads;
+RWByteAddressBuffer gEncodingParamGrads; // This is read-only
 RWByteAddressBuffer gEncodingMoments1;
 RWByteAddressBuffer gEncodingMoments2;
 
