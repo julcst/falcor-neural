@@ -42,9 +42,35 @@ half LoadHalf(RWByteAddressBuffer buffer, uint elementIndex)
     return buffer.LoadAligned<half>(elementIndex * sizeof(half));
 }
 
+// Vectorized helpers
+float4 LoadFloat4(RWByteAddressBuffer buffer, uint elementIndex)
+{
+    return buffer.LoadAligned<float4>(elementIndex * sizeof(float));
+}
+
+void StoreFloat4(RWByteAddressBuffer buffer, uint elementIndex, float4 v)
+{
+    buffer.StoreAligned<float4>(elementIndex * sizeof(float), v);
+}
+
+half4 LoadHalf4(RWByteAddressBuffer buffer, uint elementIndex)
+{
+    return buffer.LoadAligned<half4>(elementIndex * sizeof(half));
+}
+
+void StoreHalf4(RWByteAddressBuffer buffer, uint elementIndex, half4 v)
+{
+    buffer.StoreAligned<half4>(elementIndex * sizeof(half), v);
+}
+
 float sanitize(float x, float fallback = 0.0f)
 {
     return (isnan(x) || isinf(x)) ? fallback : x;
+}
+
+float4 sanitize(float4 v, float fallback = 0.0f)
+{
+    return float4(sanitize(v.x, fallback), sanitize(v.y, fallback), sanitize(v.z, fallback), sanitize(v.w, fallback));
 }
 
 [numthreads(256, 1, 1)]
@@ -81,7 +107,25 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
     const float invSqrtBiasCorrection2 = rsqrt(max(1.0 - pow(kAdamBeta2, gCurrentStep), 1e-20));
     const float stepSize = gLearningRate / biasCorrection1;
 
-    for (uint i = tid.x; i < kParamElementCount; i += gDispatchThreadCount)
+    // Vectorized processing in contiguous float4/half4 batches for params
+    uint lastVectorStart = (kParamElementCount / 4u) * 4u;
+    for (uint base = tid.x * 4u; base + 3u < kParamElementCount; base += gDispatchThreadCount * 4u)
+    {
+        half4 grad_h = LoadHalf4(gParamGrads, base);
+        float4 gradient = sanitize(float4(grad_h) * invLossScale);
+
+        float4 p = float4(LoadHalf4(gParams, base));
+        float4 moment1 = LoadFloat4(gMoments1, base) * kAdamBeta1 + gradient * oneMinusBeta1;
+        float4 moment2 = LoadFloat4(gMoments2, base) * kAdamBeta2 + (gradient * gradient) * oneMinusBeta2;
+        float4 denom = sqrt(moment2) * invSqrtBiasCorrection2 + float4(kAdamEpsilon);
+        p -= (moment1 / denom) * float4(stepSize);
+
+        StoreFloat4(gMoments1, base, moment1);
+        StoreFloat4(gMoments2, base, moment2);
+        StoreHalf4(gParams, base, half4(p));
+    }
+    // Scalar tail
+    for (uint i = lastVectorStart + tid.x; i < kParamElementCount; i += gDispatchThreadCount)
     {
         float gradient = LoadHalf(gParamGrads, i);
         gradient = sanitize(gradient * invLossScale);
@@ -97,10 +141,26 @@ void optimizeMain(uint3 tid : SV_DispatchThreadID)
         StoreHalf(gParams, i, p);
     }
 
-    for (uint i = tid.x; i < kEncodingParamElementCount; i += gDispatchThreadCount)
+    // Vectorized processing in contiguous float4/half4 batches for encoding params
+    uint lastEncVectorStart = (kEncodingParamElementCount / 4u) * 4u;
+    for (uint base = tid.x * 4u; base + 3u < kEncodingParamElementCount; base += gDispatchThreadCount * 4u)
+    {
+        float4 gradient = LoadFloat4(gEncodingParamGrads, base) * float4(invLossScale);
+        gradient = sanitize(gradient);
+
+        float4 p = float4(LoadHalf4(gEncodingParams, base));
+        float4 moment1 = LoadFloat4(gEncodingMoments1, base) * kAdamBeta1 + gradient * oneMinusBeta1;
+        float4 moment2 = LoadFloat4(gEncodingMoments2, base) * kAdamBeta2 + (gradient * gradient) * oneMinusBeta2;
+        float4 denom = sqrt(moment2) * invSqrtBiasCorrection2 + float4(kAdamEpsilon);
+        p -= (moment1 / denom) * float4(stepSize);
+
+        StoreFloat4(gEncodingMoments1, base, moment1);
+        StoreFloat4(gEncodingMoments2, base, moment2);
+        StoreHalf4(gEncodingParams, base, half4(p));
+    }
+    for (uint i = lastEncVectorStart + tid.x; i < kEncodingParamElementCount; i += gDispatchThreadCount)
     {
         float gradient = LoadFloat(gEncodingParamGrads, i);
-
         gradient = sanitize(gradient * invLossScale);
 
         float p = LoadHalf(gEncodingParams, i);
