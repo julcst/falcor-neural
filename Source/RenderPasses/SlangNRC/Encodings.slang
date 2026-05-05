@@ -158,28 +158,49 @@ T[LEVELS * FEATURES] encodeHashGrid<T : __BuiltinFloatingPointType, uint LEVELS,
     return output;
 }
 
-[BackwardDerivative(ComposeCoop_bwd)]
-CoopVec<half, N + M> ComposeCoop<let N : int, let M : int>(half[N] a1, half[M] a2)
+[BackwardDerivative(SetCoop_bwd)]
+void SetCoop<let N : int, let M : int>(inout CoopVec<half, N> output, half[M] array, int offset)
 {
-    CoopVec<half, N + M> output;
     [ForceUnroll] 
-    for(int i = 0; i < N; i++)
+    for(int i = 0; i < M; i++)
+    {
+        output[i + offset] = array[i];
+    }
+}
+
+void SetCoop_bwd<let N : int, let M : int>(inout DifferentialPair<CoopVec<half, N>> output, inout DifferentialPair<half[M]> array, int offset)
+{
+    var dArray = array.d;
+    [ForceUnroll] 
+    for(int i = 0; i < M; i++)
+    {
+        dArray[i] = output.d[i + offset];
+    }
+    array = diffPair(array.p, dArray);
+}
+
+[BackwardDerivative(ComposeCoop_bwd)]
+CoopVec<half, N1 + N2> ComposeCoop<let N1 : int, let N2 : int>(half[N1] a1, half[N2] a2)
+{
+    CoopVec<half, N1 + N2> output;
+    [ForceUnroll] 
+    for(int i = 0; i < N1; i++)
     {
         output[i] = a1[i];
     }
     [ForceUnroll] 
-    for(int i = 0; i < M; i++)
+    for(int i = 0; i < N2; i++)
     {
-        output[i + N] = a2[i];
+        output[i + N1] = a2[i];
     }
     return output;
 }
 
-void ComposeCoop_bwd<let N : int, let M : int>(inout DifferentialPair<half[N]> a1, inout DifferentialPair<half[M]> a2, CoopVec<half, N + M> dOutput)
+void ComposeCoop_bwd<let N1 : int, let N2 : int>(inout DifferentialPair<half[N1]> a1, inout DifferentialPair<half[N2]> a2, CoopVec<half, N1 + N2> dOutput)
 {
     var dA1 = a1.d;
     [ForceUnroll] 
-    for(int i = 0; i < N; i++)
+    for(int i = 0; i < N1; i++)
     {
         dA1[i] = dOutput[i];
     }
@@ -187,9 +208,9 @@ void ComposeCoop_bwd<let N : int, let M : int>(inout DifferentialPair<half[N]> a
 
     var dA2 = a2.d;
     [ForceUnroll] 
-    for(int i = 0; i < M; i++)
+    for(int i = 0; i < N2; i++)
     {
-        dA2[i] = dOutput[i + N];
+        dA2[i] = dOutput[i + N1];
     }
     a2 = diffPair(a2.p, dA2);
 }

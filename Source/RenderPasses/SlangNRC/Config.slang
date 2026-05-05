@@ -24,7 +24,7 @@ namespace MLPConfig
         return (x + 3u) & ~3u;
     }
 
-    static constexpr const uint kInputSize = 40u;
+    static constexpr const uint kInputSize = 47u;
     static constexpr const uint kHiddenSize = 64u;
     static constexpr const uint kOutputSize = 3u;
     static constexpr const uint kHiddenLayers = 2u;
@@ -103,6 +103,68 @@ namespace MLPConfig
     static constexpr const CoopVecComponentType componentType = CoopVecComponentType::Float16;
     static constexpr const half kReluLeak = 0.01h;
 
+    [BackwardDerivative(ComposeEnc_bwd)]
+    CoopVec<half, N1 + N2 + N3 + N4> ComposeEnc<int N1, int N2, int N3, int N4>(half[N1] a1, half[N2] a2, vector<half, N3> a3, vector<half, N4> a4)
+    {
+        CoopVec<half, N1 + N2 + N3 + N4> output;
+        [ForceUnroll] 
+        for(int i = 0; i < N1; i++)
+        {
+            output[i] = a1[i];
+        }
+        [ForceUnroll] 
+        for(int i = 0; i < N2; i++)
+        {
+            output[i + N1] = a2[i];
+        }
+        [ForceUnroll] 
+        for(int i = 0; i < N3; i++)
+        {
+            output[i + N1 + N2] = a3[i];
+        }
+        [ForceUnroll] 
+        for(int i = 0; i < N4; i++)
+        {
+            output[i + N1 + N2 + N3] = a4[i];
+        }
+        return output;
+    }
+
+    void ComposeEnc_bwd<int N1, int N2, int N3, int N4>(inout DifferentialPair<half[N1]> a1, inout DifferentialPair<half[N2]> a2, inout DifferentialPair<vector<half, N3>> a3, inout DifferentialPair<vector<half, N4>> a4, CoopVec<half, N1 + N2 + N3 + N4> dOutput)
+    {
+        var dA1 = a1.d;
+        [ForceUnroll] 
+        for(int i = 0; i < N1; i++)
+        {
+            dA1[i] = dOutput[i];
+        }
+        a1 = diffPair(a1.p, dA1);
+
+        var dA2 = a2.d;
+        [ForceUnroll] 
+        for(int i = 0; i < N2; i++)
+        {
+            dA2[i] = dOutput[i + N1];
+        }
+        a2 = diffPair(a2.p, dA2);
+
+        var dA3 = a3.d;
+        [ForceUnroll] 
+        for(int i = 0; i < N3; i++)
+        {
+            dA3[i] = dOutput[i + N1 + N2];
+        }
+        a3 = diffPair(a3.p, dA3);
+
+        var dA4 = a4.d;
+        [ForceUnroll] 
+        for(int i = 0; i < N4; i++)
+        {
+            dA4[i] = dOutput[i + N1 + N2 + N3];
+        }
+        a4 = diffPair(a4.p, dA4);
+    }
+
     [Differentiable]
     CoopVec<half, kOutputSize> forward(FeatureBuffer features, MatrixBiasBuffer weights, no_diff NRCInput in) {
         let posEnc = encodeHashGrid<half, kHashLevels, kHashFeaturesPerLevel>(
@@ -117,7 +179,8 @@ namespace MLPConfig
             in.wo
         );
 
-        let input = ComposeCoop(posEnc, shEnc);
+        let input = ComposeEnc(posEnc, shEnc, half3(in.diffuse), half3(in.specular));
+        static_assert(kInputSize == input.getCount(), "Input size does not match encoding output");
 
         var params = leakyReLU(LinearOp<half, kHiddenSize>(input, weights, layerOffsets[0], matrixLayout, componentType), kReluLeak);
         [ForceUnroll]
