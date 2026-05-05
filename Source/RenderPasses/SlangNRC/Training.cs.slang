@@ -75,7 +75,7 @@ void trainMain(uint3 tid : SV_DispatchThreadID)
     let pred = forward(gEncodingParams, gParams, input);
 
     let lossScale = CoopVec<half, kOutputSize>(half(sampleNormalizedLossScale(gBatchSize)));
-    let outputGrad = rtxns::mlp::L2Relative<half, kOutputSize>::deriv(targetVec, pred, lossScale);
+    let outputGrad = RelativeL2Luminance<half>::deriv(targetVec, pred, lossScale);
 
     var features = FeatureBuffer(gEncodingParams);
     var featureGrads = FeatureBufferDifferential(gEncodingParamGrads);
