@@ -194,10 +194,10 @@ void ComposeCoop_bwd<let N : int, let M : int>(inout DifferentialPair<half[N]> a
     a2 = diffPair(a2.p, dA2);
 }
 
-[Differentiable]
-T[DEGREE * DEGREE] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGREE>(no_diff float3 dir)
+T[N] encodeSphericalHarmonics<T: __BuiltinFloatingPointType, uint DEGREE, uint N>(no_diff float3 dir)
 {
-    T encoding[DEGREE * DEGREE];
+    static_assert(N >= DEGREE * DEGREE, "Not enough output components for the given SH degree");
+    T encoding[N];
     let x = dir.x; let y = dir.y; let z = dir.z;
     // Let compiler figure out how to sequence/reorder these calculations w.r.t. branches
     float xy=x*y, xz=x*z, yz=y*z, x2=x*x, y2=y*y, z2=z*z;

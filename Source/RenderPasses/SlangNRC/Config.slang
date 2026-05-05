@@ -113,7 +113,7 @@ namespace MLPConfig
             kHashPerLevelScale
         );
 
-        let shEnc = encodeSphericalHarmonics<half, 3>(
+        let shEnc = encodeSphericalHarmonics<half, 3, 9>(
             in.wo
         );
 
